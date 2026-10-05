@@ -1,7 +1,7 @@
 # Development and tests
 
 Ruby, Bundler, Rails, Rake, and RSpec must run inside Podman containers. The
-development image also provides Node.js, npm, and PostgreSQL client tools. Run
+development image also provides Node.js 24 LTS, npm, and PostgreSQL client tools. Run
 these commands from the repository root (the directory containing
 `Containerfile.dev`). The production `Containerfile` is not a development image.
 

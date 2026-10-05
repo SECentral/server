@@ -1,11 +1,17 @@
 ARG RUBY_VERSION=4.0.6
+FROM docker.io/library/node:24-trixie-slim AS node
 FROM docker.io/library/ruby:${RUBY_VERSION}-slim
 
 WORKDIR /workspace/server
 
 RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y build-essential ca-certificates curl git libpq-dev libyaml-dev nodejs npm pkg-config postgresql-client setools && \
+    apt-get install --no-install-recommends -y build-essential ca-certificates curl git libpq-dev libyaml-dev pkg-config postgresql-client setools && \
     rm -rf /var/lib/apt/lists/*
+
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
+    ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
 ENV BUNDLE_PATH=/usr/local/bundle \
     BUNDLE_JOBS=4 \
