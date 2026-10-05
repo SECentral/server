@@ -292,7 +292,7 @@ function mockApi(fetchMock: ReturnType<typeof vi.fn>, scenario: Scenario, option
 
 function renderDetail(initialEntry = "/issues/7") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={[initialEntry]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Routes><Route path="/issues/:id" element={<IssueDetail />} /></Routes></MemoryRouter></QueryClientProvider>);
+  return render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={[initialEntry]}><Routes><Route path="/issues/:id" element={<IssueDetail />} /></Routes></MemoryRouter></QueryClientProvider>);
 }
 
 describe("issue investigation", () => {

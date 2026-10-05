@@ -66,7 +66,7 @@ function renderHosts(payload: HostListResponse = hostsPayload, initialEntry = "/
   });
   const view = render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[initialEntry]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/hosts" element={<Hosts />} />
         </Routes>

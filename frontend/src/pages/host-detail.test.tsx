@@ -173,7 +173,7 @@ function renderHostDetail(hostId: number, options: {
   });
   const view = render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[options.initialEntry ?? `/hosts/${hostId}`]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter initialEntries={[options.initialEntry ?? `/hosts/${hostId}`]}>
         <Routes>
           <Route path="/hosts/:id/occurrences/:occurrenceId" element={<HostOccurrenceDetail />} />
           <Route path="/hosts/:id" element={<HostDetail />} />

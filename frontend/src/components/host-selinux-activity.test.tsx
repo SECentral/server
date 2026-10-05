@@ -57,7 +57,7 @@ function renderActivity(first: SelinuxActivityResponse, older = response([]), en
   });
   vi.stubGlobal("fetch", fetchMock);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const view = render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[entry]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+  const view = render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[entry]}>
     <TestPage />
   </MemoryRouter></QueryClientProvider>);
   return { ...view, fetchMock };

@@ -141,7 +141,7 @@ function renderConfiguration(initialEntry = "/configuration?family=booleans") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const view = render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[initialEntry]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/configuration" element={<Configuration />} />
         </Routes>
