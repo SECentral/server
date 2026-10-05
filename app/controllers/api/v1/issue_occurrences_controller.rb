@@ -12,7 +12,7 @@ class Api::V1::IssueOccurrencesController < Api::V1::BaseController
       cursor = begin
         decode_cursor(params[:before])
       rescue ArgumentError
-        render json: { error: { code: "invalid_value", message: "Invalid cursor" } }, status: :unprocessable_entity
+        render json: { error: { code: "invalid_value", message: "Invalid cursor" } }, status: :unprocessable_content
         return
       end
       occurred_at, id = cursor

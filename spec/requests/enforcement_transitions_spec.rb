@@ -169,7 +169,7 @@ RSpec.describe "Runtime enforcement transition correctness", type: :request do
       request = request_for(3, 11, "boot-1", [[1400, "AVC", avc_text(0)]], "avc", 0)
       request["checkpoint_invalidated_fields"] = fields
       post "/api/v1/events", params: request.to_json, headers: headers
-      expect(response).to have_http_status(:unprocessable_entity)
+      expect(response).to have_http_status(:unprocessable_content)
     end
     expect(RawEvent.count).to eq(0)
   end

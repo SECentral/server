@@ -68,7 +68,7 @@ class Api::V1::IssuesController < Api::V1::BaseController
     issue.transition_to!(params.require(:status))
     render json: IssueDetailSerializer.call(issue.reload)
   rescue ArgumentError
-    render json: { error: { code: "invalid_value", message: "Unknown status" } }, status: :unprocessable_entity
+    render json: { error: { code: "invalid_value", message: "Unknown status" } }, status: :unprocessable_content
   end
 
   def update_disposition
@@ -76,7 +76,7 @@ class Api::V1::IssuesController < Api::V1::BaseController
     issue.set_disposition!(params.require(:disposition), note: params[:note])
     render json: IssueDetailSerializer.call(issue.reload)
   rescue ArgumentError
-    render json: { error: { code: "invalid_value", message: "Unknown disposition" } }, status: :unprocessable_entity
+    render json: { error: { code: "invalid_value", message: "Unknown disposition" } }, status: :unprocessable_content
   end
 
   private

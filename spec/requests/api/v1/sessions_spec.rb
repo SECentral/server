@@ -67,7 +67,7 @@ RSpec.describe "API v1 sessions", type: :request do
 
     delete "/api/v1/sessions"
 
-    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response).to have_http_status(:unprocessable_content)
     expect(JSON.parse(response.body)).to eq("error" => { "code" => "invalid_csrf_token", "message" => "Invalid or missing CSRF token" })
 
     get "/api/v1/sessions"
@@ -79,7 +79,7 @@ RSpec.describe "API v1 sessions", type: :request do
 
     delete "/api/v1/sessions", headers: { "X-CSRF-Token" => "forged" }
 
-    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response).to have_http_status(:unprocessable_content)
     expect(JSON.parse(response.body).fetch("error").fetch("code")).to eq("invalid_csrf_token")
   end
 end

@@ -58,11 +58,11 @@ RSpec.describe "Configuration API", type: :request do
 
   it "rejects unknown families and malformed policy identities" do
     get "/api/v1/configuration", params: { family: "networks" }
-    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response).to have_http_status(:unprocessable_content)
     expect(JSON.parse(response.body)).to eq("error" => { "code" => "invalid_value", "message" => "Unknown configuration family" })
 
     get "/api/v1/configuration", params: { family: "booleans", policy_identity: "sha256:zzz" }
-    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response).to have_http_status(:unprocessable_content)
     expect(JSON.parse(response.body)).to eq("error" => { "code" => "invalid_value", "message" => "Invalid policy identity" })
   end
 

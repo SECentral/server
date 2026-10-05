@@ -348,7 +348,7 @@ RSpec.describe "Issues API", type: :request do
     expect(body.dig("meta", "next_cursor")).to be_nil
 
     get "/api/v1/issues/#{issue.id}/occurrences", params: { before: "not-a-cursor" }
-    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response).to have_http_status(:unprocessable_content)
   end
 
   it "pages lightweight occurrence summaries without reading raw records and scopes selected evidence to the issue" do
@@ -606,7 +606,7 @@ RSpec.describe "Issues API", type: :request do
 
     token = csrf_token
     patch "/api/v1/issues/#{issue.id}/status", params: { status: "bogus" }.to_json, headers: json_headers(token)
-    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response).to have_http_status(:unprocessable_content)
     expect(JSON.parse(response.body)).to include("error" => hash_including("code" => "invalid_value"))
   end
 
@@ -623,7 +623,7 @@ RSpec.describe "Issues API", type: :request do
 
     token = csrf_token
     patch "/api/v1/issues/#{issue.id}/disposition", params: { disposition: "automatically_fixed" }.to_json, headers: json_headers(token)
-    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response).to have_http_status(:unprocessable_content)
     expect(issue.reload.disposition).to eq("expected_harmless")
   end
 

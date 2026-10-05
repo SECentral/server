@@ -90,7 +90,7 @@ RSpec.describe "Events API", type: :request do
 
     observation = expected_context_request(request, path: "/var/www/html/basename")
     post "/api/v1/expected-context-observations", params: observation.to_json, headers: headers
-    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response).to have_http_status(:unprocessable_content)
     expect(raw_event.reload.file_context_observations).to be_empty
   end
 
@@ -344,7 +344,7 @@ RSpec.describe "Events API", type: :request do
     request = boolean_change_request
     request["events"][0]["records"][0]["payload"] = Base64.strict_encode64("op=unrelated res=1")
     post "/api/v1/events", params: request.to_json, headers: headers
-    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response).to have_http_status(:unprocessable_content)
   end
 
   it "persists evidence and enqueues policy-question registration outside ingestion" do

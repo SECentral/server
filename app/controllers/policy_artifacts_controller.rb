@@ -17,7 +17,7 @@ class PolicyArtifactsController < ApplicationController
     PolicyArtifactIngestion.call(host: host, policy_identity: params[:policy_identity], bytes: bytes)
     head :created
   rescue PolicyArtifactIngestion::InvalidArtifact => error
-    render json: { error: { code: "invalid_policy_artifact", message: error.message } }, status: :unprocessable_entity
+    render json: { error: { code: "invalid_policy_artifact", message: error.message } }, status: :unprocessable_content
   rescue PolicyArtifactIngestion::HostIdentityMismatch
     render json: { error: { code: "policy_identity_mismatch", message: "Host has not reported this exact policy identity" } }, status: :conflict
   end

@@ -21,7 +21,7 @@ class Api::V1::BaseController < OperatorApiController
   end
 
   rescue_from ActionController::InvalidAuthenticityToken do
-    render json: { error: { code: "invalid_csrf_token", message: "Invalid or missing CSRF token" } }, status: :unprocessable_entity
+    render json: { error: { code: "invalid_csrf_token", message: "Invalid or missing CSRF token" } }, status: :unprocessable_content
   end
 
   private

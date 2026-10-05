@@ -440,11 +440,11 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
     get "/api/v1/policy-drafts", params: { issue_id: issue.id }
     expect(JSON.parse(response.body)["drafts"].sole["entries"].size).to eq(1)
     mutate("/api/v1/policy-drafts/#{id}/export", method: :post, format: "te", module_name: "local_web")
-    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response).to have_http_status(:unprocessable_content)
     mutate("/api/v1/policy-drafts/#{id}/export", method: :post, format: "te", module_name: "x;id", literal_confirmed: true, evidence_version: draft["evidence_version"])
-    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response).to have_http_status(:unprocessable_content)
     mutate("/api/v1/policy-drafts/#{id}/export", method: :post, format: "te", module_name: "local_web", literal_confirmed: true, evidence_version: "stale")
-    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response).to have_http_status(:unprocessable_content)
     mutate("/api/v1/policy-drafts/#{id}/export", method: :post, format: "te", module_name: "local_web", literal_confirmed: true, evidence_version: draft["evidence_version"])
     expect(response).to have_http_status(:ok)
     exported = JSON.parse(response.body)
@@ -460,7 +460,7 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
     begin
       Api::V1::BaseController.config.allow_forgery_protection = true
       patch "/api/v1/issues/#{issue.id}/resolution-intent", params: { candidate_id: candidate["id"], evidence_version: candidate["evidence_version"] }.to_json, headers: { "Content-Type" => "application/json" }
-      expect(response).to have_http_status(:unprocessable_entity)
+      expect(response).to have_http_status(:unprocessable_content)
     ensure
       Api::V1::BaseController.config.allow_forgery_protection = original
     end

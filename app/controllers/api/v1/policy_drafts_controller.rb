@@ -1,6 +1,6 @@
 class Api::V1::PolicyDraftsController < Api::V1::BaseController
   rescue_from ArgumentError, ActiveRecord::RecordInvalid do |error|
-    render json: { error: { code: "invalid_value", message: error.message } }, status: :unprocessable_entity
+    render json: { error: { code: "invalid_value", message: error.message } }, status: :unprocessable_content
   end
 
   def index

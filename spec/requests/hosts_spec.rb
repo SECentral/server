@@ -302,7 +302,7 @@ RSpec.describe "Hosts API", type: :request do
 
     get "/api/v1/hosts/#{host.id}/occurrences", params: { before: "not-a-cursor" }
 
-    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response).to have_http_status(:unprocessable_content)
     expect(JSON.parse(response.body)).to include("error" => hash_including("code" => "invalid_value"))
   end
 
