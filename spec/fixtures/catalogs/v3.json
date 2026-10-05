@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "content_digest": "sha256:3d8dff7fdef145ff2b0db34036d55248e97e6b33c231e5f6fe04d2ec19d3131d",
+  "catalog": {
+    "policy": {
+      "type": "targeted",
+      "packages": [
+        { "version": "1", "release": "2", "name": "selinux-policy", "epoch": "0", "architecture": "x86_64" },
+        { "version": "1", "release": "1", "name": "selinux-policy-targeted", "epoch": "0", "architecture": "x86_64" }
+      ],
+      "loaded_policy_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "kernel_policy_version": 33
+    },
+    "families": {
+      "ports": {
+        "mappings": [
+          { "type": "http_port_t", "protocol": "tcp", "start": 80, "end": 81 },
+          { "type": "dns_port_t", "protocol": "udp", "start": 53, "end": 53 }
+        ],
+        "complete": true
+      },
+      "booleans": {
+        "entries": [
+          { "name": "a_boolean", "default": false, "description": "A café boolean" },
+          { "name": "z_boolean", "default": true, "description": "Z \"quoted\"\n" }
+        ],
+        "complete": true
+      }
+    },
+    "platform": { "major_version": "9", "architecture": "x86_64", "distribution": "example" },
+    "collector_semantics_version": 3
+  },
+  "metadata": {
+    "collected_at": "2026-09-20T16:59:00Z",
+    "collector_version": "secentral-catalog-collector-v1"
+  }
+}

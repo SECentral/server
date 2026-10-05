@@ -1,0 +1,12 @@
+{
+  "cases": [
+    {
+      "name": "destination-and-ports",
+      "payload": "avc: denied { name_connect } dest=10.0.0.8 dport=443 lport=52144 node=web-1 proto=tcp scontext=u:r:web_t:s0 tcontext=system_u:object_r:port_t:s0 tclass=tcp_socket"
+    },
+    {
+      "name": "operation-only",
+      "payload": "avc: denied { name_connect } scontext=u:r:web_t:s0 tcontext=system_u:object_r:port_t:s0 tclass=tcp_socket"
+    }
+  ]
+}

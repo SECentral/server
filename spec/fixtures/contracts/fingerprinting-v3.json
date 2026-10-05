@@ -1,0 +1,45 @@
+{
+  "fingerprint_version": 3,
+  "cases": [
+    {
+      "name": "connect",
+      "source_type": "httpd_t",
+      "target_type": "default_t",
+      "target_class": "tcp_socket",
+      "permissions": ["name_connect"],
+      "canonical_hex": "76330068747470645f740064656661756c745f74007463705f736f636b6574006e616d655f636f6e6e65637400",
+      "sha256": "0044caa75751aa08f77d572cbc2ada90ea2ba634d40f3f3b12e9b827fcabfffb",
+      "group": "connect"
+    },
+    {
+      "name": "bind",
+      "source_type": "httpd_t",
+      "target_type": "default_t",
+      "target_class": "tcp_socket",
+      "permissions": ["name_bind"],
+      "canonical_hex": "76330068747470645f740064656661756c745f74007463705f736f636b6574006e616d655f62696e6400",
+      "sha256": "5560e512129495900cc24d10924cc71cdfd7a3a7019a0a419f929be3ce8571ae",
+      "group": "bind"
+    },
+    {
+      "name": "multi-permission",
+      "source_type": "httpd_t",
+      "target_type": "default_t",
+      "target_class": "file",
+      "permissions": ["open", "read"],
+      "canonical_hex": "76330068747470645f740064656661756c745f740066696c65006f70656e007265616400",
+      "sha256": "d8b4734492eb437639f13e96d5e5df634049daee8e62e2b736074bfc6f246754",
+      "group": "multi-permission"
+    },
+    {
+      "name": "single-permission",
+      "source_type": "httpd_t",
+      "target_type": "default_t",
+      "target_class": "file",
+      "permissions": ["read"],
+      "canonical_hex": "76330068747470645f740064656661756c745f740066696c65007265616400",
+      "sha256": "46842819a04df62d08a06f28b38caf6642375be34e4af847105dc1bcc9a32891",
+      "group": "single-permission"
+    }
+  ]
+}

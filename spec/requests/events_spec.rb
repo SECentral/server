@@ -1,0 +1,720 @@
+require "rails_helper"
+
+RSpec.describe "Events API", type: :request do
+  before do
+    cleanup_database
+    organization
+  end
+
+  after do
+    cleanup_database
+  end
+
+  def cleanup_database
+    Occurrence.delete_all
+    NormalizedDenial.delete_all
+    PolicyFact.delete_all
+    PolicyArtifact.delete_all
+    IssueDispositionChange.delete_all
+    Issue.delete_all
+    RawAuditRecord.delete_all
+    RawEvent.delete_all
+    HostSnapshotObservation.delete_all
+    HostSnapshot.delete_all
+    AgentInstallation.delete_all
+    Host.delete_all
+    Organization.delete_all
+  end
+
+  let(:organization) { Organization.create!(name: "Test organization") }
+  let(:headers) { { "CONTENT_TYPE" => "application/json", "Authorization" => "Bearer test-ingestion-key" } }
+
+  it "accepts and deduplicates an authenticated batch" do
+    request = ingest_request
+
+    post "/api/v1/events", params: request.to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+    post "/api/v1/events", params: request.to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+
+    expect(RawEvent.count).to eq(1)
+    expect(RawEvent.first).to have_attributes(category: "avc", transition_type: nil)
+    expect(RawAuditRecord.count).to eq(1)
+    expect(HostSnapshot.count).to eq(0)
+    expect(RawEvent.first.host_snapshot).to be_nil
+    expect(RawAuditRecord.first.payload).to eq("avc: denied")
+    expect(RawEvent.first).to have_attributes(
+      host_observed_at: Time.iso8601(request.fetch("host_observed_at")),
+      agent_received_at: Time.iso8601(request.dig("events", 0, "agent_received_at"))
+    )
+    expect(RawEvent.first.server_received_at).to be_present
+    expect(HostSnapshotObservation.count).to eq(0)
+  end
+
+  it "stores an asynchronous expected-context result separately from immutable raw audit evidence" do
+    request = ingest_request(raw_payload: avc_payload("/srv/test", ["read"]))
+    request["host_observed_at"] = "2026-09-13T17:29:00.000000123Z"
+    post "/api/v1/events", params: request.to_json, headers: headers
+    raw_event = RawEvent.sole
+    digest = raw_event.evidence_digest
+    raw_records = raw_event.raw_audit_records.pluck(:payload)
+
+    observation = expected_context_request(request, path: "/srv/test")
+    post "/api/v1/expected-context-observations", params: observation.to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+    expect(raw_event.reload.file_context_observations).to eq([{
+      "path" => "/srv/test", "object_class" => "file", "file_type" => "file",
+      "expected_context" => "system_u:object_r:httpd_sys_content_t:s0",
+      "observed_at" => "2026-09-13T17:30:13.000000Z", "resolver" => "matchpathcon",
+      "status" => "resolved", "kind" => "expected_context", "host_observed_at" => "2026-09-13T17:29:00.000000123Z"
+    }])
+    expect(raw_event.evidence_digest).to eq(digest)
+    expect(raw_event.raw_audit_records.pluck(:payload)).to eq(raw_records)
+
+    post "/api/v1/expected-context-observations", params: observation.to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+    expect(raw_event.reload.file_context_observations.size).to eq(1)
+
+    conflicting = observation.deep_dup
+    conflicting.dig("observation")["expected_context"] = "system_u:object_r:other_t:s0"
+    post "/api/v1/expected-context-observations", params: conflicting.to_json, headers: headers
+    expect(response).to have_http_status(:conflict)
+    expect(raw_event.reload.file_context_observations.size).to eq(1)
+  end
+
+  it "rejects an expected-context path that is not present in retained audit evidence" do
+    request = ingest_request(raw_payload: 'avc: denied { read } for name="basename" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:user_home_t:s0 tclass=file')
+    post "/api/v1/events", params: request.to_json, headers: headers
+    raw_event = RawEvent.sole
+    expect(raw_event.normalized_denials.first.details.dig("target_evidence", "filesystem_paths")).to be_empty
+
+    observation = expected_context_request(request, path: "/var/www/html/basename")
+    post "/api/v1/expected-context-observations", params: observation.to_json, headers: headers
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(raw_event.reload.file_context_observations).to be_empty
+  end
+
+  it "retains unavailable and error expected-context results without a guessed label" do
+    [ ["unavailable", "resolver_unavailable"], ["error", "resolver_timeout"] ].each_with_index do |(status, reason), index|
+      request = ingest_request(sequence: 8125 + index, raw_payload: avc_payload("/srv/#{index}", ["read"]))
+      post "/api/v1/events", params: request.to_json, headers: headers
+      observation = expected_context_request(request, path: "/srv/#{index}", status: status, reason: reason)
+      observation.dig("observation").delete("file_type")
+      observation.dig("observation").delete("expected_context")
+      post "/api/v1/expected-context-observations", params: observation.to_json, headers: headers
+      expect(response).to have_http_status(:accepted)
+      expect(RawEvent.order(:id).last.file_context_observations.last).to include("status" => status, "reason" => reason)
+      expect(RawEvent.order(:id).last.file_context_observations.last).not_to have_key("expected_context")
+    end
+  end
+
+  it "associates events with a matching heartbeat checkpoint without changing current state" do
+    checkpoint = heartbeat_request
+    checkpoint["host"]["selinux"]["policy_identity"] = "sha256:" + "a" * 64
+    post "/api/v1/heartbeat", params: checkpoint.to_json, headers: headers
+    observed_snapshot = HostSnapshot.last
+
+    event = ingest_request
+    post "/api/v1/events", params: event.to_json, headers: headers
+
+    expect(RawEvent.last.host_snapshot).to eq(observed_snapshot)
+    expect(RawEvent.last.host_snapshot.details.dig("selinux", "policy_identity")).to eq(checkpoint.dig("host", "selinux", "policy_identity"))
+    expect(RawEvent.last.occurrences.first.host_snapshot).to eq(observed_snapshot)
+    expect(HostSnapshotObservation.count).to eq(1)
+  end
+
+  it "does not associate a checkpoint from another boot" do
+    post "/api/v1/heartbeat", params: heartbeat_request.to_json, headers: headers
+    event = ingest_request
+    event["boot_id"] = "previous-boot"
+    post "/api/v1/events", params: event.to_json, headers: headers
+
+    expect(response).to have_http_status(:accepted)
+    expect(RawEvent.last.host_snapshot).to be_nil
+    expect(RawEvent.last.boot_id).to eq("previous-boot")
+  end
+
+  it "does not create or advance host state from event traffic" do
+    post "/api/v1/events", params: ingest_request.to_json, headers: headers
+
+    expect(installation.reload.bound_host.current_state_observation).to be_nil
+    expect(installation.bound_host.current_snapshot).to be_nil
+    expect(RawEvent.last.host_snapshot).to be_nil
+  end
+
+  it "accepts events before the first host-state checkpoint" do
+    event = ingest_request
+    event.delete("host_observed_at")
+    post "/api/v1/events", params: event.to_json, headers: headers
+
+    expect(response).to have_http_status(:accepted)
+    expect(RawEvent.last.host_observed_at).to be_nil
+    expect(RawEvent.last.host_snapshot).to be_nil
+    expect(RawAuditRecord.last.payload).to eq("avc: denied")
+  end
+
+  it "retains successful policy loads as administrative transitions and blocks stale policy association" do
+    checkpoint = heartbeat_request
+    old_policy = "old policy bytes"
+    old_identity = "sha256:#{Digest::SHA256.hexdigest(old_policy)}"
+    checkpoint["host"]["selinux"]["policy_identity"] = old_identity
+    post "/api/v1/heartbeat", params: checkpoint.to_json, headers: headers
+    old_snapshot = HostSnapshot.last
+
+    post "/api/v1/events", params: policy_load_request.to_json, headers: headers
+
+    transition = RawEvent.sole
+    expect(response).to have_http_status(:accepted)
+    expect(transition).to have_attributes(category: "selinux_administrative", transition_type: "policy_load", host_snapshot: old_snapshot)
+    expect(transition.raw_audit_records.pluck(:record_type, :type_name)).to eq([[ 1403, "MAC_POLICY_LOAD" ], [ 1300, "SYSCALL" ], [ 1327, "PROCTITLE" ]])
+    expect(transition.raw_audit_records.first.payload).to include("res=1")
+    expect(Occurrence.count).to eq(0)
+    expect(Issue.count).to eq(0)
+    expect(PolicyFact.count).to eq(0)
+    expect(Host.find(transition.host_id).current_policy_identity).to be_nil
+    expect(HostSerializer.call(Host.find(transition.host_id), include_snapshot: true).dig(:selinux, :policy_identity)).to be_nil
+
+    put "/api/v1/policy-artifacts/#{old_identity}", params: old_policy,
+      headers: { "CONTENT_TYPE" => "application/octet-stream", "Authorization" => "Bearer test-ingestion-key", "X-SECentral-Host-ID" => "host-1" }
+    expect(response).to have_http_status(:conflict)
+    expect(PolicyArtifact.count).to eq(0)
+
+    stale_heartbeat = checkpoint.deep_dup
+    stale_heartbeat["host"]["hostname"] = "stale-pre-load-work"
+    post "/api/v1/heartbeat", params: stale_heartbeat.to_json, headers: headers
+    expect(HostSnapshot.count).to eq(1)
+    expect(HostSnapshot.last).to eq(old_snapshot)
+
+    perform_enqueued_jobs do
+      post "/api/v1/events", params: ingest_request(sequence: 8126, raw_payload: avc_payload("/srv/after-load", ["getattr"])).to_json, headers: headers
+    end
+    expect(RawEvent.last.host_snapshot).to be_nil
+    expect(Occurrence.last).to be_present
+    expect(PolicyFact.count).to eq(0)
+
+    refreshed = heartbeat_request
+    refreshed["host_observed_at"] = "2026-09-13T17:31:00.000000Z"
+    refreshed["host"]["selinux"]["policy_identity"] = "sha256:" + "b" * 64
+    post "/api/v1/heartbeat", params: refreshed.to_json, headers: headers
+    after_refresh = ingest_request(sequence: 8127, raw_payload: avc_payload("/srv/after-refresh", ["getattr"]))
+    after_refresh["events"][0]["audit_event"]["timestamp"] = "2026-09-13T17:32:00.000000Z"
+    after_refresh["events"][0]["records"][0]["timestamp"] = after_refresh.dig("events", 0, "audit_event", "timestamp")
+    after_refresh.merge!("host_observed_at" => refreshed["host_observed_at"])
+    perform_enqueued_jobs do
+      post "/api/v1/events", params: after_refresh.to_json, headers: headers
+    end
+
+    expect(RawEvent.last.host_snapshot).to eq(HostSnapshot.last)
+    expect(RawEvent.last.host_snapshot.details.dig("selinux", "policy_identity")).to eq(refreshed.dig("host", "selinux", "policy_identity"))
+    expect(PolicyFact.pluck(:policy_identity).uniq).to eq([ refreshed.dig("host", "selinux", "policy_identity") ])
+    expect(Host.find(transition.host_id).current_policy_identity).to eq(refreshed.dig("host", "selinux", "policy_identity"))
+  end
+
+  it "retains an unsuccessful policy-load report without establishing a transition" do
+    checkpoint = heartbeat_request
+    post "/api/v1/heartbeat", params: checkpoint.to_json, headers: headers
+
+    post "/api/v1/events", params: policy_load_request(success: false).to_json, headers: headers
+
+    expect(RawEvent.last).to have_attributes(category: "selinux_administrative", transition_type: nil)
+    expect(RawAuditRecord.first.payload).to include("res=0")
+    expect(Occurrence.count).to eq(0)
+  end
+
+  [ [1, 0], [0, 1] ].each do |old_value, new_value|
+    it "invalidates boolean #{old_value} -> #{new_value} until refresh, without stale conditional evaluation" do
+      checkpoint = boolean_checkpoint(old_value)
+      post "/api/v1/heartbeat", params: checkpoint.to_json, headers: headers
+      old_snapshot = HostSnapshot.last
+      post "/api/v1/events", params: boolean_change_request(old_value: old_value, new_value: new_value).to_json, headers: headers
+      transition = RawEvent.last
+      expect(response).to have_http_status(:accepted)
+      expect(transition).to have_attributes(category: "selinux_administrative", transition_type: "boolean_change")
+      expect(transition.boolean_changes).to eq([{ "name" => "httpd_can_network_connect", "old_value" => old_value,
+        "new_value" => new_value, "success" => true, "success_source" => "kernel_boolean_commit" }])
+      expect([Occurrence.count, Issue.count, PolicyFact.count]).to eq([0, 0, 0])
+      expect(transition.host.current_policy_identity).to be_nil
+      post "/api/v1/heartbeat", params: checkpoint.to_json, headers: headers
+      expect(HostSnapshot.count).to eq(1)
+
+      request = ingest_request(sequence: 8126, raw_payload: connect_payload)
+      request["events"][0]["audit_event"]["timestamp"] = "2026-09-13T17:30:13.000000Z"
+      request["events"][0]["records"][0]["timestamp"] = request.dig("events", 0, "audit_event", "timestamp")
+      post "/api/v1/events", params: request.to_json, headers: headers
+      window = Occurrence.last
+      expect(window.host_snapshot).to be_nil
+      expect(window.raw_event.raw_audit_records.first.payload).to eq(connect_payload)
+      PolicyFact.create!(policy_identity: checkpoint.dig("host", "selinux", "policy_identity"), query_kind: "allow",
+        source_type: "httpd_t", target_type: "unreserved_port_t", object_class: "tcp_socket", permission: "name_connect",
+        status: "matched", matching_rules: ["allow httpd_t port_type:tcp_socket name_connect; [ httpd_can_network_connect ]:True"])
+      result = PolicyEvaluation.call(window.issue)[:occurrence_evaluations].first
+      expect(result).to include(status: "unavailable", rule_state: "unknown", policy_identity: [], booleans: [])
+      expect(PolicyFact.count).to eq(1)
+
+      refreshed = boolean_checkpoint(new_value)
+      refreshed["host_observed_at"] = "2026-09-13T17:31:00.000000Z"
+      post "/api/v1/heartbeat", params: refreshed.to_json, headers: headers
+      request = ingest_request(sequence: 8127, raw_payload: connect_payload)
+      request["host_observed_at"] = refreshed["host_observed_at"]
+      request["events"][0]["audit_event"]["timestamp"] = "2026-09-13T17:32:00.000000Z"
+      request["events"][0]["records"][0]["timestamp"] = request.dig("events", 0, "audit_event", "timestamp")
+      post "/api/v1/events", params: request.to_json, headers: headers
+      expect(Occurrence.last.host_snapshot).to eq(HostSnapshot.last)
+      expect(Occurrence.last.host_snapshot).not_to eq(old_snapshot)
+      expect(window.reload.host_snapshot).to be_nil
+      expect(transition.host.reload.current_policy_identity).to eq(refreshed.dig("host", "selinux", "policy_identity"))
+      PolicyFact.create!(policy_identity: refreshed.dig("host", "selinux", "policy_identity"), query_kind: "allow",
+        source_type: "httpd_t", target_type: "unreserved_port_t", object_class: "tcp_socket", permission: "name_connect",
+        status: "matched", matching_rules: ["allow httpd_t port_type:tcp_socket name_connect; [ httpd_can_network_connect ]:True"])
+      results = PolicyEvaluation.call(window.issue)[:occurrence_evaluations].index_by { |item| item[:occurrence_id] }
+      expect(results[window.id]).to include(status: "unavailable", rule_state: "unknown")
+      expect(results[Occurrence.last.id][:rule_state]).to eq(new_value == 1 ? "conditional_active" : "conditional_inactive")
+    end
+  end
+
+  it "retains failed boolean history without invalidation and deduplicates retries" do
+    checkpoint = boolean_checkpoint(1)
+    post "/api/v1/heartbeat", params: checkpoint.to_json, headers: headers
+    request = boolean_change_request(result: "0")
+    2.times { post "/api/v1/events", params: request.to_json, headers: headers }
+    expect(RawEvent.count).to eq(1)
+    expect(RawEvent.last.transition_type).to be_nil
+    expect(RawEvent.last.boolean_changes.first["success"]).to be(false)
+    expect(RawEvent.last.host.current_policy_identity).to eq(checkpoint.dig("host", "selinux", "policy_identity"))
+    post "/api/v1/events", params: ingest_request(sequence: 8126, raw_payload: connect_payload).to_json, headers: headers
+    expect(Occurrence.last.host_snapshot).to eq(HostSnapshot.last)
+  end
+
+  it "retracts stale associations on delayed transition delivery, using serial order at timestamp ties" do
+    post "/api/v1/heartbeat", params: boolean_checkpoint(1).to_json, headers: headers
+    # All share a timestamp: 8123 precedes the boundary, 8126 follows it.
+    post "/api/v1/events", params: ingest_request(sequence: 8123, raw_payload: connect_payload).to_json, headers: headers
+    before = Occurrence.last
+    post "/api/v1/events", params: ingest_request(sequence: 8126, raw_payload: connect_payload).to_json, headers: headers
+    after = Occurrence.last
+    expect(after.host_snapshot).to be_present
+    request = boolean_change_request
+    2.times { post "/api/v1/events", params: request.to_json, headers: headers }
+    expect(RawEvent.where(transition_type: "boolean_change").count).to eq(1)
+    expect(before.reload.host_snapshot).to be_present
+    expect(after.reload.host_snapshot).to be_nil
+    expect(after.raw_event.reload.host_snapshot).to be_nil
+    # Reprocessing a stale in-memory event cannot restore its old association.
+    ProcessRawEvent.call(after.raw_event)
+    expect(after.reload.host_snapshot).to be_nil
+    post "/api/v1/events", params: ingest_request(sequence: 8127, raw_payload: connect_payload).to_json, headers: headers
+    expect(Occurrence.last.host_snapshot).to be_nil
+  end
+
+  it "keeps snapshot-observed changes distinct from observed transitions" do
+    post "/api/v1/heartbeat", params: boolean_checkpoint(1).to_json, headers: headers
+    changed = boolean_checkpoint(0)
+    changed["host_observed_at"] = "2026-09-13T17:31:00.000000Z"
+    post "/api/v1/heartbeat", params: changed.to_json, headers: headers
+    expect(HostSnapshot.count).to eq(2)
+    expect(RawEvent.count).to eq(0)
+  end
+
+  it "requires a checkpoint strictly after the boundary and strictly before the AVC" do
+    request = boolean_change_request
+    boundary = request.dig("events", 0, "audit_event", "timestamp")
+    post "/api/v1/events", params: request.to_json, headers: headers
+    checkpoint = boolean_checkpoint(0)
+    checkpoint["host_observed_at"] = boundary
+    post "/api/v1/heartbeat", params: checkpoint.to_json, headers: headers
+    expect(HostSnapshot.count).to eq(0)
+    checkpoint["host_observed_at"] = "2026-09-13T17:31:00.000000Z"
+    post "/api/v1/heartbeat", params: checkpoint.to_json, headers: headers
+    avc = ingest_request(sequence: 8126, raw_payload: connect_payload)
+    avc["host_observed_at"] = checkpoint["host_observed_at"]
+    avc["events"][0]["audit_event"]["timestamp"] = checkpoint["host_observed_at"]
+    avc["events"][0]["records"][0]["timestamp"] = checkpoint["host_observed_at"]
+    post "/api/v1/events", params: avc.to_json, headers: headers
+    expect(Occurrence.last.host_snapshot).to be_nil
+  end
+
+  it "retains multiple authoritative boolean records as one transition and rejects unrelated config records" do
+    request = boolean_change_request
+    record = request["events"][0]["records"][0].deep_dup
+    record["position"] = 3
+    record["payload"] = Base64.strict_encode64("bool=httpd_can_network_relay val=1 old_val=0")
+    request["events"][0]["records"] << record
+    post "/api/v1/events", params: request.to_json, headers: headers
+    expect(RawEvent.last.boolean_changes.map { |change| change["name"] }).to eq(%w[httpd_can_network_connect httpd_can_network_relay])
+    request = boolean_change_request
+    request["events"][0]["records"][0]["payload"] = Base64.strict_encode64("op=unrelated res=1")
+    post "/api/v1/events", params: request.to_json, headers: headers
+    expect(response).to have_http_status(:unprocessable_entity)
+  end
+
+  it "persists evidence and enqueues policy-question registration outside ingestion" do
+    bytes = "test policy bytes"
+    identity = "sha256:#{Digest::SHA256.hexdigest(bytes)}"
+    heartbeat = heartbeat_request
+    heartbeat["host"]["selinux"]["policy_identity"] = identity
+    post "/api/v1/heartbeat", params: heartbeat.to_json, headers: headers
+    PolicyArtifact.create!(policy_identity: identity, artifact: bytes, artifact_size: bytes.bytesize)
+    request = ingest_request(raw_payload: avc_payload("/srv/test", ["getattr"]))
+
+    expect {
+      post "/api/v1/events", params: request.to_json, headers: headers
+    }.to have_enqueued_job(RequestPolicyFactsJob).exactly(1).times
+
+    expect(response).to have_http_status(:accepted)
+    expect(RawEvent.count).to eq(1)
+    expect(Occurrence.count).to eq(1)
+    expect(PolicyFact.count).to eq(0)
+  end
+
+  it "retains AVC evidence when its asynchronous policy evaluator fails" do
+    bytes = "test policy bytes"
+    identity = "sha256:#{Digest::SHA256.hexdigest(bytes)}"
+    heartbeat = heartbeat_request
+    heartbeat["host"]["selinux"]["policy_identity"] = identity
+    post "/api/v1/heartbeat", params: heartbeat.to_json, headers: headers
+    PolicyArtifact.create!(policy_identity: identity, artifact: bytes, artifact_size: bytes.bytesize)
+    allow(PolicyRuleEvaluator).to receive(:call).and_raise("evaluator failed")
+
+    perform_enqueued_jobs do
+      post "/api/v1/events", params: ingest_request(raw_payload: avc_payload("/srv/test", ["getattr"])).to_json, headers: headers
+    end
+
+    expect(response).to have_http_status(:accepted)
+    expect(RawEvent.count).to eq(1)
+    expect(Occurrence.count).to eq(1)
+    expect(PolicyFact.first).to have_attributes(status: "error", error_message: "evaluator failed")
+  end
+
+  it "retains AVC evidence while the exact policy artifact is still unavailable" do
+    identity = "sha256:" + "a" * 64
+    heartbeat = heartbeat_request
+    heartbeat["host"]["selinux"]["policy_identity"] = identity
+    post "/api/v1/heartbeat", params: heartbeat.to_json, headers: headers
+
+    expect {
+      perform_enqueued_jobs do
+        post "/api/v1/events", params: ingest_request(raw_payload: avc_payload("/srv/test", ["getattr"])).to_json, headers: headers
+      end
+    }.not_to have_enqueued_job(EvaluatePolicyFactJob)
+
+    expect(response).to have_http_status(:accepted)
+    expect(RawEvent.count).to eq(1)
+    expect(Occurrence.count).to eq(1)
+    expect(PolicyFact.first).to have_attributes(status: "pending", policy_identity: identity)
+  end
+
+  it "does not refresh heartbeat configuration freshness with event traffic" do
+    heartbeat = heartbeat_request
+    post "/api/v1/heartbeat", params: heartbeat.to_json, headers: headers
+    observation = HostSnapshotObservation.last
+    observation.update!(last_received_at: 1.hour.ago)
+
+    post "/api/v1/events", params: ingest_request.to_json, headers: headers
+
+    expect(installation.reload.last_seen_at).to be > 1.minute.ago
+    expect(installation.bound_host.last_seen_at).to be > 1.minute.ago
+    expect(observation.reload).to be_stale
+  end
+
+  it "does not refresh stale port inventory with event traffic" do
+    heartbeat = heartbeat_request
+    heartbeat["host"]["selinux"]["policy"] = { "port_inventory" => { "status" => "observed", "local_classification_status" => "observed", "mappings" => [{ "type" => "http_port_t", "protocol" => "tcp", "ports" => [{ "start" => 80, "end" => 80, "provenance" => "not_confirmed_custom" }] }] } }
+    post "/api/v1/heartbeat", params: heartbeat.to_json, headers: headers
+    observation = HostSnapshotObservation.last
+    observation.update!(last_received_at: 1.hour.ago)
+
+    event = ingest_request
+    post "/api/v1/events", params: event.to_json, headers: headers
+
+    expect(observation.reload).to be_stale
+    expect(installation.reload.bound_host.current_snapshot.details.dig("selinux", "policy", "port_inventory", "mappings", 0, "ports", 0, "start")).to eq(80)
+    expect(RawEvent.last.host_snapshot.details.dig("selinux", "policy", "port_inventory", "mappings", 0, "ports", 0, "start")).to eq(80)
+  end
+
+  it "accepts proctitle records from the live audit stream" do
+    request = ingest_request(raw_payload: avc_payload("/srv/test", ["read"]))
+    record = request["events"][0]["records"][0].dup
+    record["position"] = 1
+    record["type"] = "proctitle"
+    record["type_name"] = "PROCTITLE"
+    request["events"][0]["records"] << record
+
+    post "/api/v1/events", params: request.to_json, headers: headers
+
+    expect(response).to have_http_status(:accepted)
+    expect(RawAuditRecord.where(record_type: 1327).count).to eq(1)
+  end
+
+  it "rejects conflicting duplicate evidence" do
+    request = ingest_request
+    post "/api/v1/events", params: request.to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+
+    request["events"][0]["records"][0]["payload"] = Base64.strict_encode64("avc: changed")
+    post "/api/v1/events", params: request.to_json, headers: headers
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(RawEvent.count).to eq(1)
+    expect(RawAuditRecord.first.payload).to eq("avc: denied")
+  end
+
+  it "rejects an invalid batch without persistence" do
+    request = ingest_request
+    request["events"][0]["records"][0]["sequence"] = 99
+
+    post "/api/v1/events", params: request.to_json, headers: headers
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(RawEvent.count).to eq(0)
+    expect(Host.count).to eq(0)
+    expect(HostSnapshot.count).to eq(0)
+  end
+
+  it "accepts different hosts with the same ingestion key" do
+    post "/api/v1/events", params: ingest_request.to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+
+    post "/api/v1/events", params: ingest_request(host_id: "another-host").to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+    expect(Host.count).to eq(2)
+    expect(AgentInstallation.count).to eq(2)
+  end
+
+  it "rejects missing or invalid ingestion keys" do
+    post "/api/v1/events", params: ingest_request.to_json, headers: { "CONTENT_TYPE" => "application/json" }
+    expect(response).to have_http_status(:unauthorized)
+
+    post "/api/v1/events", params: ingest_request.to_json, headers: { "CONTENT_TYPE" => "application/json", "Authorization" => "Bearer wrong" }
+    expect(response).to have_http_status(:unauthorized)
+  end
+
+  it "fails clearly unless the deployment has exactly one organization" do
+    Organization.delete_all
+    post "/api/v1/events", params: ingest_request.to_json, headers: headers
+    expect(response).to have_http_status(:service_unavailable)
+    expect(response.parsed_body.dig("error", "code")).to eq("ingestion_unavailable")
+
+    Organization.create!(name: "first")
+    Organization.create!(name: "second")
+    post "/api/v1/events", params: ingest_request.to_json, headers: headers
+    expect(response).to have_http_status(:service_unavailable)
+  end
+
+  it "does not use a host identity as authentication" do
+    post "/api/v1/events", params: ingest_request(host_id: "known-host").to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+
+    post "/api/v1/events", params: ingest_request(host_id: "known-host").to_json, headers: { "CONTENT_TYPE" => "application/json" }
+    expect(response).to have_http_status(:unauthorized)
+  end
+
+  it "rejects malformed protocol values" do
+    invalid_requests = [
+      ingest_request.tap { |r| r["events"][0]["audit_event"]["timestamp"] = "not-a-time" },
+      ingest_request.tap { |r| r["events"][0]["agent_received_at"] = "not-a-time" },
+      ingest_request.tap { |r| r["events"][0]["audit_event"]["sequence"] = "not-an-integer" },
+      ingest_request.tap { |r| r["events"][0]["records"][0].delete("type") },
+      ingest_request.tap { |r| r["events"][0]["records"][0]["timestamp"] = "not-a-time" }
+    ]
+
+    invalid_requests.each do |request|
+      post "/api/v1/events", params: request.to_json, headers: headers
+      expect(response).to have_http_status(:unprocessable_content)
+    end
+    expect(RawEvent.count).to eq(0)
+  end
+
+  it "accepts concurrent identical delivery exactly once" do
+    request = ingest_request
+    results = 2.times.map do
+      Thread.new { IngestEvents.new(organization: organization, payload: request).call }
+    end
+
+    results.each { |thread| expect { thread.value }.not_to raise_error }
+    expect(RawEvent.count).to eq(1)
+    expect(Host.count).to eq(1)
+    expect(AgentInstallation.count).to eq(1)
+  end
+
+  it "turns concurrent conflicting delivery into one controlled conflict" do
+    first = ingest_request
+    second = ingest_request
+    second["events"][0]["records"][0]["payload"] = Base64.strict_encode64("changed")
+    results = [first, second].map do |request|
+      Thread.new do
+        IngestEvents.new(organization: organization, payload: request).call
+        :accepted
+      rescue IngestEvents::EvidenceConflict
+        :conflict
+      end
+    end.map(&:value)
+
+    expect(results.count(:conflict)).to eq(1)
+    expect(RawEvent.count).to eq(1)
+  end
+
+  it "groups equivalent v3 denials across hosts without merging distinct permission sets" do
+    post "/api/v1/events", params: ingest_request(host_id: "host-a", raw_payload: avc_payload("/srv/a", %w[read open])).to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+    post "/api/v1/events", params: ingest_request(host_id: "host-b", raw_payload: avc_payload("/srv/b", %w[open read])).to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+
+    expect(RawEvent.count).to eq(2)
+    expect(Occurrence.count).to eq(2)
+    expect(Issue.count).to eq(1)
+    expect(Issue.pluck(:fingerprint_version).uniq).to eq([3])
+    grouped_issue = Issue.all.find { |issue| issue.permissions == %w[open read] }
+    expect(grouped_issue).to be_present
+    expect(grouped_issue.occurrences_count).to eq(2)
+
+    post "/api/v1/events", params: ingest_request(host_id: "host-b", sequence: 8125, raw_payload: avc_payload("/srv/b", ["read"])).to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+    expect(Issue.count).to eq(2)
+    expect(Issue.where(fingerprint_version: 3).pluck(:permissions)).to contain_exactly(["open", "read"], ["read"])
+  end
+
+  it "keeps one occurrence and one issue for a multi-permission AVC" do
+    post "/api/v1/events", params: ingest_request(raw_payload: avc_payload("/srv/test", %w[read open read])).to_json, headers: headers
+
+    expect(response).to have_http_status(:accepted)
+    expect(Occurrence.count).to eq(1)
+    expect(Issue.count).to eq(1)
+    expect(Issue.first.permissions).to eq(%w[open read])
+  end
+
+  it "creates separate v3 issues for equivalent tuple bind and connect events" do
+    bind = avc_payload("/srv/test", ["name_bind"]).sub("tclass=file", "tclass=tcp_socket")
+    connect = bind.sub("name_bind", "name_connect")
+
+    post "/api/v1/events", params: ingest_request(sequence: 8124, raw_payload: bind).to_json, headers: headers
+    post "/api/v1/events", params: ingest_request(sequence: 8125, raw_payload: connect).to_json, headers: headers
+
+    expect(response).to have_http_status(:accepted)
+    expect(Issue.where(fingerprint_version: 3).count).to eq(2)
+    expect(Issue.where(fingerprint_version: 3).pluck(:permissions)).to contain_exactly(["name_bind"], ["name_connect"])
+  end
+
+  it "reopens resolved issues but keeps ignored issues ignored" do
+    request = ingest_request(raw_payload: avc_payload("/srv/test", ["read"]))
+    post "/api/v1/events", params: request.to_json, headers: headers
+    issue = Issue.first
+
+    issue.transition_to!("resolved")
+    post "/api/v1/events", params: ingest_request(sequence: 8125, raw_payload: avc_payload("/srv/test", ["read"])).to_json, headers: headers
+    expect(issue.reload).to have_attributes(status: "open", regressions_count: 1)
+
+    issue.transition_to!("ignored")
+    post "/api/v1/events", params: ingest_request(sequence: 8126, raw_payload: avc_payload("/srv/test", ["read"])).to_json, headers: headers
+    expect(issue.reload.status).to eq("ignored")
+  end
+
+  it "collapses malformed bearer credentials to unauthorized" do
+    ["Bearer", "Basic test-ingestion-key", "Bearer test-ingestion-key extra"].each do |authorization|
+      post "/api/v1/events", params: ingest_request.to_json, headers: { "CONTENT_TYPE" => "application/json", "Authorization" => authorization }
+      expect(response).to have_http_status(:unauthorized)
+    end
+  end
+
+  def installation
+    Host.find_by!(external_id: "host-1").agent_installations.sole
+  end
+
+  def ingest_request(host_id: "host-1", sequence: 8124, raw_payload: "avc: denied")
+    timestamp = "2026-09-13T17:30:12.123456Z"
+    {
+      "schema_version" => 4,
+      "agent" => { "version" => "0.1.0" },
+      "host_id" => host_id,
+      "boot_id" => "boot-1",
+      "host_observed_at" => "2026-09-13T17:29:00.000000Z",
+      "events" => [{
+        "category" => "avc",
+        "audit_event" => { "timestamp" => timestamp, "sequence" => sequence },
+        "agent_received_at" => timestamp,
+        "completion_reason" => "eoe",
+        "records" => [{
+          "position" => 0,
+          "type" => "avc",
+          "type_name" => "AVC",
+          "timestamp" => timestamp,
+          "sequence" => sequence,
+          "payload" => Base64.strict_encode64(raw_payload)
+        }]
+      }]
+    }
+  end
+
+  def policy_load_request(success: true)
+    request = ingest_request
+    event = request.fetch("events").first
+    event["category"] = "selinux_administrative"
+    event["records"] = [
+      ["mac_policy_load", "MAC_POLICY_LOAD", "auid=4294967295 res=#{success ? 1 : 0}"],
+      ["syscall", "SYSCALL", "success=#{success ? "yes" : "no"} comm=\"load_policy\""],
+      ["proctitle", "PROCTITLE", "proctitle=2F7362696E2F6C6F61645F706F6C696379"]
+    ].each_with_index.map do |(type, type_name, payload), position|
+      {
+        "position" => position,
+        "type" => type,
+        "type_name" => type_name,
+        "timestamp" => event.dig("audit_event", "timestamp"),
+        "sequence" => event.dig("audit_event", "sequence"),
+        "payload" => Base64.strict_encode64(payload)
+      }
+    end
+    request
+  end
+
+  def boolean_change_request(old_value: 1, new_value: 0, result: nil)
+    request = policy_load_request
+    record = request["events"][0]["records"][0]
+    record.merge!("type" => "mac_config_change", "type_name" => "MAC_CONFIG_CHANGE",
+      "payload" => Base64.strict_encode64("bool=httpd_can_network_connect val=#{new_value} old_val=#{old_value} auid=0 ses=535#{result ? " res=#{result}" : ""}"))
+    request
+  end
+
+  def boolean_checkpoint(value)
+    checkpoint = heartbeat_request
+    checkpoint["host"]["selinux"].merge!("policy_identity" => "sha256:" + (value == 1 ? "a" : "b") * 64,
+      "booleans" => [{ "name" => "httpd_can_network_connect", "current" => value == 1, "status" => "observed" }])
+    checkpoint
+  end
+
+  def connect_payload
+    'avc: denied { name_connect } for pid=10 comm="httpd" dest=12345 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:unreserved_port_t:s0 tclass=tcp_socket permissive=0'
+  end
+
+  def expected_context_request(event_request, path:, status: "resolved", reason: nil)
+    event = event_request.fetch("events").first
+    observation = {
+      "path" => path,
+      "object_class" => "file",
+      "file_type" => "file",
+      "expected_context" => "system_u:object_r:httpd_sys_content_t:s0",
+      "observed_at" => "2026-09-13T17:30:13.000000Z",
+      "resolver" => "matchpathcon",
+      "status" => status
+    }
+    observation["reason"] = reason if reason
+    {
+      "schema_version" => 1,
+      "agent" => event_request.fetch("agent"),
+      "host_id" => event_request.fetch("host_id"),
+      "boot_id" => event_request.fetch("boot_id"),
+      "host_observed_at" => event_request.fetch("host_observed_at"),
+      "audit_event" => event.fetch("audit_event"),
+      "observation" => observation
+    }
+  end
+
+  def heartbeat_request
+    {
+      "schema_version" => 2,
+      "agent" => { "version" => "0.1.0" },
+      "host_observed_at" => "2026-09-13T17:29:00.000000Z",
+      "host" => { "id" => "host-1", "hostname" => "server01", "boot_id" => "boot-1", "selinux" => { "enabled" => true, "enforcement" => "enforcing" } }
+    }
+  end
+
+  def avc_payload(path, permissions)
+    "avc: denied { #{permissions.join(' ')} } for pid=10 comm=\"httpd\" exe=\"/usr/sbin/httpd\" path=\"#{path}\" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:default_t:s0 tclass=file"
+  end
+end

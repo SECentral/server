@@ -1,0 +1,53 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: secentral_server_production
+      POSTGRES_USER: secentral_server
+      POSTGRES_PASSWORD: ${SECENTRAL_SERVER_DATABASE_PASSWORD:?Set SECENTRAL_SERVER_DATABASE_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U secentral_server -d secentral_server_production"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  server:
+    build:
+      context: .
+      dockerfile: Containerfile
+    restart: unless-stopped
+    environment:
+      RAILS_ENV: production
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?Set SECRET_KEY_BASE in .env}
+      DATABASE_URL: postgresql://secentral_server:${SECENTRAL_SERVER_DATABASE_PASSWORD:?Set SECENTRAL_SERVER_DATABASE_PASSWORD in .env}@db:5432/secentral_server_production
+      SECENTRAL_SERVER_DATABASE_PASSWORD: ${SECENTRAL_SERVER_DATABASE_PASSWORD:?Set SECENTRAL_SERVER_DATABASE_PASSWORD in .env}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?Set ADMIN_USERNAME in .env}
+      ADMIN_PASSWORD_DIGEST: ${ADMIN_PASSWORD_DIGEST:?Set ADMIN_PASSWORD_DIGEST in .env}
+      SECENTRAL_INGESTION_KEY: ${SECENTRAL_INGESTION_KEY:?Set SECENTRAL_INGESTION_KEY in .env}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN to a public DNS name pointing to this host}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - server
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

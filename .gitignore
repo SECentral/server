@@ -1,0 +1,16 @@
+/config/master.key
+/config/credentials/*.key
+/log/*
+/tmp/*
+!/log/.keep
+!/tmp/.keep
+.env*
+!.env.example
+
+/node_modules/
+public/spa/
+/.bundle/
+/.cache/
+/.local/
+/.npm/
+/frontend/.npm/

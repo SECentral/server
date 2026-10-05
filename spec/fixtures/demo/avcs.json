@@ -1,0 +1,138 @@
+[
+  {
+    "id": "scenario-001-file-context-mismatch",
+    "scenario": "001",
+    "type_name": "AVC",
+    "payload": "avc: denied { read } for pid=2201 comm=\"httpd\" path=\"/var/www/html/secentral-test.html\" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:user_home_t:s0 tclass=file permissive=0",
+    "records": [
+      { "type": "SYSCALL", "payload": "type=SYSCALL syscall=2 success=no exit=-13 pid=2201 comm=\"httpd\" exe=\"/usr/sbin/httpd\" subj=system_u:system_r:httpd_t:s0" }
+    ],
+    "event_file_contexts": [
+      { "path": "/var/www/html/secentral-test.html", "context": "unconfined_u:object_r:user_home_t:s0", "status": "observed", "expected_context": "system_u:object_r:httpd_sys_content_t:s0", "expected_status": "observed", "observed_at": "2026-09-17T12:00:00Z" }
+    ],
+    "policy_evaluations": [
+      { "source_type": "httpd_t", "target_type": "user_home_t", "target_class": "file", "permissions": ["read"], "policy_identity": "sha256:demo-rhel9-web", "evaluator_version": "sesearch-v1", "result": "matched", "matching_rules": ["allow httpd_t user_home_t:file read;"] }
+    ]
+  },
+  {
+    "id": "scenario-002-network-connect",
+    "scenario": "002",
+    "type_name": "AVC",
+    "payload": "avc: denied { name_connect } for pid=2202 comm=\"httpd\" dest=12345 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:unreserved_port_t:s0 tclass=tcp_socket permissive=0",
+    "records": [
+      { "type": "SYSCALL", "payload": "type=SYSCALL syscall=42 success=no exit=-13 pid=2202 comm=\"httpd\" exe=\"/usr/sbin/httpd\" subj=system_u:system_r:httpd_t:s0" }
+    ],
+    "policy_evaluations": [
+      { "source_type": "httpd_t", "target_type": "unreserved_port_t", "target_class": "tcp_socket", "permissions": ["name_connect"], "policy_identity": "sha256:demo-rhel9-web", "evaluator_version": "sesearch-v1", "result": "matched", "matching_rules": ["allow httpd_t unreserved_port_t:tcp_socket name_connect; [ httpd_can_network_connect ]:True"] },
+      { "source_type": "httpd_t", "target_type": "unreserved_port_t", "target_class": "tcp_socket", "permissions": ["name_connect"], "policy_identity": "sha256:demo-rhel9-web", "evaluator_version": "sesearch-v1", "result": "matched", "matching_rules": ["allow httpd_t unreserved_port_t:tcp_socket name_connect; [ nis_enabled ]:True"] }
+    ]
+  },
+  {
+    "id": "scenario-002b-network-connect-no-match",
+    "scenario": "002b",
+    "type_name": "AVC",
+    "payload": "avc: denied { name_connect } for pid=2206 comm=\"httpd\" dest=12345 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:unreserved_port_t:s0 tclass=tcp_socket permissive=0",
+    "records": [
+      { "type": "SYSCALL", "payload": "type=SYSCALL syscall=42 success=no exit=-13 pid=2206 comm=\"httpd\" exe=\"/usr/sbin/httpd\" subj=system_u:system_r:httpd_t:s0" }
+    ],
+    "policy_evaluations": [
+      { "source_type": "httpd_t", "target_type": "unreserved_port_t", "target_class": "tcp_socket", "permissions": ["name_connect"], "policy_identity": "sha256:demo-rhel8-web", "evaluator_version": "sesearch-v1", "result": "no_match", "matching_rules": [] }
+    ]
+  },
+  {
+    "id": "scenario-003-port-bind",
+    "scenario": "003",
+    "type_name": "AVC",
+    "payload": "avc: denied { name_bind } for pid=2203 comm=\"httpd\" src=12345 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:unreserved_port_t:s0 tclass=tcp_socket permissive=0",
+    "records": [
+      { "type": "SYSCALL", "payload": "type=SYSCALL syscall=49 success=no exit=-13 pid=2203 comm=\"httpd\" exe=\"/usr/sbin/httpd\" subj=system_u:system_r:httpd_t:s0" }
+    ],
+    "policy_evaluations": [
+      { "source_type": "httpd_t", "target_type": "unreserved_port_t", "target_class": "tcp_socket", "permissions": ["name_bind"], "policy_identity": "sha256:demo-rhel8-web", "evaluator_version": "sesearch-v1", "result": "matched", "matching_rules": ["allow nsswitch_domain unreserved_port_t:tcp_socket name_bind; [ nis_enabled ]:True"] }
+    ]
+  },
+  {
+    "id": "scenario-004-relocated-mariadb",
+    "scenario": "004",
+    "type_name": "AVC",
+    "payload": "avc: denied { getattr } for pid=2204 comm=\"mariadbd\" path=\"/srv/secentral-s004-mariadb/ibdata1\" scontext=system_u:system_r:mysqld_t:s0 tcontext=unconfined_u:object_r:var_t:s0 tclass=file permissive=0",
+    "records": [
+      { "type": "SYSCALL", "payload": "type=SYSCALL syscall=262 success=no exit=-13 pid=2204 comm=\"mariadbd\" exe=\"/usr/libexec/mariadbd\" subj=system_u:system_r:mysqld_t:s0" },
+      { "type": "PATH", "payload": "type=PATH name=\"/srv/secentral-s004-mariadb/ibdata1\" obj=unconfined_u:object_r:var_t:s0" },
+      { "type": "CWD", "payload": "type=CWD cwd=\"/srv/secentral-s004-mariadb\"" }
+    ],
+    "event_file_contexts": [
+      { "path": "/srv/secentral-s004-mariadb/ibdata1", "context": "unconfined_u:object_r:var_t:s0", "status": "observed", "expected_context": "system_u:object_r:var_t:s0", "expected_status": "observed", "observed_at": "2026-09-17T12:00:00Z" }
+    ],
+    "policy_evaluations": [
+      { "source_type": "mysqld_t", "target_type": "var_t", "target_class": "file", "permissions": ["getattr"], "policy_identity": "sha256:demo-alma9-mariadb", "evaluator_version": "sesearch-v1", "result": "no_match", "matching_rules": [] }
+    ]
+  },
+  {
+    "id": "scenario-005-execute",
+    "scenario": "005",
+    "type_name": "AVC",
+    "payload": "avc: denied { execute } for pid=2205 comm=\"httpd\" name=\"secentral-s005-helper.sh\" scontext=system_u:system_r:httpd_t:s0 tcontext=unconfined_u:object_r:httpd_sys_content_t:s0 tclass=file permissive=0",
+    "records": [
+      { "type": "SYSCALL", "payload": "type=SYSCALL syscall=59 success=no exit=-13 pid=2205 comm=\"httpd\" exe=\"/usr/sbin/httpd\" subj=system_u:system_r:httpd_t:s0" },
+      { "type": "PATH", "payload": "type=PATH name=\"/var/www/cgi-bin/secentral-s005-helper.sh\" obj=unconfined_u:object_r:httpd_sys_content_t:s0" },
+      { "type": "CWD", "payload": "type=CWD cwd=\"/var/www/cgi-bin\"" },
+      { "type": "PROCTITLE", "payload": "type=PROCTITLE proctitle=2F7573722F7362696E2F6874747064002D4446" }
+    ],
+    "policy_evaluations": [
+      { "source_type": "httpd_t", "target_type": "httpd_sys_content_t", "target_class": "file", "permissions": ["execute"], "policy_identity": "sha256:demo-rhel10-web", "evaluator_version": "sesearch-v1", "result": "matched", "matching_rules": ["allow httpd_t httpd_sys_content_t:file execute; [ httpd_builtin_scripting && httpd_unified && httpd_enable_cgi ]:True"] },
+      { "source_type": "httpd_t", "target_type": "httpd_sys_content_t", "target_class": "process", "permissions": ["transition"], "relationship_kind": "possible_domain_transition", "executable_type": "httpd_sys_content_t", "destination_domain": "httpd_sys_script_t", "policy_identity": "sha256:demo-rhel10-web", "evaluator_version": "sesearch-v1", "result": "matched", "matching_rules": ["type_transition httpd_t httpd_sys_content_t:process httpd_sys_script_t; [ httpd_builtin_scripting && httpd_unified && httpd_enable_cgi ]:True"] },
+      { "source_type": "httpd_t", "target_type": "httpd_sys_content_t", "target_class": "process", "permissions": ["transition"], "relationship_kind": "process_transition", "executable_type": "httpd_sys_content_t", "destination_domain": "httpd_sys_script_t", "policy_identity": "sha256:demo-rhel10-web", "evaluator_version": "sesearch-v1", "result": "matched", "matching_rules": ["allow httpd_t httpd_sys_script_t:process transition;"] },
+      { "source_type": "httpd_sys_script_t", "target_type": "httpd_sys_content_t", "target_class": "file", "permissions": ["entrypoint"], "relationship_kind": "destination_entrypoint", "executable_type": "httpd_sys_content_t", "destination_domain": "httpd_sys_script_t", "policy_identity": "sha256:demo-rhel10-web", "evaluator_version": "sesearch-v1", "result": "matched", "matching_rules": ["allow httpd_sys_script_t httpd_sys_content_t:file entrypoint;"] }
+    ]
+  },
+  {
+    "id": "systemd-nsresource-read",
+    "source": "Fedora SELinux policy issue #3353",
+    "source_url": "https://github.com/fedora-selinux/selinux-policy/issues/3353",
+    "type_name": "AVC",
+    "payload": "AVC avc:  denied  { read } for  pid=141884 comm=\"systemd-nsresou\" path=\"user:[4026533377]\" dev=\"nsfs\" ino=4026533377 scontext=system_u:system_r:systemd_nsresourced_t:s0 tcontext=system_u:object_r:nsfs_t:s0 tclass=file permissive=1"
+  },
+  {
+    "id": "systemd-nsresource-lock",
+    "source": "Fedora SELinux policy issue #3353",
+    "source_url": "https://github.com/fedora-selinux/selinux-policy/issues/3353",
+    "type_name": "AVC",
+    "payload": "AVC avc:  denied  { read write } for  pid=141884 comm=\"systemd-nsresou\" name=\"lock\" dev=\"tmpfs\" ino=30782 scontext=system_u:system_r:systemd_nsresourced_t:s0 tcontext=system_u:object_r:systemd_nsresourced_runtime_t:s0 tclass=file permissive=1"
+  },
+  {
+    "id": "systemd-mountfsd-user-ns",
+    "source": "Fedora SELinux policy issue #3353",
+    "source_url": "https://github.com/fedora-selinux/selinux-policy/issues/3353",
+    "type_name": "AVC",
+    "payload": "AVC avc:  denied  { ioctl } for  pid=142898 comm=\"systemd-mountwo\" path=\"user:[4026533243]\" dev=\"nsfs\" ino=4026533243 ioctlcmd=0xb703 scontext=system_u:system_r:systemd_mountfsd_t:s0 tcontext=system_u:object_r:nsfs_t:s0 tclass=file permissive=1"
+  },
+  {
+    "id": "container-postgresql-backup-file",
+    "source": "Uyuni issue #12334",
+    "source_url": "https://github.com/uyuni-project/uyuni/issues/12334",
+    "type_name": "AVC",
+    "payload": "type=AVC msg=audit(1785011628.086:27985): avc:  denied  { write } for  pid=434587 comm=\"cp\" path=\"/var/lib/pgsql/backup/00000001000001B700000090.TMP\" dev=\"dm-10\" ino=131 scontext=system_u:system_r:container_t:s0:c441,c734 tcontext=system_u:object_r:container_file_t:s0:c146,c645 tclass=file permissive=1"
+  },
+  {
+    "id": "container-postgresql-backup-directory",
+    "source": "Uyuni issue #12334",
+    "source_url": "https://github.com/uyuni-project/uyuni/issues/12334",
+    "type_name": "AVC",
+    "payload": "type=AVC msg=audit(1785011628.086:27985): avc:  denied  { add_name } for  pid=434587 comm=\"cp\" name=\"00000001000001B700000090.TMP\" scontext=system_u:system_r:container_t:s0:c441,c734 tcontext=system_u:object_r:container_file_t:s0:c146,c645 tclass=dir permissive=1"
+  },
+  {
+    "id": "systemd-nsresource-capability",
+    "source": "Fedora SELinux policy issue #3353",
+    "source_url": "https://github.com/fedora-selinux/selinux-policy/issues/3353",
+    "type_name": "AVC",
+    "payload": "AVC avc:  denied  { sys_admin } for  pid=142485 comm=\"(sd-pinuserns)\" capability=21 scontext=system_u:system_r:systemd_nsresourced_t:s0 tcontext=system_u:system_r:systemd_nsresourced_t:s0 tclass=cap_userns permissive=1"
+  },
+  {
+    "id": "systemd-mountfsd-connectto",
+    "source": "Fedora SELinux policy issue #3353",
+    "source_url": "https://github.com/fedora-selinux/selinux-policy/issues/3353",
+    "type_name": "AVC",
+    "payload": "AVC avc:  denied  { connectto } for  pid=142477 comm=\"(true)\" path=\"/run/systemd/io.systemd.MountFileSystem\" scontext=system_u:system_r:init_t:s0 tcontext=system_u:system_r:systemd_mountfsd_t:s0 tclass=unix_stream_socket permissive=1"
+  }
+]

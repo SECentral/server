@@ -1,0 +1,3787 @@
+openapi: 3.1.0
+info:
+  title: SECentral Operator API
+  version: 1.0.0
+  description: |
+    Versioned operator API for SECentral, the SELinux observability platform.
+
+    Conventions:
+
+    - JSON only. All responses use `application/json`.
+    - Errors: every error response is `{ "error": { "code", "message", "details"? } }`.
+      Codes: `unauthorized` (401), `not_found` (404),
+      `invalid_request` / `invalid_value` / `invalid_csrf_token` (422).
+    - Timestamps are ISO-8601 UTC.
+    - Enums are lowercase strings matching the server domain constants.
+    - Pagination is per-endpoint, never a global mandate:
+      - stable lists use `page` / `page_size` (capped at 50) with `PageMeta`;
+      - time-ordered occurrence streams use opaque cursors (`limit` + `before`)
+        with `CursorMeta`.
+    - Authentication is a same-origin session cookie managed by the browser.
+      Mutating requests must echo the `X-CSRF-Token` response header in the
+      `X-CSRF-Token` request header. The token is transport metadata, not
+      application data, and is never present in a response payload.
+
+servers:
+  - url: /
+
+security:
+  - session: []
+    csrf: []
+
+paths:
+  /api/v1/issues/{id}/resolutions:
+    parameters:
+      - $ref: "#/components/parameters/IssueId"
+    get:
+      operationId: getIssueResolutions
+      summary: Derived evidence-backed candidates and current selected intent
+      responses:
+        "200":
+          description: Commands are included only for a current selected intent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolutionWorkflow"
+  /api/v1/issues/{id}/resolution-intent:
+    parameters:
+      - $ref: "#/components/parameters/IssueId"
+    patch:
+      operationId: selectResolutionIntent
+      summary: Explicitly select or re-review intent against an exact evidence version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [candidate_id, evidence_version]
+              properties:
+                candidate_id: {type: string}
+                evidence_version: {type: string}
+      responses:
+        "200":
+          description: Selected intent and reviewed change plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolutionWorkflow"
+        "409":
+          description: Evidence changed or candidate is no longer supported
+    delete:
+      operationId: clearResolutionIntent
+      summary: Clear intent and record the transition without claiming application
+      responses:
+        "200":
+          description: Cleared workflow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolutionWorkflow"
+  /api/v1/policy-drafts:
+    get:
+      operationId: listPolicyDrafts
+      summary: List up to fifty durable drafts in the issue organization
+      parameters:
+        - name: issue_id
+          in: query
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: Draft workspace
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [drafts]
+                properties:
+                  drafts:
+                    type: array
+                    items: {$ref: "#/components/schemas/PolicyDraft"}
+    post:
+      operationId: createPolicyDraft
+      summary: Create an organization-owned semantic permission draft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [issue_id, name]
+              properties:
+                issue_id: {type: integer}
+                name: {type: string, maxLength: 100}
+      responses:
+        "201":
+          description: Durable draft
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PolicyDraft"}
+  /api/v1/policy-drafts/{id}/entries:
+    parameters:
+      - $ref: "#/components/parameters/IssueId"
+    post:
+      operationId: stagePolicyDraftPermission
+      summary: Stage occurrence permissions with alternatives and provenance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [issue_id, occurrence_id]
+              properties:
+                issue_id: {type: integer}
+                occurrence_id: {type: integer}
+      responses:
+        "200":
+          description: Updated draft; identical tuples retain multiple evidence references
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PolicyDraft"}
+  /api/v1/policy-drafts/{id}/entries/{entry_id}:
+    parameters:
+      - $ref: "#/components/parameters/IssueId"
+      - name: entry_id
+        in: path
+        required: true
+        schema: {type: integer}
+    delete:
+      operationId: removePolicyDraftEntry
+      summary: Remove a staged semantic permission
+      responses:
+        "200":
+          description: Updated draft
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PolicyDraft"}
+  /api/v1/policy-drafts/{id}/export:
+    parameters:
+      - $ref: "#/components/parameters/IssueId"
+    post:
+      operationId: exportPolicyDraft
+      summary: Export semantic JSON or explicitly reviewed unvalidated TE source
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [format]
+              properties:
+                format: {type: string, enum: [json, te]}
+                module_name: {type: string}
+                literal_confirmed: {type: boolean}
+                evidence_version: {type: string, description: Required for reviewed TE export}
+      responses:
+        "200":
+          description: Export, never installation or proof of access
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PolicyDraftExport"}
+  /api/v1/system:
+    get:
+      operationId: getSystem
+      summary: API system metadata
+      description: Advertised API version, server version, and capabilities. Capabilities are advisory; clients must not require them.
+      security:
+        - session: []
+      responses:
+        "200":
+          description: System metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/System"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/issues:
+    get:
+      operationId: listIssues
+      summary: List grouped SELinux issues
+      description: |
+        Page-based list of grouped SELinux denials for the operator.
+
+        `status` defaults to `open` (matches the historical list view);
+        pass `all` for every status. `regressed` is a pseudo-status:
+        open issues that were resolved and then reopened. `new` and
+        `multiple_hosts` are boolean flags; the server accepts `true` and
+        `1`.
+      security:
+        - session: []
+      parameters:
+        - name: q
+          in: query
+          description: Case-insensitive search across source, target, class, permissions, hostnames, paths, and denial details.
+          schema:
+            type: string
+        - name: host_id
+          in: query
+          description: Restrict to issues with occurrences on this host.
+          schema:
+            type: integer
+        - name: source_type
+          in: query
+          schema:
+            type: string
+        - name: target_type
+          in: query
+          schema:
+            type: string
+        - name: target_class
+          in: query
+          schema:
+            type: string
+        - name: permission
+          in: query
+          description: Issues whose permission set includes this permission.
+          schema:
+            type: string
+        - name: path
+          in: query
+          description: Occurrences whose denial recorded this target path.
+          schema:
+            type: string
+        - name: name
+          in: query
+          description: Occurrences whose target evidence recorded this object name.
+          schema:
+            type: string
+        - name: target
+          in: query
+          description: Occurrences whose target evidence recorded this filesystem path or object name.
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Issue lifecycle status, or `all`, or the pseudo-status `regressed`.
+          schema:
+            type: string
+            enum:
+              - open
+              - resolved
+              - ignored
+              - all
+              - regressed
+            default: open
+        - name: new
+          in: query
+          description: Issues first seen within the last 24 hours.
+          schema:
+            type: boolean
+        - name: multiple_hosts
+          in: query
+          description: Issues with occurrences on more than one distinct host.
+          schema:
+            type: boolean
+        - name: os_id
+          in: query
+          description: Occurrences observed on hosts reporting this platform os_id.
+          schema:
+            type: string
+        - name: policy_version
+          in: query
+          description: Occurrences observed on hosts reporting this kernel policy version.
+          schema:
+            type: string
+        - name: page
+          in: query
+          description: One-based page number.
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+      responses:
+        "200":
+          description: Page of issues with list-level summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssueListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/issues/{id}:
+    get:
+      operationId: getIssue
+      summary: Issue detail core
+      description: |
+        Core issue identity and lifecycle, list-level counts, fingerprint,
+        a summary of the computed intelligence, the primary diagnosis, and
+        triage signals. Heavy, section-specific evidence lives on the
+        `/occurrences` and `/analysis` subresources.
+      security:
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Issue core with computed analysis summaries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssueDetailResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/issues/{id}/status:
+    patch:
+      operationId: updateIssueStatus
+      summary: Transition issue lifecycle status
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  enum:
+                    - open
+                    - resolved
+                    - ignored
+      responses:
+        "200":
+          description: Updated issue
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Issue"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+  /api/v1/issues/{id}/disposition:
+    patch:
+      operationId: updateIssueDisposition
+      summary: Record an operator disposition
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - disposition
+              properties:
+                disposition:
+                  type: string
+                  enum:
+                    - unclassified
+                    - under_investigation
+                    - expected_harmless
+                    - application_configuration
+                    - labeling_configuration
+                    - policy_required
+                    - possible_policy_package_defect
+                    - suspicious_behavior
+                note:
+                  type: string
+      responses:
+        "200":
+          description: Updated issue
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Issue"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+  /api/v1/issues/{id}/occurrences:
+    get:
+      operationId: listIssueOccurrences
+      summary: Cursor-paginated occurrences with retained evidence
+      description: |
+        Occurrences ordered by `(occurred_at DESC, id DESC)`. Pass the
+        `before` cursor from `meta.next_cursor` to page backwards in time.
+        With `view=summary`, returns 25 lightweight rows and page metadata;
+        raw records and guidance are fetched only from the occurrence detail.
+        Raw audit record payloads are preserved exactly as data; clients
+        must render them as text, never as markup.
+      security:
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          description: Page size, capped at 50.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 50
+        - name: before
+          in: query
+          description: Opaque cursor from `meta.next_cursor`.
+          schema:
+            type: string
+        - name: view
+          in: query
+          schema:
+            type: string
+            enum: [summary]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Occurrence page
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/IssueOccurrencesResponse"
+                  - $ref: "#/components/schemas/OccurrenceSummaryPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+  /api/v1/issues/{id}/occurrences/{occurrence_id}:
+    get:
+      operationId: getIssueOccurrence
+      summary: One occurrence with retained raw audit evidence and investigation guidance
+      security:
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: occurrence_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Occurrence detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OccurrenceDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/issues/{id}/analysis:
+    get:
+      operationId: getIssueAnalysis
+      summary: Issue analysis sections
+      description: Per-host explanations, fleet explanation, hypotheses, and supporting evidence.
+      security:
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Analysis sections
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssueAnalysisResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/hosts:
+    get:
+      operationId: listHosts
+      summary: List monitored hosts
+      description: |
+        Page-based list of monitored hosts with agent reporting state,
+        heartbeat-confirmed configuration freshness, platform, SELinux
+        enforcement, and per-host event counts.
+
+        Filters match the historical monitored-servers screen:
+        `os_id`, `policy_type`, `kernel_policy_version`, and `enforcement`
+        match the host's current (fresh, heartbeat-confirmed) snapshot;
+        `agent_version` matches an agent installation bound to the host;
+        `status` matches the agent reporting state
+        (`reporting`, `stale`, `offline`).
+        `host_id` restricts the list to one host.
+
+        The fleet boolean/configuration inventory is not part of this
+        payload; it is served by the configuration endpoints.
+      security:
+        - session: []
+      parameters:
+        - name: os_id
+          in: query
+          schema:
+            type: string
+        - name: policy_type
+          in: query
+          schema:
+            type: string
+        - name: kernel_policy_version
+          in: query
+          schema:
+            type: string
+        - name: enforcement
+          in: query
+          schema:
+            type: string
+        - name: agent_version
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Agent reporting state.
+          schema:
+            type: string
+            enum:
+              - reporting
+              - stale
+              - offline
+        - name: host_id
+          in: query
+          schema:
+            type: integer
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Host page with agent state summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HostListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/hosts/{id}:
+    get:
+      operationId: getHost
+      summary: Host core detail
+      description: |
+        Core host domain data: identity, agent reporting state,
+        heartbeat-confirmed observation freshness, platform, SELinux
+        mode and policy identity, and event counts. Configuration
+        comparison data (booleans, port inventory, distribution
+        references) is not part of this payload; it is served by the
+        host configuration endpoints.
+      security:
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Host core detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HostDetailResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/hosts/{id}/occurrences:
+    get:
+      operationId: listHostOccurrences
+      summary: Paginated recent occurrences for a host
+      description: |
+        Host occurrences ordered by `(occurred_at DESC, id DESC)`. Pass
+        the `before` cursor from `meta.next_cursor` to page backwards in
+        time. Alternatively pass `page` with `limit` for numbered pagination;
+        numbered responses also include page, page_size, total and total_pages.
+        `page` and `before` cannot be combined. Pages beyond the last page are
+        clamped to the last page (page 1 for an empty collection).
+        Raw audit record payloads are preserved exactly as data;
+        clients must render them as text, never as markup.
+      security:
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          description: Page size, capped at 50.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 50
+        - name: before
+          in: query
+          description: Opaque cursor from `meta.next_cursor`.
+          schema:
+            type: string
+        - name: page
+          in: query
+          description: Positive page number; omit to use the existing cursor interface.
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Occurrence page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HostOccurrencesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+  /api/v1/hosts/{id}/selinux-activity:
+    get:
+      operationId: listHostSelinuxActivity
+      summary: Recent supported SELinux transitions and retained reconciliation checkpoints
+      description: |
+        Bounded application projection, not a raw audit log. Groups records by
+        retained audit identity. Newest audit time first; boot and audit serial
+        provide stable tie ordering. Checkpoints are separate observed evidence,
+        using retained observation endpoints and accepted checkpoint references.
+        No checkpoint timestamp is interpolated from a coalesced range.
+        Window counts include unassociated AVC occurrences, assigned to the latest
+        preceding boundary within the same boot. No full raw records are returned.
+        Absence of activity never proves that no SELinux change occurred.
+        Pass `page` for numbered pagination with 10 identities per page; it cannot
+        be combined with before, event_id or occurrence_id. Pages beyond the last
+        page are clamped to the last page (page 1 for empty history).
+      security:
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: before
+          in: query
+          description: Opaque cursor from meta.next_cursor; pages contain at most 20 administrative identities.
+          schema: { type: string }
+        - name: page
+          in: query
+          description: Positive page number for 10-row numbered pagination. Omit for cursor or selected-event navigation.
+          schema: { type: integer, minimum: 1 }
+        - name: event_id
+          in: query
+          description: Select one supported administrative identity for cross-navigation, including older evidence.
+          schema: { type: integer }
+        - name: occurrence_id
+          in: query
+          description: Return the preceding boundary only when this host occurrence is in an unresolved interval; otherwise an empty page.
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Bounded SELinux activity projection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelinuxActivityResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+  /api/v1/hosts/{id}/selinux-activity/{event_id}:
+    get:
+      operationId: getHostSelinuxActivityEvidence
+      summary: Selected SELinux activity evidence and bounded interval occurrence links
+      description: |
+        Loaded on operator disclosure/selection. Actor fields come from retained
+        audit records; unset or conflicting identities are not inferred.
+        Original records are evidence and must be rendered as text, never markup.
+        At most 20 most-recent unresolved interval occurrences are included;
+        window_avc_count remains the full retained count.
+      security:
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: event_id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Selected activity evidence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelinuxActivityDetailResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/configuration:
+    get:
+      operationId: getConfiguration
+      summary: Fleet SELinux configuration for one family
+      description: |
+        Domain-oriented fleet configuration data scoped to a single family.
+        `booleans` returns the fleet boolean inventory, per-host coverage, and,
+        when a policy cohort is selected, the catalog overlay. `ports` returns
+        port inventory coverage and the catalog overlay. `file_contexts` and
+        `modules` return deduplicated observed rows with host membership.
+        Reference catalog data never fills missing host observations; missing
+        data stays in its own coverage bucket.
+      security:
+        - session: []
+      parameters:
+        - name: family
+          in: query
+          schema:
+            $ref: "#/components/schemas/ConfigurationFamily"
+          default: overview
+        - name: policy_identity
+          in: query
+          description: Loaded-policy cohort to compare against, `sha256:<64 hex>`.
+          schema:
+            type: string
+            pattern: '\Asha256:[0-9a-f]{64}\z'
+      responses:
+        "200":
+          description: Fleet configuration for the selected family
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationFleetResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+  /api/v1/hosts/{id}/configuration:
+    get:
+      operationId: getHostConfiguration
+      summary: SELinux configuration comparison for a host
+      description: |
+        Host heartbeat-confirmed configuration compared against the
+        distribution reference selected by its observed policy identity.
+        `view` selects the payload block: `differences` (findings and
+        limitations), `booleans` (full comparison, search + pagination),
+        `ports` (full comparison, search + pagination). Unknown view values
+        fall back to `differences`. When the observation is stale the
+        comparison is `paused` and the views show last-observed data.
+      security:
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: view
+          in: query
+          schema:
+            type: string
+            enum: [differences, booleans, ports]
+          default: differences
+        - name: q
+          in: query
+          description: Search within the booleans or ports view.
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Host configuration comparison
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HostConfigurationResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/catalogs:
+    get:
+      operationId: listCatalogs
+      summary: List imported distribution catalogs
+      description: |
+        Imported distribution SELinux policy catalogs, newest first. A
+        catalog is immutable reference knowledge: identity digests,
+        distribution/major-release/architecture/policy-type, schema and
+        collector semantics versions, family completeness, and counts.
+        The full boolean and port inventories are on the detail endpoint.
+      security:
+        - session: []
+      responses:
+        "200":
+          description: Catalog list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/catalogs/{id}:
+    get:
+      operationId: getCatalog
+      summary: Distribution catalog detail
+      description: |
+        Catalog identity, acquisition metadata, and the full structured
+        boolean and port mapping inventory. Catalogs are immutable: they
+        cannot be updated or deleted.
+      security:
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Catalog detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogDetailResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/overview:
+    get:
+      operationId: getOverview
+      summary: Dashboard-level fleet overview
+      description: |
+        Aggregate fleet summary for the dashboard: issue and AVC counts,
+        affected-host and monitored-host counts, agent reporting-state
+        counts, 7-day daily series, and attention items.
+
+        Counts use the same semantics as the issues and hosts endpoints
+        (open-issue scope, heartbeat-confirmed freshness, agent reporting
+        state) so they cannot diverge from those lists. Attention items
+        are lightweight references — counts plus up to three example ids —
+        not full issue or host resources; drill down through the issues,
+        hosts, and configuration endpoints.
+      security:
+        - session: []
+      responses:
+        "200":
+          description: Overview aggregates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OverviewResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/ungroupable-events:
+    get:
+      operationId: listUngroupableEvents
+      summary: List retained events that could not be grouped
+      description: |
+        Retained audit events whose normalized denial lacks the AVC fields
+        needed for grouping. Unpaginated: these are expected to be a small,
+        attention-worthy set.
+      security:
+        - session: []
+      parameters:
+        - name: host_id
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Retained ungroupable events, most recent first
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UngroupableEventsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/sessions:
+    get:
+      operationId: getSession
+      summary: Current operator session
+      security:
+        - session: []
+      responses:
+        "200":
+          description: The authenticated operator
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: createSession
+      summary: Log in
+      description: Exempt from CSRF verification; no session exists yet.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "201":
+          description: Session created; the session cookie is set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      operationId: deleteSession
+      summary: Log out
+      security:
+        - session: []
+          csrf: []
+      responses:
+        "204":
+          description: Session cleared
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+components:
+  parameters:
+    IssueId:
+      name: id
+      in: path
+      required: true
+      schema: {type: integer, minimum: 1}
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: _secentral_server_session
+      description: |
+        Operator session cookie. The browser sets and sends it automatically
+        for same-origin requests after a successful login; clients must not
+        manage it manually.
+    csrf:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: |
+        Forgery-protection token. The server delivers it as the
+        `X-CSRF-Token` response header on API responses; the client echoes
+        it in this request header on mutating requests. Transport metadata,
+        not application data.
+  responses:
+    Unauthorized:
+      description: Unauthenticated
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    UnprocessableEntity:
+      description: Validation or forgery-protection failure
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    EvidenceBasis:
+      type: object
+      additionalProperties: true
+    ResolutionCandidate:
+      type: object
+      required: [id, kind, title, explanation, finding_kind, host_id, hostname, evidence_basis, evidence_version, intent_prompt, scope_kind, scope_description, scope_warning, expected_effect, mechanically_supported, intent_confirmation_required, limitations, status]
+      properties:
+        id: {type: string}
+        kind: {type: string, enum: [restore_configured_label, enable_boolean]}
+        title: {type: string}
+        explanation: {type: string}
+        finding_kind: {type: string}
+        host_id: {type: integer}
+        hostname: {type: [string, 'null']}
+        evidence_basis: {$ref: "#/components/schemas/EvidenceBasis"}
+        evidence_version: {type: string}
+        plan_semantics_version: {type: integer, minimum: 1, description: Explicit server plan-generation semantics version}
+        intent_prompt: {type: string}
+        scope_kind: {type: string, enum: [single_object, host_boolean]}
+        scope_description: {type: string}
+        scope_warning: {type: string}
+        expected_effect: {type: string}
+        mechanically_supported: {type: boolean}
+        intent_confirmation_required: {type: boolean}
+        limitations: {type: array, items: {type: string}}
+        status: {type: string, enum: [proposed, evidence_changed, no_longer_supported]}
+    ResolutionIntent:
+      type: object
+      required: [candidate_id, candidate_kind, selected_intent, operator, selected_at, evidence_version, status]
+      properties:
+        candidate_id: {type: string}
+        candidate_kind: {type: string}
+        selected_intent: {type: string}
+        operator: {type: string}
+        selected_at: {type: string, format: date-time}
+        evidence_version: {type: string}
+        status: {type: string, enum: [selected]}
+    ChangePlanStep:
+      type: object
+      required: [title, command, explanation, persistence]
+      properties:
+        title: {type: string}
+        command: {type: string}
+        explanation: {type: string}
+        persistence: {type: string, enum: [inspection, configured_label, temporary, persistent]}
+    ChangePlan:
+      type: object
+      required: [id, title, explanation, scope_kind, scope_description, scope_warning, expected_effect, limitations, evidence_basis, evidence_version, preview_steps, apply_steps, rollback_steps, rollback_description, persistence]
+      properties:
+        id: {type: string}
+        title: {type: string}
+        explanation: {type: string}
+        scope_kind: {type: string}
+        scope_description: {type: string}
+        scope_warning: {type: string}
+        expected_effect: {type: string}
+        limitations: {type: array, items: {type: string}}
+        evidence_basis: {$ref: "#/components/schemas/EvidenceBasis"}
+        evidence_version: {type: string}
+        plan_semantics_version: {type: integer, minimum: 1}
+        preview_steps: {type: array, items: {$ref: "#/components/schemas/ChangePlanStep"}}
+        apply_steps: {type: array, items: {$ref: "#/components/schemas/ChangePlanStep"}}
+        rollback_steps: {type: array, items: {$ref: "#/components/schemas/ChangePlanStep"}}
+        rollback_description: {type: string}
+        persistence: {type: string}
+    ObservedAccess:
+      type: object
+      required: [occurrence_id, host_id, hostname, actor, source_type, resource, target_type, object_class, permissions, operation_label, outcome, observed_at]
+      properties:
+        occurrence_id: {type: integer}
+        host_id: {type: integer}
+        hostname: {type: [string, 'null']}
+        actor: {type: string}
+        source_type: {type: string}
+        resource: {type: string}
+        target_type: {type: string}
+        object_class: {type: string}
+        permissions: {type: array, items: {type: string}}
+        operation_label: {type: string}
+        outcome: {type: string, enum: [DENIED]}
+        observed_at: {type: string, format: date-time}
+    ResolutionWorkflow:
+      type: object
+      required: [candidates, rejected_candidates, observed_access, intent, freshness, change_plan, history]
+      properties:
+        candidates: {type: array, items: {$ref: "#/components/schemas/ResolutionCandidate"}}
+        rejected_candidates:
+          type: array
+          items:
+            type: object
+            required: [kind, reason]
+            properties:
+              kind: {type: string}
+              reason: {type: string}
+        observed_access:
+          anyOf:
+            - {$ref: "#/components/schemas/ObservedAccess"}
+            - {type: 'null'}
+        intent:
+          anyOf:
+            - {$ref: "#/components/schemas/ResolutionIntent"}
+            - {type: 'null'}
+        freshness: {type: [string, 'null'], enum: [current, evidence_changed, no_longer_supported, null]}
+        freshness_reasons:
+          type: array
+          maxItems: 1
+          description: Bounded server-authored explanation; clients do not compare evidence to derive freshness.
+          items: {type: string}
+        change_plan:
+          anyOf:
+            - {$ref: "#/components/schemas/ChangePlan"}
+            - {type: 'null'}
+        history:
+          type: array
+          items:
+            type: object
+            required: [action, operator, created_at, details]
+            properties:
+              action: {type: string}
+              operator: {type: string}
+              created_at: {type: string, format: date-time}
+              details: {$ref: "#/components/schemas/EvidenceBasis"}
+    PolicyDraftEntry:
+      type: object
+      required: [id, source_type, target_type, object_class, permission, provenance, known_alternatives]
+      properties:
+        id: {type: integer}
+        source_type: {type: string}
+        target_type: {type: string}
+        object_class: {type: string}
+        permission: {type: string}
+        provenance: {type: array, items: {$ref: "#/components/schemas/EvidenceBasis"}}
+        known_alternatives:
+          type: array
+          items:
+            type: object
+            required: [kind, title, status]
+            properties:
+              kind: {type: string}
+              title: {type: string}
+              status: {type: string}
+    PolicyDraft:
+      type: object
+      required: [id, name, organization_id, operator, status, updated_at, entries, limitations, evidence_version]
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        organization_id: {type: integer}
+        operator: {type: string}
+        status: {type: string, enum: [draft, exported]}
+        updated_at: {type: string, format: date-time}
+        entries: {type: array, items: {$ref: "#/components/schemas/PolicyDraftEntry"}}
+        evidence_version: {type: string}
+        limitations: {type: array, items: {type: string}}
+    PolicyDraftExport:
+      type: object
+      required: [filename, content, validation_status, build_steps, limitations, provenance]
+      properties:
+        filename: {type: string}
+        content: {type: string}
+        validation_status: {type: string, enum: [semantic_only, unvalidated]}
+        build_steps: {type: array, items: {type: string}}
+        limitations: {type: array, items: {type: string}}
+        provenance: {type: array, items: {$ref: "#/components/schemas/PolicyDraftEntry"}}
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              example: not_found
+            message:
+              type: string
+              example: Resource not found
+            details:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+    System:
+      type: object
+      required:
+        - api_version
+        - server_version
+        - capabilities
+      properties:
+        api_version:
+          type: string
+          example: v1
+        server_version:
+          type: string
+          example: 0.1.0
+        capabilities:
+          type: array
+          items:
+            type: string
+          example:
+            - issue-diagnosis
+            - distribution-catalogs
+    Operator:
+      type: object
+      required:
+        - username
+      properties:
+        username:
+          type: string
+    Session:
+      type: object
+      required:
+        - operator
+      properties:
+        operator:
+          $ref: "#/components/schemas/Operator"
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    PageMeta:
+      description: Pagination metadata for stable lists.
+      type: object
+      required:
+        - page
+        - page_size
+        - total
+        - total_pages
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          maximum: 50
+        total:
+          type: integer
+          minimum: 0
+        total_pages:
+          type: integer
+          minimum: 0
+    CursorMeta:
+      description: Pagination metadata for time-ordered occurrence streams.
+      type: object
+      required:
+        - next_cursor
+      properties:
+        next_cursor:
+          type:
+            - string
+            - "null"
+    HostAgent:
+      description: Most recent agent installation bound to the host.
+      type: object
+      required:
+        - reporting_state
+      properties:
+        reporting_state:
+          type: string
+          enum:
+            - reporting
+            - stale
+            - offline
+        agent_version:
+          type:
+            - string
+            - "null"
+        last_seen_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    HostObservation:
+      description: Freshness of the heartbeat-confirmed configuration observation.
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - current
+            - stale
+            - none
+        last_received_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        last_observed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    HostPlatform:
+      type: object
+      required:
+        - os_id
+        - os_version
+      properties:
+        architecture:
+          description: Host-reported architecture, when retained in the platform snapshot.
+          type:
+            - string
+            - "null"
+        os_id:
+          type:
+            - string
+            - "null"
+        os_version:
+          type:
+            - string
+            - "null"
+    HostSelinux:
+      type: object
+      required:
+        - enforcement
+        - configured_policy_type
+        - kernel_policy_version
+      properties:
+        enforcement:
+          type:
+            - string
+            - "null"
+        configured_policy_type:
+          type:
+            - string
+            - "null"
+        kernel_policy_version:
+          type:
+            - integer
+            - "null"
+        policy_identity:
+          type:
+            - string
+            - "null"
+    HostCounts:
+      type: object
+      required:
+        - active_issues
+        - avcs_24h
+        - total_events
+      properties:
+        active_issues:
+          description: Distinct open issues with occurrences on this host.
+          type: integer
+        avcs_24h:
+          description: Occurrences observed in the last 24 hours.
+          type: integer
+        total_events:
+          description: All retained occurrences on this host.
+          type: integer
+    AgentStateCounts:
+      type: object
+      required:
+        - reporting
+        - stale
+        - offline
+      properties:
+        reporting:
+          type: integer
+        stale:
+          type: integer
+        offline:
+          type: integer
+    OverviewSeriesPoint:
+      type: object
+      required:
+        - date
+        - value
+      properties:
+        date:
+          type: string
+          format: date
+        value:
+          type: integer
+    OverviewMetrics:
+      type: object
+      required:
+        - active_issues
+        - new_issues_24h
+        - affected_hosts
+        - avcs_24h
+        - monitored_hosts
+        - agent_states
+      properties:
+        active_issues:
+          type: integer
+          description: Open issues.
+        new_issues_24h:
+          type: integer
+          description: Issues first seen during the last 24 hours.
+        affected_hosts:
+          type: integer
+          description: Distinct hosts with occurrences on open issues.
+        avcs_24h:
+          type: integer
+          description: Retained occurrences during the last 24 hours.
+        monitored_hosts:
+          type: integer
+        agent_states:
+          $ref: "#/components/schemas/AgentStateCounts"
+    OverviewAttentionHost:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: integer
+        hostname:
+          type: string
+          nullable: true
+    OverviewAttentionIssue:
+      type: object
+      required:
+        - id
+        - source_type
+        - target_type
+      properties:
+        id:
+          type: integer
+        source_type:
+          type: string
+        target_type:
+          type: string
+    OverviewAgentStateGroup:
+      type: object
+      required:
+        - state
+        - host_count
+        - example_hosts
+      properties:
+        state:
+          type: string
+          enum:
+            - stale
+            - offline
+        host_count:
+          type: integer
+        heartbeat_range:
+          type: array
+          items:
+            type: string
+            format: date-time
+          nullable: true
+          description: Oldest and newest agent heartbeat in the group.
+        example_hosts:
+          type: array
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/OverviewAttentionHost"
+    OverviewPermissiveAttention:
+      type: object
+      required:
+        - host_count
+        - example_hosts
+      properties:
+        host_count:
+          type: integer
+        example_hosts:
+          type: array
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/OverviewAttentionHost"
+    OverviewIssueAttention:
+      type: object
+      required:
+        - issue_count
+        - example_issues
+      properties:
+        issue_count:
+          type: integer
+        example_issues:
+          type: array
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/OverviewAttentionIssue"
+    OverviewAttention:
+      type: object
+      required:
+        - agent_states
+        - permissive
+        - new_issues
+        - multi_host_issues
+      properties:
+        agent_states:
+          type: array
+          items:
+            $ref: "#/components/schemas/OverviewAgentStateGroup"
+        permissive:
+          oneOf:
+            - $ref: "#/components/schemas/OverviewPermissiveAttention"
+            - type: "null"
+          description: Hosts with a fresh heartbeat-confirmed permissive enforcement state.
+        new_issues:
+          oneOf:
+            - $ref: "#/components/schemas/OverviewIssueAttention"
+            - type: "null"
+          description: Open issues first seen during the last 24 hours.
+        multi_host_issues:
+          oneOf:
+            - $ref: "#/components/schemas/OverviewIssueAttention"
+            - type: "null"
+          description: Open issues with retained occurrences on multiple distinct hosts.
+    OverviewResponse:
+      type: object
+      required:
+        - metrics
+        - series
+        - attention
+      properties:
+        metrics:
+          $ref: "#/components/schemas/OverviewMetrics"
+        series:
+          type: object
+          required:
+            - new_issues
+            - avc_occurrences
+          properties:
+            new_issues:
+              type: array
+              description: Issues first seen per day, 7 days ending today.
+              items:
+                $ref: "#/components/schemas/OverviewSeriesPoint"
+            avc_occurrences:
+              type: array
+              description: Retained occurrences per day, 7 days ending today.
+              items:
+                $ref: "#/components/schemas/OverviewSeriesPoint"
+        attention:
+          $ref: "#/components/schemas/OverviewAttention"
+    HostListItem:
+      type: object
+      required:
+        - id
+        - hostname
+        - external_id
+        - agent
+        - observation
+        - platform
+        - selinux
+        - counts
+      properties:
+        id:
+          type: integer
+        hostname:
+          type:
+            - string
+            - "null"
+        external_id:
+          type: string
+        last_seen_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        agent:
+          $ref: "#/components/schemas/HostAgent"
+        observation:
+          $ref: "#/components/schemas/HostObservation"
+        platform:
+          $ref: "#/components/schemas/HostPlatform"
+        selinux:
+          $ref: "#/components/schemas/HostSelinux"
+        counts:
+          $ref: "#/components/schemas/HostCounts"
+    HostListResponse:
+      type: object
+      required:
+        - hosts
+        - summary
+        - meta
+      properties:
+        hosts:
+          type: array
+          items:
+            $ref: "#/components/schemas/HostListItem"
+        summary:
+          type: object
+          required:
+            - agent_state_counts
+            - total
+          properties:
+            agent_state_counts:
+              $ref: "#/components/schemas/AgentStateCounts"
+            total:
+              type: integer
+        meta:
+          $ref: "#/components/schemas/PageMeta"
+    HostDetail:
+      description: Host core detail. Same fields as the list item, plus the heartbeat-confirmed snapshot.
+      allOf:
+        - $ref: "#/components/schemas/HostListItem"
+        - type: object
+          required:
+            - snapshot
+          properties:
+            snapshot:
+              description: Heartbeat-confirmed snapshot, or null when no observation exists.
+              type:
+                - object
+                - "null"
+              required:
+                - platform
+                - selinux
+              properties:
+                platform:
+                  $ref: "#/components/schemas/HostPlatform"
+                selinux:
+                  $ref: "#/components/schemas/HostSelinux"
+    HostDetailResponse:
+      type: object
+      required:
+        - host
+      properties:
+        host:
+          $ref: "#/components/schemas/HostDetail"
+    HostOccurrencesResponse:
+      type: object
+      required:
+        - occurrences
+        - meta
+      properties:
+        occurrences:
+          type: array
+          items:
+            $ref: "#/components/schemas/OccurrenceDetail"
+        meta:
+          allOf:
+            - $ref: "#/components/schemas/CursorMeta"
+            - type: object
+              properties:
+                page: { type: integer, minimum: 1 }
+                page_size: { type: integer, minimum: 1, maximum: 50 }
+                total: { type: integer, minimum: 0 }
+                total_pages: { type: integer, minimum: 0 }
+    ConfigurationFamily:
+      type: string
+      enum: [overview, booleans, ports, file_contexts, modules]
+    ConfigurationCatalog:
+      type: object
+      required:
+        - available
+      properties:
+        available:
+          type: boolean
+        policy_identity:
+          type:
+            - string
+            - "null"
+        version:
+          type:
+            - string
+            - "null"
+        provenance:
+          type:
+            - string
+            - "null"
+        reference_source:
+          type:
+            - string
+            - "null"
+        content_digest:
+          type:
+            - string
+            - "null"
+        loaded_policy_digest:
+          type:
+            - string
+            - "null"
+        distribution_catalog_revision_id:
+          type:
+            - integer
+            - "null"
+        completeness:
+          description: 'Boolean catalogs: complete or incomplete. Port catalogs: per-protocol completeness.'
+          type:
+            - string
+            - object
+            - "null"
+        entries:
+          description: Boolean catalog entries.
+          type:
+            - array
+            - "null"
+          items:
+            type: object
+            required: [name]
+            properties:
+              name:
+                type: string
+              default:
+                type:
+                  - boolean
+                  - "null"
+              description:
+                type:
+                  - string
+                  - "null"
+        mappings:
+          description: Port catalog mappings.
+          type:
+            - array
+            - "null"
+          items:
+            $ref: "#/components/schemas/ConfigurationPortMapping"
+    ConfigurationBooleanOverlayRow:
+      type: object
+      required:
+        - name
+        - catalog
+        - catalog_status
+        - counts
+      properties:
+        name:
+          type: string
+        catalog:
+          description: Reference definition, or null when the name is not in the selected catalog.
+          type:
+            - object
+            - "null"
+          properties:
+            name:
+              type: string
+            default:
+              type:
+                - boolean
+                - "null"
+            description:
+              type:
+                - string
+                - "null"
+        catalog_status:
+          type: string
+          enum: [defined, not_defined, not_represented, unavailable]
+        counts:
+          type: object
+          required: [on, off, unknown, unavailable, stale, runtime_default_divergence, reference_match, reference_difference]
+          properties:
+            on:
+              type: integer
+            off:
+              type: integer
+            unknown:
+              type: integer
+            unavailable:
+              type: integer
+            stale:
+              type: integer
+            runtime_default_divergence:
+              type: integer
+            reference_match:
+              type: integer
+            reference_difference:
+              type: integer
+    ConfigurationBooleanOverlay:
+      type: object
+      required:
+        - cohort
+        - catalog
+        - observed
+      properties:
+        cohort:
+          type: string
+        catalog:
+          $ref: "#/components/schemas/ConfigurationCatalog"
+        observed:
+          type: object
+          required: [fresh_host_count, stale_host_count, outside_cohort_host_count, no_current_configuration_host_count, rows, unmatched_observed_names]
+          properties:
+            fresh_host_count:
+              type: integer
+            stale_host_count:
+              type: integer
+            outside_cohort_host_count:
+              type: integer
+            no_current_configuration_host_count:
+              type: integer
+            rows:
+              type: array
+              items:
+                $ref: "#/components/schemas/ConfigurationBooleanOverlayRow"
+            unmatched_observed_names:
+              description: Observed boolean names with no entry in the selected catalog.
+              type: array
+              items:
+                type: string
+    ConfigurationBooleanFamily:
+      type: object
+      required:
+        - coverage
+        - inventory
+        - policy_cohorts
+        - selected_policy_identity
+        - catalog
+        - catalog_overlay
+      properties:
+        coverage:
+          type: object
+          required: [observed, unavailable, stale, unknown]
+          properties:
+            observed:
+              type: integer
+            unavailable:
+              type: integer
+            stale:
+              type: integer
+            unknown:
+              type: integer
+        inventory:
+          description: Fleet-wide observed boolean inventory, independent of any catalog.
+          type: array
+          items:
+            type: object
+            required: [name, counts]
+            properties:
+              name:
+                type: string
+              description:
+                type:
+                  - string
+                  - "null"
+              counts:
+                type: object
+                required: [enabled, disabled, unknown, unavailable, stale, drift]
+                properties:
+                  enabled:
+                    type: integer
+                  disabled:
+                    type: integer
+                  unknown:
+                    type: integer
+                  unavailable:
+                    type: integer
+                  stale:
+                    type: integer
+                  drift:
+                    type: integer
+        policy_cohorts:
+          type: array
+          items:
+            type: string
+        selected_policy_identity:
+          type:
+            - string
+            - "null"
+        catalog:
+          oneOf:
+            - $ref: "#/components/schemas/ConfigurationCatalog"
+            - type: "null"
+        catalog_overlay:
+          oneOf:
+            - $ref: "#/components/schemas/ConfigurationBooleanOverlay"
+            - type: "null"
+    ConfigurationPortSegment:
+      type: object
+      required:
+        - protocol
+        - start
+        - end
+        - relation
+      properties:
+        protocol:
+          type: string
+        start:
+          type: integer
+        end:
+          type: integer
+        catalog_types:
+          type: array
+          items:
+            type:
+              - string
+              - "null"
+        observed_types:
+          type: array
+          items:
+            type:
+              - string
+              - "null"
+        relation:
+          description: Effective-state relation, e.g. `matching_effective_type`, `not_in_local_port_list`, `comparison_unknown`.
+          type: string
+        local_classification:
+          type:
+            - string
+            - "null"
+        inventory_status:
+          type:
+            - string
+            - "null"
+        host_id:
+          description: Present in fleet overlays; the owning host.
+          type:
+            - integer
+            - "null"
+        hostname:
+          description: Present in fleet overlays.
+          type:
+            - string
+            - "null"
+    ConfigurationPortMapping:
+      description: A single observed or catalog port mapping.
+      type: object
+      required: [protocol, type, start, end]
+      properties:
+        protocol:
+          type: string
+        type:
+          type:
+            - string
+            - "null"
+        start:
+          type: integer
+        end:
+          type: integer
+        provenance:
+          type:
+            - string
+            - "null"
+        inventory_status:
+          type:
+            - string
+            - "null"
+        host_id:
+          description: Present in fleet overlays.
+          type:
+            - integer
+            - "null"
+        hostname:
+          description: Present in fleet overlays.
+          type:
+            - string
+            - "null"
+    ConfigurationPortOverlay:
+      type: object
+      required:
+        - cohort
+        - catalog
+        - observed
+      properties:
+        cohort:
+          type: string
+        catalog:
+          $ref: "#/components/schemas/ConfigurationCatalog"
+        observed:
+          type: object
+          required: [fresh_complete_host_count, partial_host_count, unavailable_host_count, unknown_host_count, stale_host_count, outside_cohort_host_count, no_current_configuration_host_count, segments, observed_mappings, stale_observed_mappings]
+          properties:
+            fresh_complete_host_count:
+              type: integer
+            partial_host_count:
+              type: integer
+            unavailable_host_count:
+              type: integer
+            unknown_host_count:
+              type: integer
+            stale_host_count:
+              type: integer
+            outside_cohort_host_count:
+              type: integer
+            no_current_configuration_host_count:
+              type: integer
+            segments:
+              type: array
+              items:
+                $ref: "#/components/schemas/ConfigurationPortSegment"
+            observed_mappings:
+              description: Observed mappings without catalog comparison; empty when a catalog is available.
+              type: array
+              items:
+                $ref: "#/components/schemas/ConfigurationPortMapping"
+            stale_observed_mappings:
+              description: Stale-cohort mappings; empty when a catalog is available.
+              type: array
+              items:
+                $ref: "#/components/schemas/ConfigurationPortMapping"
+    ConfigurationPortFamily:
+      type: object
+      required:
+        - coverage
+        - policy_cohorts
+        - selected_policy_identity
+        - catalog
+        - catalog_overlay
+      properties:
+        coverage:
+          type: object
+          required: [observed, partial, unavailable, unknown, stale, no_heartbeat]
+          properties:
+            observed:
+              type: integer
+            partial:
+              type: integer
+            unavailable:
+              type: integer
+            unknown:
+              type: integer
+            stale:
+              type: integer
+            no_heartbeat:
+              type: integer
+        policy_cohorts:
+          type: array
+          items:
+            type: string
+        selected_policy_identity:
+          type:
+            - string
+            - "null"
+        catalog:
+          oneOf:
+            - $ref: "#/components/schemas/ConfigurationCatalog"
+            - type: "null"
+        catalog_overlay:
+          oneOf:
+            - $ref: "#/components/schemas/ConfigurationPortOverlay"
+            - type: "null"
+    ConfigurationRow:
+      description: Deduplicated observed row for the file_contexts and modules families.
+      type: object
+      required:
+        - provenance
+        - host_ids
+      properties:
+        pattern:
+          type:
+            - string
+            - "null"
+        file_type:
+          type:
+            - string
+            - "null"
+        context:
+          type:
+            - string
+            - "null"
+        name:
+          type:
+            - string
+            - "null"
+        priority:
+          type:
+            - integer
+            - "null"
+        version:
+          type:
+            - string
+            - "null"
+        source_package:
+          type:
+            - string
+            - "null"
+        type:
+          type:
+            - string
+            - "null"
+        protocol:
+          type:
+            - string
+            - "null"
+        ports:
+          type:
+            - array
+            - "null"
+          items:
+            type: object
+            required: [start, end]
+            properties:
+              start:
+                type: integer
+              end:
+                type: integer
+              provenance:
+                type:
+                  - string
+                  - "null"
+        provenance:
+          type: array
+          items:
+            type:
+              - string
+              - "null"
+        host_ids:
+          type: array
+          items:
+            type: integer
+    ConfigurationFleetResponse:
+      type: object
+      required:
+        - family
+        - families
+        - hosts
+      properties:
+        family:
+          $ref: "#/components/schemas/ConfigurationFamily"
+        families:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigurationFamily"
+        hosts:
+          type: object
+          required:
+            - total
+          properties:
+            total:
+              type: integer
+        booleans:
+          description: Present when `family` is `booleans`.
+          $ref: "#/components/schemas/ConfigurationBooleanFamily"
+        ports:
+          description: Present when `family` is `ports`.
+          $ref: "#/components/schemas/ConfigurationPortFamily"
+        rows:
+          description: Present when `family` is `file_contexts` or `modules`.
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigurationRow"
+        observed_host_count:
+          description: Fresh hosts with at least one observed row; present for row families.
+          type:
+            - integer
+            - "null"
+    HostConfigurationBooleanSummary:
+      type: object
+      required:
+        - reference_entries
+        - compared
+        - match
+        - differ
+        - host_only
+        - not_observed
+        - unavailable
+      properties:
+        reference_entries:
+          type: integer
+        compared:
+          type: integer
+        match:
+          type: integer
+        differ:
+          type: integer
+        host_only:
+          type: integer
+        not_observed:
+          type: integer
+        unavailable:
+          type: integer
+    HostConfigurationPortSummary:
+      type: object
+      required:
+        - compared
+        - match
+        - differ
+        - not_observed
+      properties:
+        compared:
+          type: integer
+        match:
+          type: integer
+        differ:
+          type: integer
+        not_observed:
+          type: integer
+    HostConfigurationDifferences:
+      type: object
+      required:
+        - total
+        - booleans
+        - ports
+        - limitations
+      properties:
+        total:
+          type: integer
+        booleans:
+          type: array
+          items:
+            type: object
+            required: [name, kind]
+            properties:
+              name:
+                type: string
+              kind:
+                type: string
+                enum: [differs, host_only]
+              reference_default:
+                type:
+                  - boolean
+                  - "null"
+              observed_current:
+                type:
+                  - boolean
+                  - "null"
+              host_reported_default:
+                type:
+                  - boolean
+                  - "null"
+              description:
+                type:
+                  - string
+                  - "null"
+        ports:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigurationPortSegment"
+        limitations:
+          type: object
+          required: [reference_only_booleans, unavailable_booleans, port_segments]
+          properties:
+            reference_only_booleans:
+              type: array
+              items:
+                type: string
+            unavailable_booleans:
+              type: array
+              items:
+                type: string
+            port_segments:
+              type: array
+              items:
+                $ref: "#/components/schemas/ConfigurationPortSegment"
+    HostConfigurationBooleanRow:
+      type: object
+      required: [name, current, host_default, reference_default, description, catalog_status, status]
+      properties:
+        name:
+          type: string
+        current:
+          description: Host-reported current value, or null when not determinable.
+          type:
+            - boolean
+            - "null"
+        host_default:
+          description: Default the host reported via semanage, or null.
+          type:
+            - boolean
+            - "null"
+        reference_default:
+          type:
+            - boolean
+            - "null"
+        description:
+          type:
+            - string
+            - "null"
+        catalog_status:
+          type: string
+          enum: [defined, not_defined, not_represented, unavailable]
+        status:
+          type: string
+          enum: [observed, unknown, unavailable, not_observed, stale]
+    HostConfigurationBooleanPage:
+      type: object
+      required:
+        - rows
+        - total
+        - page
+        - page_size
+        - pages
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/HostConfigurationBooleanRow"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+        pages:
+          type: integer
+    HostConfigurationPortPage:
+      type: object
+      required:
+        - segments
+        - total
+        - page
+        - page_size
+        - pages
+      properties:
+        segments:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigurationPortSegment"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+        pages:
+          type: integer
+    HostConfigurationResponse:
+      type: object
+      required:
+        - host
+        - observation
+        - selinux
+        - reference
+        - comparison
+        - view
+      properties:
+        host:
+          type: object
+          required: [id, hostname, external_id]
+          properties:
+            id:
+              type: integer
+            hostname:
+              type:
+                - string
+                - "null"
+            external_id:
+              type: string
+        observation:
+          description: Heartbeat-confirmed observation, or null when none exists.
+          type:
+            - object
+            - "null"
+          required: [status, last_observed_at, last_received_at]
+          properties:
+            status:
+              type: string
+              enum: [current, stale]
+            last_observed_at:
+              type: string
+              format: date-time
+            last_received_at:
+              type: string
+              format: date-time
+        selinux:
+          type: object
+          required: [enforcement, boolean_status, policy_identity]
+          properties:
+            enforcement:
+              type:
+                - string
+                - "null"
+            configured_policy_type:
+              type:
+                - string
+                - "null"
+            boolean_status:
+              type:
+                - string
+                - "null"
+            policy_identity:
+              type:
+                - string
+                - "null"
+        reference:
+          type: object
+          required:
+            - kind
+          properties:
+            kind:
+              type: string
+              enum: [distribution_catalog, none]
+            catalog_revision:
+              type:
+                - object
+                - "null"
+              required: [id, display_name, policy_type, architecture, loaded_policy_digest, applicability]
+              properties:
+                id:
+                  type: integer
+                display_name:
+                  type: string
+                policy_type:
+                  type:
+                    - string
+                    - "null"
+                architecture:
+                  type:
+                    - string
+                    - "null"
+                loaded_policy_digest:
+                  type:
+                    - string
+                    - "null"
+                applicability:
+                  description: 'exact for a loaded-policy digest match, major_release for the distribution fallback.'
+                  type: string
+                  enum: [exact, major_release]
+        comparison:
+          type: object
+          required:
+            - available
+            - paused
+            - summary
+          properties:
+            available:
+              type: boolean
+            paused:
+              description: True when the observation is stale and comparison is paused.
+              type: boolean
+            summary:
+              type: object
+              required: [booleans, ports]
+              properties:
+                booleans:
+                  $ref: "#/components/schemas/HostConfigurationBooleanSummary"
+                ports:
+                  $ref: "#/components/schemas/HostConfigurationPortSummary"
+        view:
+          type: string
+          enum: [differences, booleans, ports]
+        differences:
+          description: Present when `view` is `differences`.
+          $ref: "#/components/schemas/HostConfigurationDifferences"
+        booleans:
+          description: Present when `view` is `booleans`.
+          $ref: "#/components/schemas/HostConfigurationBooleanPage"
+        ports:
+          description: Present when `view` is `ports`.
+          $ref: "#/components/schemas/HostConfigurationPortPage"
+    CatalogImport:
+      type: object
+      required:
+        - id
+        - acquisition_metadata
+        - imported_at
+      properties:
+        id:
+          type: integer
+        source_path:
+          type: string
+          nullable: true
+        acquisition_metadata:
+          type: object
+          additionalProperties: true
+        imported_at:
+          type: string
+          format: date-time
+    Catalog:
+      type: object
+      required:
+        - id
+        - display_name
+        - distribution
+        - major_version
+        - architecture
+        - policy_type
+        - kernel_policy_version
+        - schema_version
+        - collector_semantics_version
+        - content_digest
+        - loaded_policy_digest
+        - booleans_complete
+        - ports_complete
+        - booleans_count
+        - port_mappings_count
+        - created_at
+      properties:
+        id:
+          type: integer
+        display_name:
+          type: string
+          description: Derived from the structured distribution and major version.
+        distribution:
+          type: string
+          example: almalinux
+        major_version:
+          type: string
+          example: "9"
+        architecture:
+          type: string
+          example: x86_64
+        policy_type:
+          type: string
+          example: targeted
+        kernel_policy_version:
+          type: integer
+        schema_version:
+          type: integer
+          description: Catalog artifact format/schema version.
+        collector_semantics_version:
+          type: integer
+          description: Collector semantics version the catalog was produced with.
+        content_digest:
+          type: string
+          description: Immutable digest of the catalog content.
+        loaded_policy_digest:
+          type: string
+          description: Immutable digest of the loaded policy the catalog was derived from.
+        booleans_complete:
+          type: boolean
+        ports_complete:
+          type: boolean
+        booleans_count:
+          type: integer
+        port_mappings_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+    CatalogDetail:
+      allOf:
+        - $ref: "#/components/schemas/Catalog"
+        - type: object
+          required:
+            - policy_packages
+            - imports
+            - booleans
+            - port_mappings
+          properties:
+            policy_packages:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+            imports:
+              type: array
+              items:
+                $ref: "#/components/schemas/CatalogImport"
+            booleans:
+              type: array
+              items:
+                type: object
+                required:
+                  - name
+                  - default_value
+                  - description
+                properties:
+                  name:
+                    type: string
+                  default_value:
+                    type: boolean
+                  description:
+                    type: string
+            port_mappings:
+              type: array
+              items:
+                type: object
+                required:
+                  - protocol
+                  - start
+                  - end
+                  - type
+                properties:
+                  protocol:
+                    type: string
+                  start:
+                    type: integer
+                  end:
+                    type: integer
+                  type:
+                    type: string
+                    description: SELinux port type.
+    CatalogListResponse:
+      type: object
+      required:
+        - catalogs
+      properties:
+        catalogs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Catalog"
+    CatalogDetailResponse:
+      type: object
+      required:
+        - catalog
+      properties:
+        catalog:
+          $ref: "#/components/schemas/CatalogDetail"
+    IssueHost:
+      type: object
+      required:
+        - id
+        - hostname
+      properties:
+        id:
+          type: integer
+        hostname:
+          type:
+            - string
+            - "null"
+    IssueListItem:
+      type: object
+      required:
+        - id
+        - status
+        - display_status
+        - disposition
+        - source_type
+        - target_type
+        - target_class
+        - permissions
+        - fingerprint_version
+        - fingerprint_digest
+        - first_seen_at
+        - last_seen_at
+        - occurrences_count
+        - hosts_count
+        - hosts
+        - observed_paths
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+          enum:
+            - open
+            - resolved
+            - ignored
+        display_status:
+          description: "'regressed' when an open issue was resolved and then reopened; otherwise 'status'."
+          type: string
+          enum:
+            - open
+            - resolved
+            - ignored
+            - regressed
+        disposition:
+          type: string
+          enum:
+            - unclassified
+            - under_investigation
+            - expected_harmless
+            - application_configuration
+            - labeling_configuration
+            - policy_required
+            - possible_policy_package_defect
+            - suspicious_behavior
+        source_type:
+          type: string
+        target_type:
+          type: string
+        target_class:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        fingerprint_version:
+          type: integer
+        fingerprint_digest:
+          type: string
+        first_seen_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        occurrences_count:
+          type: integer
+          minimum: 0
+        hosts_count:
+          type: integer
+          minimum: 0
+        hosts:
+          type: array
+          items:
+            $ref: "#/components/schemas/IssueHost"
+        observed_paths:
+          description: Distinct target paths recorded across the issue's occurrences.
+          type: array
+          items:
+            type: string
+    IssueListSummary:
+      type: object
+      required:
+        - total_count
+        - open_count
+        - regressed_count
+        - ungroupable_count
+        - monitored_hosts
+        - enforcing_hosts
+        - enforcement_percent
+      properties:
+        total_count:
+          description: Issues matching the current filters.
+          type: integer
+          minimum: 0
+        open_count:
+          type: integer
+          minimum: 0
+        regressed_count:
+          description: Open issues that were resolved and then reopened.
+          type: integer
+          minimum: 0
+        ungroupable_count:
+          description: Retained events that could not be grouped, respecting the host filter.
+          type: integer
+          minimum: 0
+        monitored_hosts:
+          type: integer
+          minimum: 0
+        enforcing_hosts:
+          type: integer
+          minimum: 0
+        enforcement_percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+    IssueListResponse:
+      type: object
+      required:
+        - issues
+        - host_options
+        - meta
+        - summary
+      properties:
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/IssueListItem"
+        host_options:
+          description: Hosts available for the `host_id` filter, sorted by hostname.
+          type: array
+          items:
+            $ref: "#/components/schemas/IssueHost"
+        meta:
+          $ref: "#/components/schemas/PageMeta"
+        summary:
+          $ref: "#/components/schemas/IssueListSummary"
+    UngroupableEvent:
+      type: object
+      required:
+        - id
+        - host
+        - missing
+        - occurred_at
+      properties:
+        id:
+          description: Occurrence id.
+          type: integer
+        host:
+          $ref: "#/components/schemas/IssueHost"
+        missing:
+          description: AVC fields absent from the retained event.
+          type: array
+          items:
+            type: string
+        occurred_at:
+          type: string
+          format: date-time
+    UngroupableEventsResponse:
+      type: object
+      required:
+        - events
+        - total_count
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/UngroupableEvent"
+        total_count:
+          type: integer
+          minimum: 0
+    DispositionChange:
+      type: object
+      required:
+        - disposition
+        - previous_disposition
+        - changed_at
+      properties:
+        disposition:
+          type: string
+        previous_disposition:
+          type: string
+        note:
+          type:
+            - string
+            - "null"
+        changed_at:
+          type: string
+          format: date-time
+    Issue:
+      description: Issue identity, lifecycle, and list-level counters.
+      type: object
+      required:
+        - id
+        - organization_id
+        - status
+        - display_status
+        - disposition
+        - regressions_count
+        - fingerprint_version
+        - fingerprint_digest
+        - source_type
+        - target_type
+        - target_class
+        - permissions
+        - first_seen_at
+        - last_seen_at
+        - occurrences_count
+        - affected_hosts
+        - disposition_history
+      properties:
+        id:
+          type: integer
+        organization_id:
+          type: integer
+        status:
+          type: string
+          enum:
+            - open
+            - resolved
+            - ignored
+        display_status:
+          type: string
+          enum:
+            - open
+            - resolved
+            - ignored
+            - regressed
+        disposition:
+          type: string
+        resolved_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        ignored_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        reopened_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        regressions_count:
+          type: integer
+          minimum: 0
+        fingerprint_version:
+          type: integer
+        fingerprint_digest:
+          type: string
+        source_type:
+          type: string
+        target_type:
+          type: string
+        target_class:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        first_seen_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        occurrences_count:
+          type: integer
+          minimum: 0
+        affected_hosts:
+          type: integer
+          minimum: 0
+        disposition_history:
+          type: array
+          items:
+            $ref: "#/components/schemas/DispositionChange"
+    IssueIntelligenceSummary:
+      description: Summary slice of the computed issue intelligence; per-occurrence details are on the subresources.
+      type: object
+      required:
+        - affected_hosts
+        - paths
+        - names
+        - occurrence_time
+        - fleet
+      properties:
+        resource_summary:
+          type: object
+          required: [absolute_path_occurrences, without_absolute_path_occurrences, path_count, name_count]
+          properties:
+            absolute_path_occurrences:
+              type: integer
+            without_absolute_path_occurrences:
+              type: integer
+            path_count:
+              type: integer
+            name_count:
+              type: integer
+            process_command:
+              type: [string, "null"]
+            destination_port_count:
+              type: integer
+            destination_ports:
+              description: At most three observed TCP destination-port examples with occurrence counts; no address or service identity is inferred.
+              type: array
+              maxItems: 3
+              items:
+                type: object
+                required: [port, occurrence_count]
+                properties:
+                  port:
+                    type: string
+                  occurrence_count:
+                    type: integer
+        affected_hosts:
+          type: integer
+          minimum: 0
+        paths:
+          type: array
+          description: At most three resource examples, not an exhaustive collection.
+          maxItems: 3
+          items:
+            type: string
+        names:
+          type: array
+          description: At most three basename examples, not an exhaustive collection.
+          maxItems: 3
+          items:
+            type: string
+        occurrence_time:
+          type: object
+          additionalProperties: true
+        fleet:
+          type: object
+          additionalProperties: true
+    Diagnosis:
+      description: |
+        Primary diagnosis. Kind-specific fields vary by diagnosis kind;
+        `kind` is the discriminator and additional properties carry the
+        kind-specific evidence.
+      type: object
+      required:
+        - kind
+        - title
+        - interpretation
+        - next_step
+        - limitation
+        - occurrence_id
+      properties:
+        kind:
+          type: string
+        title:
+          type: string
+        evidence_strength:
+          type: string
+        lead:
+          type: string
+        interpretation:
+          type: string
+        next_step:
+          type: string
+        policy_guidance:
+          type: string
+        limitation:
+          type: string
+        occurrence_id:
+          type: integer
+        host_id:
+          type: integer
+        policy_identity:
+          type: string
+          description: Exact loaded policy identity evaluated for this occurrence, when available.
+        checkpoint_observed_at:
+          type: string
+          format: date-time
+          description: Host-observed checkpoint timestamp associated with the occurrence; boolean values are checkpoint-scoped, not AVC-time evidence.
+        source_domain:
+          type: string
+        process_command:
+          type: string
+          description: Process command correlated to the diagnosis occurrence, when retained.
+        executable:
+          type: string
+          description: Executable path correlated to the diagnosis occurrence, when retained.
+        target_type:
+          type: string
+        target_class:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        path:
+          type: string
+        observed_type:
+          type: string
+          description: SELinux type from the AVC tcontext at denial time T1.
+        observed_context:
+          type: string
+          description: Full AVC tcontext recorded at denial time T1.
+        expected_type:
+          type: string
+          description: SELinux type resolved by host matchpathcon at inspection time T2.
+        expected_context:
+          type: string
+          description: Full expected context returned by host matchpathcon at T2.
+        file_type:
+          type: string
+          description: Object type supplied to matchpathcon, derived from AVC tclass and checked against PATH mode when available.
+        expected_context_observed_at:
+          type: string
+          format: date-time
+          description: Host inspection time T2; it does not establish that the same configuration applied at T1.
+        expected_context_resolver:
+          type: string
+        observation_event_id:
+          type: integer
+        operation:
+          type: string
+        bind_port:
+          type:
+            - string
+            - "null"
+        destination_port:
+          type:
+            - string
+            - "null"
+        conditional_rules:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        condition_boolean_states:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        booleans:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      additionalProperties: true
+    TriageSignals:
+      type: object
+      required:
+        - signals
+        - windows
+        - evaluated_at
+      properties:
+        signals:
+          type: array
+          items:
+            type: object
+            required:
+              - code
+              - label
+              - explanation
+            properties:
+              code:
+                type: string
+              label:
+                type: string
+              explanation:
+                type: string
+              temporal_scope:
+                type: string
+              evidence:
+                type: object
+                additionalProperties: true
+        windows:
+          type: object
+          additionalProperties: true
+        evaluated_at:
+          type: string
+          format: date-time
+    IssueDetailResponse:
+      type: object
+      required:
+        - issue
+        - intelligence
+        - diagnosis
+        - host_explanations
+        - fleet_explanation
+        - policy_analysis
+        - triage
+      properties:
+        findings:
+          description: Independent finding signatures, one recent example per kind, at most three. Counts may overlap because an occurrence can support both policy and file-context findings. The diagnosis field is the first visual finding, not an exclusive diagnosis.
+          type: array
+          maxItems: 3
+          items:
+            type: object
+            required: [diagnosis, occurrence_count, observation_count]
+            properties:
+              diagnosis:
+                $ref: "#/components/schemas/Diagnosis"
+              occurrence_count:
+                type: integer
+              observation_count:
+                description: Distinct supporting expected-context observation events, not one lookup per covered occurrence.
+                type: integer
+              reused_observation_occurrences:
+                description: Covered denials using another event's eligible observation within the same host, boot, checkpoint and denial tuple.
+                type: integer
+        additional_finding_count:
+          description: Additional finding signatures available through host/occurrence evidence.
+          type: integer
+        finding_coverage:
+          description: Occurrence counts by supported finding kind; counts can overlap. Unexplained means no supported finding, not all questions answered. A primary example is not whole-issue coverage.
+          type: object
+          additionalProperties:
+            type: integer
+        issue:
+          $ref: "#/components/schemas/Issue"
+        intelligence:
+          $ref: "#/components/schemas/IssueIntelligenceSummary"
+        diagnosis:
+          description: Primary diagnosis across the issue, or null when no evidence-backed diagnosis exists.
+          oneOf:
+            - $ref: "#/components/schemas/Diagnosis"
+            - type: "null"
+        host_explanations:
+          description: Bounded per-host finding summaries for the issue's primary investigation view.
+          type: array
+          items:
+            $ref: "#/components/schemas/IssueHostExplanationSummary"
+        fleet_explanation:
+          $ref: "#/components/schemas/IssueFleetSummary"
+        policy_analysis:
+          description: Compact policy-evaluation availability state for explaining an incomplete finding.
+          type: object
+          required: [status, limitations]
+          properties:
+            status:
+              type: string
+              enum: [evaluated, pending, error, unavailable]
+            limitations:
+              type: array
+              items:
+                type: string
+        triage:
+          $ref: "#/components/schemas/TriageSignals"
+        resolutions:
+          $ref: "#/components/schemas/ResolutionWorkflow"
+    IssueHostExplanationSummary:
+      type: object
+      required: [host_id, status, occurrence_count, unexplained_occurrence_count, diagnosis_groups, additional_diagnosis_group_count]
+      properties:
+        host_id:
+          type: integer
+        hostname:
+          type: [string, "null"]
+        status:
+          type: string
+          enum: [agreement, disagreement, insufficient_evidence]
+        diagnosis:
+          oneOf:
+            - $ref: "#/components/schemas/Diagnosis"
+            - type: "null"
+        occurrence_count:
+          type: integer
+        unexplained_occurrence_count:
+          type: integer
+        diagnosis_groups:
+          type: array
+          items:
+            type: object
+            required: [status, count, diagnosis, sample_occurrence_ids, policy_identity_count, policy_provenance, additional_policy_identity_count]
+            properties:
+              status:
+                type: string
+                enum: [diagnosed, insufficient_evidence]
+              count:
+                type: integer
+              diagnosis:
+                oneOf:
+                  - $ref: "#/components/schemas/Diagnosis"
+                  - type: "null"
+              sample_occurrence_ids:
+                type: array
+                items:
+                  type: integer
+              policy_identity_count:
+                type: integer
+              policy_provenance:
+                type: array
+                items:
+                  type: object
+                  required: [policy_identity, checkpoint_observed_at, occurrence_id]
+                  properties:
+                    policy_identity:
+                      type: string
+                    checkpoint_observed_at:
+                      type: [string, "null"]
+                      format: date-time
+                    occurrence_id:
+                      type: integer
+                  additionalProperties: false
+              additional_policy_identity_count:
+                type: integer
+        additional_diagnosis_group_count:
+          type: integer
+      additionalProperties: false
+    IssueFleetSummary:
+      type: object
+      required: [state, affected_host_count, host_status_counts]
+      properties:
+        state:
+          type: string
+          enum: [consistent, disagreement, partially_explained, insufficient_evidence]
+        affected_host_count:
+          type: integer
+        host_status_counts:
+          type: object
+          additionalProperties:
+            type: integer
+      additionalProperties: false
+    NormalizedDenialDetail:
+      type: object
+      required:
+        - status
+        - target_paths
+        - details
+      properties:
+        status:
+          type: string
+        source_type:
+          type: string
+        target_type:
+          type: string
+        target_class:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        target_paths:
+          type: array
+          items:
+            type: string
+        source_context:
+          type:
+            - string
+            - "null"
+        target_context:
+          type:
+            - string
+            - "null"
+        command:
+          type:
+            - string
+            - "null"
+        executable:
+          type:
+            - string
+            - "null"
+        details:
+          type: object
+          additionalProperties: true
+    RawAuditRecordDetail:
+      type: object
+      required:
+        - position
+        - record_type
+        - type_name
+        - audit_timestamp
+        - sequence
+        - payload
+      properties:
+        position:
+          type: integer
+        record_type:
+          description: Kernel audit record type code (e.g. 1400 = AVC).
+          type: integer
+        type_name:
+          type: string
+        audit_timestamp:
+          type: string
+          format: date-time
+        sequence:
+          type: integer
+        payload:
+          description: Preserved audit record text. Render as text, never as markup.
+          type: string
+    RawEventDetail:
+      type: object
+      required:
+        - id
+        - audit_timestamp
+        - audit_sequence
+        - boot_id
+        - category
+        - transition_type
+        - completion_reason
+        - evidence_digest
+        - audit_records
+      properties:
+        id:
+          type: integer
+        audit_timestamp:
+          type: string
+          format: date-time
+        audit_sequence:
+          type: integer
+        boot_id:
+          type: string
+        category:
+          type: string
+          enum: [avc, selinux_administrative]
+        transition_type:
+          type:
+            - string
+            - "null"
+          enum: [policy_load, boolean_change, enforcement_change, null]
+        checkpoint_enforcement_mode:
+          type: string
+          enum: [enforcing, permissive, disabled, unknown]
+          description: Host mode from the associated checkpoint only when that dimension remains trusted; distinct from AVC-local permissive evidence.
+        checkpoint_invalidated_fields:
+          type: array
+          items: { type: string, enum: [enforcement] }
+          description: Scoped checkpoint uncertainty reported by the collector or derived independently from retained transitions.
+        completion_reason:
+          type: string
+        evidence_digest:
+          type: string
+        file_context_observations:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        audit_records:
+          type: array
+          items:
+            $ref: "#/components/schemas/RawAuditRecordDetail"
+    OccurrenceGuidance:
+      type: object
+      required:
+        - summary
+        - observations
+        - checks
+        - missing_evidence
+        - historical_limitations
+      properties:
+        summary:
+          type: string
+        observations:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        checks:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        missing_evidence:
+          type: array
+          items:
+            type: string
+        historical_limitations:
+          type: array
+          items:
+            type: string
+    OccurrenceDetail:
+      type: object
+      required:
+        - id
+        - host
+        - occurred_at
+        - normalized_denial
+        - raw_event
+        - guidance
+      properties:
+        id:
+          type: integer
+        host:
+          $ref: "#/components/schemas/IssueHost"
+        occurred_at:
+          type: string
+          format: date-time
+        normalized_denial:
+          $ref: "#/components/schemas/NormalizedDenialDetail"
+        raw_event:
+          $ref: "#/components/schemas/RawEventDetail"
+        guidance:
+          description: Investigation guidance, or null for ungrouped occurrences.
+          allOf:
+            - $ref: "#/components/schemas/OccurrenceGuidance"
+          nullable: true
+        issue:
+          description: Grouping issue, or null for ungrouped occurrences.
+          type:
+            - object
+            - "null"
+          required:
+            - id
+          properties:
+            id:
+              type: integer
+    OccurrenceSummaryPage:
+      type: object
+      required: [occurrences, meta]
+      properties:
+        occurrences:
+          type: array
+          maxItems: 25
+          items:
+            type: object
+            required: [id, occurred_at, host, resource, absolute_path, target_type, permissions]
+            properties:
+              id:
+                type: integer
+              occurred_at:
+                type: string
+                format: date-time
+              host:
+                type: object
+                required: [id, hostname]
+                properties:
+                  id:
+                    type: integer
+                  hostname:
+                    type: [string, "null"]
+              resource:
+                type: [string, "null"]
+              absolute_path:
+                type: boolean
+              target_type:
+                type: [string, "null"]
+              permissions:
+                type: array
+                items:
+                  type: string
+        meta:
+          type: object
+          required: [page, page_size, total, total_pages]
+          properties:
+            page:
+              type: integer
+            page_size:
+              type: integer
+            total:
+              type: integer
+            total_pages:
+              type: integer
+    IssueOccurrencesResponse:
+      type: object
+      required:
+        - occurrences
+        - meta
+      properties:
+        occurrences:
+          type: array
+          items:
+            $ref: "#/components/schemas/OccurrenceDetail"
+        meta:
+          $ref: "#/components/schemas/CursorMeta"
+    HostExplanation:
+      type: object
+      required:
+        - host_id
+        - status
+        - occurrence_diagnoses
+      properties:
+        host_id:
+          type: integer
+        hostname:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+          enum:
+            - agreement
+            - disagreement
+            - insufficient_evidence
+        diagnosis:
+          oneOf:
+            - $ref: "#/components/schemas/Diagnosis"
+            - type: "null"
+        occurrence_diagnoses:
+          type: array
+          items:
+            type: object
+            required:
+              - occurrence_id
+              - host_id
+              - status
+            properties:
+              occurrence_id:
+                type: integer
+              host_id:
+                type: integer
+              status:
+                type: string
+              diagnosis:
+                oneOf:
+                  - $ref: "#/components/schemas/Diagnosis"
+                  - type: "null"
+    FleetExplanation:
+      type: object
+      required:
+        - state
+        - affected_host_count
+        - host_status_counts
+        - explanation_groups
+        - disagreeing_hosts
+        - insufficient_evidence_hosts
+      properties:
+        state:
+          type: string
+          enum:
+            - consistent
+            - disagreement
+            - partially_explained
+            - insufficient_evidence
+        affected_host_count:
+          type: integer
+          minimum: 0
+        host_status_counts:
+          type: object
+          additionalProperties: true
+        explanation_groups:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        disagreeing_hosts:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        insufficient_evidence_hosts:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    Hypothesis:
+      type: object
+      required:
+        - kind
+        - label
+        - confidence_band
+        - supporting_evidence
+        - missing_evidence
+      properties:
+        kind:
+          type: string
+        label:
+          type: string
+        confidence_band:
+          type: string
+        evidence_status:
+          type: string
+        supporting_evidence:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        why:
+          type: string
+        does_not_prove:
+          type: string
+        missing_evidence:
+          type: array
+          items:
+            type: string
+        confirmation:
+          type: string
+        temporal_scope:
+          type: string
+    SelinuxCheckpoint:
+      type: object
+      required: [id, host_id, boot_id, event_time, evidence_class, policy_identity, enforcement, booleans]
+      properties:
+        id: { type: integer }
+        host_id: { type: integer }
+        boot_id: { type: string }
+        event_time: { type: string, format: date-time }
+        evidence_class: { type: string, enum: [observed_checkpoint] }
+        policy_identity: { type: [string, "null"] }
+        enforcement: { type: [string, "null"] }
+        booleans:
+          type: array
+          description: Only names relevant to linked change records. Values come from this checkpoint; absent or unobserved current state is null, never copied from a transition delta.
+          items:
+            type: object
+            required: [name, value]
+            properties:
+              name: { type: string }
+              value: { type: [boolean, "null"] }
+    SelinuxActivityItem:
+      type: object
+      required: [id, host_id, boot_id, event_time, evidence_class, transition_type, boundary_established, audit_sequence, boolean_changes, previous_checkpoint, reconciliation, window_avc_count]
+      properties:
+        actor:
+          $ref: "#/components/schemas/SelinuxActivityActor"
+        id: { type: integer }
+        host_id: { type: integer }
+        boot_id: { type: string }
+        event_time: { type: string, format: date-time }
+        evidence_class: { type: string, enum: [observed_transition, administrative_history] }
+        transition_type: { type: string, enum: [policy_load, boolean_change, enforcement_change] }
+        boundary_established: { type: boolean }
+        audit_sequence: { type: integer }
+        boolean_changes:
+          type: array
+          items:
+            type: object
+            required: [name, old_value, new_value, state_change_established]
+            properties:
+              name: { type: string }
+              old_value: { type: boolean }
+              new_value: { type: boolean }
+              state_change_established: { type: boolean }
+        enforcement_changes:
+          type: array
+          description: Validated enabled-SELinux runtime enforcement fields; an unvalidated MAC_STATUS shape remains history without a delta or boundary.
+          items:
+            type: object
+            required: [old_mode, new_mode, state_change_established]
+            properties:
+              old_mode: { type: string, enum: [enforcing, permissive] }
+              new_mode: { type: string, enum: [enforcing, permissive] }
+              state_change_established: { type: boolean }
+        previous_checkpoint:
+          description: Earlier historical checkpoint, not an assertion that it was current throughout the intervening period.
+          oneOf:
+            - $ref: "#/components/schemas/SelinuxCheckpoint"
+            - type: "null"
+        reconciliation:
+          type: object
+          required: [status, checkpoint, next_transition]
+          properties:
+            status: { type: string, enum: [pending, reconciled, superseded, not_applicable] }
+            checkpoint:
+              description: Earliest retained post-event checkpoint for this boot; a superseding transition may precede it. Individual unknown fields remain unknown.
+              oneOf:
+                - $ref: "#/components/schemas/SelinuxCheckpoint"
+                - type: "null"
+            next_transition:
+              oneOf:
+                - type: object
+                  required: [id, event_time, audit_sequence]
+                  properties:
+                    id: { type: integer }
+                    event_time: { type: string, format: date-time }
+                    audit_sequence: { type: integer }
+                - type: "null"
+        window_avc_count:
+          type: integer
+          minimum: 0
+          description: Retained unassociated occurrences after this boundary, before the next boundary, and at/before the earliest retained checkpoint (checkpoint timestamp ties fail closed).
+    SelinuxActivityResponse:
+      type: object
+      required: [items, coverage, meta]
+      properties:
+        items:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/SelinuxActivityItem"
+        coverage: { type: string }
+        meta:
+          type: object
+          required: [page_size, next_cursor]
+          properties:
+            page_size: { type: integer, enum: [10, 20] }
+            next_cursor: { type: [string, "null"] }
+            page: { type: integer, minimum: 1 }
+            total_pages: { type: integer, minimum: 0 }
+            total: { type: integer, minimum: 0, description: Total retained supported administrative events for this host, independent of selection or cursor. }
+    SelinuxActivityActor:
+      type: object
+      required: [login_uid, session, executable, command, proctitle]
+      description: Observed actor fields; unset or conflicting audit values are null. Included in list summaries without returning raw record payloads.
+      properties:
+        login_uid: { type: [integer, "null"] }
+        execution_uid: { type: [integer, "null"] }
+        pid: { type: [integer, "null"] }
+        context: { type: [string, "null"] }
+        session: { type: [integer, "null"] }
+        executable: { type: [string, "null"] }
+        command: { type: [string, "null"] }
+        proctitle: { type: [string, "null"] }
+    SelinuxActivityDetail:
+      allOf:
+        - $ref: "#/components/schemas/SelinuxActivityItem"
+        - type: object
+          required: [actor, evidence, window_occurrences]
+          properties:
+            actor:
+              $ref: "#/components/schemas/SelinuxActivityActor"
+            evidence:
+              type: object
+              required: [completion_reason, digest, records]
+              properties:
+                completion_reason: { type: string }
+                digest: { type: string }
+                records:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/RawAuditRecordDetail"
+            window_occurrences:
+              type: array
+              maxItems: 20
+              items:
+                type: object
+                required: [id, issue_id, event_time]
+                properties:
+                  id: { type: integer }
+                  issue_id: { type: [integer, "null"] }
+                  event_time: { type: string, format: date-time }
+    SelinuxActivityDetailResponse:
+      type: object
+      required: [item]
+      properties:
+        item:
+          $ref: "#/components/schemas/SelinuxActivityDetail"
+    IssueAnalysisResponse:
+      type: object
+      required:
+        - host_explanations
+        - fleet_explanation
+        - hypotheses
+        - supporting_evidence
+      properties:
+        host_explanations:
+          type: array
+          items:
+            $ref: "#/components/schemas/HostExplanation"
+        fleet_explanation:
+          $ref: "#/components/schemas/FleetExplanation"
+        hypotheses:
+          type: array
+          items:
+            $ref: "#/components/schemas/Hypothesis"
+        supporting_evidence:
+          type: object
+          required:
+            - explanation
+            - file_contexts
+          properties:
+            explanation:
+              description: Issue-level policy explanation, or null.
+              oneOf:
+                - type: object
+                  additionalProperties: true
+                - type: "null"
+            file_contexts:
+              type: object
+              additionalProperties: true
