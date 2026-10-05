@@ -262,7 +262,7 @@ RSpec.describe "Issues API", type: :request do
     second = create_occurrence(issue, "network-second", 3, host: stale.host)
     [stale, first, second].each_with_index do |occurrence, index|
       configure_policy_occurrence(occurrence, result: "matched", identity: "sha256:network", boolean: index.zero?)
-      details = occurrence.normalized_denial.details.deep_merge("network_evidence" => {"dest_fields" => [index == 1 ? "12346" : "12345"], "dport_fields" => []})
+      details = occurrence.normalized_denial.details.deep_merge("network_evidence" => { "dest_fields" => [index == 1 ? "12346" : "12345"], "dport_fields" => [] })
       occurrence.normalized_denial.update!(command: "httpd", executable: "/usr/sbin/httpd", details: details)
     end
     get "/api/v1/issues/#{issue.id}"
@@ -270,18 +270,18 @@ RSpec.describe "Issues API", type: :request do
     expect(body.dig("finding_coverage", "conditional_allow_inactive")).to eq(2)
     expect(body.dig("finding_coverage", "unexplained")).to eq(1)
     expect(body.dig("policy_analysis", "limitations").join).to include("1 denial", "active at the associated checkpoint", "not an AVC-time")
-    expect(body.dig("intelligence", "resource_summary")).to include("destination_port_count" => 2, "destination_ports" => [{"port" => "12345", "occurrence_count" => 2}, {"port" => "12346", "occurrence_count" => 1}])
+    expect(body.dig("intelligence", "resource_summary")).to include("destination_port_count" => 2, "destination_ports" => [{ "port" => "12345", "occurrence_count" => 2 }, { "port" => "12346", "occurrence_count" => 1 }])
     expect(body.dig("findings", 0, "occurrence_count")).to eq(1)
     expect(body.fetch("additional_finding_count")).to eq(1)
 
     queries = []
     subscription = ActiveSupport::Notifications.subscribe("sql.active_record") { |event| queries << event.payload[:sql] }
-    get "/api/v1/issues/#{issue.id}/occurrences", params: {view: "summary"}
+    get "/api/v1/issues/#{issue.id}/occurrences", params: { view: "summary" }
     ActiveSupport::Notifications.unsubscribe(subscription)
     summaries = JSON.parse(response.body).fetch("occurrences")
     expect(summaries.map { |item| item["resource"] }).to eq(["TCP/12345", "TCP/12346", "TCP/12345"])
     expect(queries.none? { |sql| sql.include?('FROM "raw_audit_records"') || sql.include?('FROM "raw_events"') }).to be(true)
-    expect(IssueIntelligence.destination_ports({"network_evidence" => {"dest_fields" => ["127.0.0.1", "example.test", "12345", "12345"]}})).to eq(["12345"])
+    expect(IssueIntelligence.destination_ports({ "network_evidence" => { "dest_fields" => ["127.0.0.1", "example.test", "12345", "12345"] } })).to eq(["12345"])
   end
 
   it "composes conditional-read and file-context findings, then retains policy knowledge when the path is unavailable" do

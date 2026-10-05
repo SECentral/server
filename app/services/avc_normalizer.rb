@@ -126,7 +126,7 @@ class AvcNormalizer
 
   def key_values(raw)
     raw.scan(/(\w+)=("(?:\\.|[^"])*"|\S+)/).to_h do |key, value|
-      [key, value.start_with?("\"") ? value[1...-1].gsub('\\"', '"').gsub('\\\\', '\\') : value]
+      [key, value.start_with?("\"") ? value[1...-1].gsub('\\"', '"').gsub("\\\\", "\\") : value]
     end
   end
 

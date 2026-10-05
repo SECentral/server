@@ -202,7 +202,7 @@ class HostSelinuxActivity
     records.select { |record| [1403, 1404, 1405, 1300, 1327].include?(record.record_type) }.each do |record|
         record.payload.scan(/(?:\A|\s)(auid|uid|pid|ses|subj|exe|comm|proctitle)=("(?:\\.|[^"])*"|\S+)/).each do |key, value|
         decoded = if value.start_with?('"')
-          value[1...-1].gsub('\\"', '"').gsub('\\\\', '\\')
+          value[1...-1].gsub('\\"', '"').gsub("\\\\", "\\")
         elsif %w[exe comm proctitle].include?(key) && value.match?(/\A(?:[0-9A-Fa-f]{2})+\z/)
           [value].pack("H*").force_encoding("UTF-8").scrub.tr("\0", " ")
         else

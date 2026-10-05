@@ -66,8 +66,8 @@ RSpec.describe PolicyEvaluation do
   it "preserves alternative connect rules and evaluates 1,000 equivalent snapshot inputs once" do
     issue = create_issue("httpd_t", "unreserved_port_t", "tcp_socket", ["name_connect"])
     occurrence = create_occurrence(issue, identity: identity, permissions: ["name_connect"], booleans: [
-      {"name" => "httpd_can_network_connect", "current" => false, "status" => "observed"},
-      {"name" => "nis_enabled", "current" => false, "status" => "observed"}
+      { "name" => "httpd_can_network_connect", "current" => false, "status" => "observed" },
+      { "name" => "nis_enabled", "current" => false, "status" => "observed" }
     ])
     rules = ["allow httpd_t port_type:tcp_socket name_connect; [ httpd_can_network_connect ]:True", "allow nsswitch_domain unreserved_port_t:tcp_socket name_connect; [ nis_enabled ]:True"]
     create_fact(issue, "name_connect", status: "matched", matching_rules: rules)

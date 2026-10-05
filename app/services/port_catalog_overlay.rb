@@ -87,5 +87,4 @@ class PortCatalogOverlay
       Array(mapping["ports"]).map { |range| { protocol: mapping["protocol"], type: mapping["type"], start: range["start"], end: range["end"], provenance: range["provenance"] } }
     end
   end
-
 end

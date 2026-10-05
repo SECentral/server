@@ -235,9 +235,9 @@ class IssueDiagnosis
       operation: operation,
       title: if connect
         blocked ? "SELinux blocked a network connection request" : enforcing ? "SELinux denied a network connection request" : "SELinux reported a network connection denial"
-      else
+             else
         blocked ? "SELinux blocked a local port bind request" : enforcing ? "SELinux denied a local port bind request" : "SELinux reported a local port bind denial"
-      end,
+             end,
       evidence_strength: "strong",
       finding: "Matching conditional allow paths exist, but their conditions were inactive at the associated host checkpoint.",
       occurrence_id: item[:occurrence_id],

@@ -24,7 +24,6 @@ DEMO_HOST_PERSONAS = [
 ].freeze
 
 namespace :secentral do
-
   namespace :catalog do
     task :validate, [:file] => :environment do |_, args|
       abort "secentral:catalog:validate requires FILE" unless args[:file]
@@ -242,7 +241,7 @@ namespace :secentral do
         "completion_reason" => "eoe",
         "records" => ([fixture] + Array(fixture["records"])).each_with_index.map do |record, position|
           { "position" => position, "type" => record.fetch("type", "avc"), "type_name" => record.fetch("type_name", record.fetch("type", "avc").upcase), "timestamp" => timestamp.iso8601(6), "sequence" => timestamp.to_i, "payload" => [record.fetch("payload")].pack("m0") }
-        end,
+        end
       } ]
     }
     IngestEvents.new(organization: host.organization, payload: payload).call.each { |event| ProcessRawEvent.call(event) }
@@ -260,5 +259,4 @@ namespace :secentral do
       host.update!(last_seen_at: timestamp)
     end
   end
-
 end

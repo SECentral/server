@@ -78,6 +78,17 @@ jobs:
         with:
           bundler-cache: true
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Build the SPA
+        run: npm run build --prefix frontend
+
       - name: Prepare test database
         run: bundle exec rails db:prepare
 
