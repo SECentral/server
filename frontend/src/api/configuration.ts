@@ -1,9 +1,9 @@
 import { apiFetch } from "./client";
-import type { components } from "./types.gen";
+import type * as Types from "./generated/types.gen";
 
-export type ConfigurationFamily = components["schemas"]["ConfigurationFamily"];
-export type ConfigurationFleetResponse = components["schemas"]["ConfigurationFleetResponse"];
-export type HostConfigurationResponse = components["schemas"]["HostConfigurationResponse"];
+export type ConfigurationFamily = Types.ConfigurationFamily;
+export type ConfigurationFleetResponse = Types.ConfigurationFleetResponse;
+export type HostConfigurationResponse = Types.HostConfigurationResponse;
 
 export function fetchConfiguration(family: ConfigurationFamily, policyIdentity?: string): Promise<ConfigurationFleetResponse> {
   const query = new URLSearchParams();

@@ -1,7 +1,7 @@
 import { apiFetch } from "./client";
-import type { components } from "./types.gen";
+import type * as Types from "./generated/types.gen";
 
-export type System = components["schemas"]["System"];
+export type System = Types.System;
 
 export function getSystem(): Promise<System> {
   return apiFetch<System>("/api/v1/system");

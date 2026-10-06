@@ -1,10 +1,10 @@
 import { apiFetch } from "./client";
-import type { components } from "./types.gen";
+import type * as Types from "./generated/types.gen";
 
-export type ResolutionWorkflow = components["schemas"]["ResolutionWorkflow"];
-export type ChangePlan = components["schemas"]["ChangePlan"];
-export type PolicyDraft = components["schemas"]["PolicyDraft"];
-export type PolicyDraftExport = components["schemas"]["PolicyDraftExport"];
+export type ResolutionWorkflow = Types.ResolutionWorkflow;
+export type ChangePlan = Types.ChangePlan;
+export type PolicyDraft = Types.PolicyDraft;
+export type PolicyDraftExport = Types.PolicyDraftExport;
 
 export const fetchResolutions = (id: number) => apiFetch<ResolutionWorkflow>(`/api/v1/issues/${id}/resolutions`);
 export const selectIntent = (id: number, candidate_id: string, evidence_version: string) =>

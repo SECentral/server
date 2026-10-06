@@ -1,7 +1,7 @@
 import { apiFetch } from "./client";
-import type { components } from "./types.gen";
+import type * as Types from "./generated/types.gen";
 
-export type Session = components["schemas"]["Session"];
+export type Session = Types.Session;
 
 export function getSession(): Promise<Session> {
   return apiFetch<Session>("/api/v1/sessions");
