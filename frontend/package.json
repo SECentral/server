@@ -22,7 +22,7 @@
     "victory": "^37.3.6"
   },
   "devDependencies": {
-    "@eslint/js": "^9.27.0",
+    "@eslint/js": "^10.0.1",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.6.1",
