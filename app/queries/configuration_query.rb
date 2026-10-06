@@ -72,7 +72,7 @@ class ConfigurationQuery
     @hosts.each do |host|
       observation = host.current_state_observation
       selinux = observation&.host_snapshot&.details&.dig("selinux") || {}
-      inventory = selinux.dig("policy", "port_inventory")
+      inventory = host.port_inventory_for(observation)
       values = case @family
       when "ports" then inventory&.fetch("mappings", [])
       when "file_contexts" then selinux.dig("policy", "file_contexts")
@@ -131,7 +131,7 @@ class ConfigurationQuery
     return :no_heartbeat unless observation
     return :stale if observation.stale?
 
-    status = observation.host_snapshot.details.dig("selinux", "policy", "port_inventory", "status")
+    status = host.port_inventory_for(observation)["status"]
     %w[observed partial unavailable unknown].include?(status) ? status.to_sym : :unknown
   end
 

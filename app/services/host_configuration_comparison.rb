@@ -19,6 +19,7 @@ class HostConfigurationComparison
     @selinux = @snapshot&.details&.fetch("selinux", {}) || {}
     @policy_identity = @host.policy_identity_for(@observation)
     @selinux = @selinux.merge("policy_identity" => @policy_identity, "enforcement" => @host.enforcement_for(@observation))
+    @selinux = @selinux.merge("policy" => @selinux.fetch("policy", {}).merge("port_inventory" => @host.port_inventory_for(@observation)))
     @reference = DistributionCatalogReference.for_snapshot(@snapshot) if @policy_identity
     @catalog_revision = @reference&.revision
     @stale = @observation&.stale?

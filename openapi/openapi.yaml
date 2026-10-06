@@ -2394,6 +2394,10 @@ components:
               type:
                 - string
                 - "null"
+            port_inventory_status:
+              type: string
+              enum: [observed, partial, unavailable, unknown]
+              description: Effective port inventory trust, independent of aggregate checkpoint age and unrelated inventory families.
             policy_identity:
               type:
                 - string
@@ -3342,15 +3346,22 @@ components:
           type:
             - string
             - "null"
-          enum: [policy_load, boolean_change, enforcement_change, null]
+          enum: [policy_load, boolean_change, enforcement_change, port_change, null]
         checkpoint_enforcement_mode:
           type: string
           enum: [enforcing, permissive, disabled, unknown]
           description: Host mode from the associated checkpoint only when that dimension remains trusted; distinct from AVC-local permissive evidence.
         checkpoint_invalidated_fields:
           type: array
-          items: { type: string, enum: [enforcement] }
+          items: { type: string, enum: [enforcement, ports, policy_identity] }
           description: Scoped checkpoint uncertainty reported by the collector or derived independently from retained transitions.
+        checkpoint_port_inventory_status:
+          type: string
+          enum: [observed, partial, unavailable, unknown]
+          description: Trusted checkpoint port inventory coverage; Unknown during a known port boundary. AVC target context is separate direct evidence.
+        checkpoint_policy_identity:
+          type: [string, "null"]
+          description: Exact identity only when the occurrence checkpoint identity dimension is trusted.
         completion_reason:
           type: string
         evidence_digest:
@@ -3632,7 +3643,7 @@ components:
         boot_id: { type: string }
         event_time: { type: string, format: date-time }
         evidence_class: { type: string, enum: [observed_transition, administrative_history] }
-        transition_type: { type: string, enum: [policy_load, boolean_change, enforcement_change] }
+        transition_type: { type: string, enum: [policy_load, boolean_change, enforcement_change, port_change] }
         boundary_established: { type: boolean }
         audit_sequence: { type: integer }
         boolean_changes:
@@ -3655,6 +3666,21 @@ components:
               old_mode: { type: string, enum: [enforcing, permissive] }
               new_mode: { type: string, enum: [enforcing, permissive] }
               state_change_established: { type: boolean }
+        port_changes:
+          type: array
+          description: Validated port-write fields only. Delete omits type; modify has no old value and may be equal-value. Boundary does not claim a reconstructed mapping delta.
+          items:
+            type: object
+            required: [operation, protocol, start, end, target_context, selinux_type, success, boundary_established]
+            properties:
+              operation: { type: string, enum: [add, modify, delete] }
+              protocol: { type: string, enum: [tcp, udp] }
+              start: { type: integer, minimum: 1, maximum: 65535 }
+              end: { type: integer, minimum: 1, maximum: 65535 }
+              target_context: { type: [string, "null"] }
+              selinux_type: { type: [string, "null"] }
+              success: { type: boolean }
+              boundary_established: { type: boolean }
         previous_checkpoint:
           description: Earlier historical checkpoint, not an assertion that it was current throughout the intervening period.
           oneOf:
@@ -3682,7 +3708,7 @@ components:
         window_avc_count:
           type: integer
           minimum: 0
-          description: Retained unassociated occurrences after this boundary, before the next boundary, and at/before the earliest retained checkpoint (checkpoint timestamp ties fail closed).
+          description: Retained occurrences with unsafe affected checkpoint dimensions after this boundary, before an overlapping boundary, and at/before the earliest retained checkpoint. Different dimension intervals may overlap; counts are not additive.
     SelinuxActivityResponse:
       type: object
       required: [items, coverage, meta]

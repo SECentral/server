@@ -86,7 +86,9 @@ export function HostOccurrenceDetail() {
       </p>
       <OccurrenceInvestigation occurrence={occurrence} />
       {activityQuery.data?.items[0] ? <Alert variant="info" isInline title="SELinux state changed before this occurrence" className="pf-v6-u-mt-lg">
-        {activityQuery.data.items[0].transition_type === "enforcement_change"
+        {activityQuery.data.items[0].transition_type === "port_change"
+          ? "The earlier checkpoint's port inventory and exact policy identity are untrusted for this occurrence. AVC-local target context remains authoritative; unrelated checkpoint dimensions stay available unless another observed transition invalidated them. "
+          : activityQuery.data.items[0].transition_type === "enforcement_change"
           ? "The earlier checkpoint's host enforcement mode is untrusted for this occurrence. AVC-local permissive evidence remains authoritative, and unchanged policy/boolean evidence can still support analysis. "
           : "No refreshed checkpoint applied to this occurrence, so checkpoint-dependent policy analysis is unavailable. "}
         <Link to={`/hosts/${hostId}?selinux_activity=${activityQuery.data.items[0].id}#selinux-activity`}>View the preceding observed transition</Link>.

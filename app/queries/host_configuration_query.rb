@@ -48,6 +48,7 @@ class HostConfigurationQuery
       enforcement: selinux["enforcement"],
       configured_policy_type: selinux["configured_policy_type"],
       boolean_status: selinux["boolean_status"],
+      port_inventory_status: selinux.dig("policy", "port_inventory", "status"),
       policy_identity: @comparison.policy_identity
     }
   end

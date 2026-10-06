@@ -8,18 +8,18 @@ class PolicyFactRequest
 
   def self.for_events(raw_events)
     questions = raw_events.flat_map do |raw_event|
-      identity = raw_event.host_snapshot&.details&.dig("selinux", "policy_identity")
+      identity = raw_event.checkpoint_policy_identity
       questions_for(raw_event.normalized_denials.select { |denial| denial.status == "ok" }, identity)
     end
     persist(questions)
   end
 
   def self.for_issue(issue)
-    questions = issue.occurrences.includes(:host_snapshot, :normalized_denial).flat_map do |occurrence|
+    questions = issue.occurrences.includes(:host_snapshot, :normalized_denial, :raw_event).flat_map do |occurrence|
       denial = occurrence.normalized_denial
       next [] unless occurrence.host_snapshot && denial&.status == "ok"
 
-      identity = occurrence.host_snapshot.details&.dig("selinux", "policy_identity")
+      identity = occurrence.policy_identity
       questions_for([ denial ], identity)
     end
     persist(questions)

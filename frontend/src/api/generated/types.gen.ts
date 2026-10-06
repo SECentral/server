@@ -687,6 +687,10 @@ export type HostConfigurationResponse = {
         enforcement: string | null;
         configured_policy_type?: string | null;
         boolean_status: string | null;
+        /**
+         * Effective port inventory trust, independent of aggregate checkpoint age and unrelated inventory families.
+         */
+        port_inventory_status?: 'observed' | 'partial' | 'unavailable' | 'unknown';
         policy_identity: string | null;
     };
     reference: {
@@ -1158,7 +1162,7 @@ export type RawEventDetail = {
     audit_sequence: number;
     boot_id: string;
     category: 'avc' | 'selinux_administrative';
-    transition_type: 'policy_load' | 'boolean_change' | 'enforcement_change' | null;
+    transition_type: 'policy_load' | 'boolean_change' | 'enforcement_change' | 'port_change' | null;
     /**
      * Host mode from the associated checkpoint only when that dimension remains trusted; distinct from AVC-local permissive evidence.
      */
@@ -1166,7 +1170,15 @@ export type RawEventDetail = {
     /**
      * Scoped checkpoint uncertainty reported by the collector or derived independently from retained transitions.
      */
-    checkpoint_invalidated_fields?: Array<'enforcement'>;
+    checkpoint_invalidated_fields?: Array<'enforcement' | 'ports' | 'policy_identity'>;
+    /**
+     * Trusted checkpoint port inventory coverage; Unknown during a known port boundary. AVC target context is separate direct evidence.
+     */
+    checkpoint_port_inventory_status?: 'observed' | 'partial' | 'unavailable' | 'unknown';
+    /**
+     * Exact identity only when the occurrence checkpoint identity dimension is trusted.
+     */
+    checkpoint_policy_identity?: string | null;
     completion_reason: string;
     evidence_digest: string;
     file_context_observations?: Array<{
@@ -1300,7 +1312,7 @@ export type SelinuxActivityItem = {
     boot_id: string;
     event_time: string;
     evidence_class: 'observed_transition' | 'administrative_history';
-    transition_type: 'policy_load' | 'boolean_change' | 'enforcement_change';
+    transition_type: 'policy_load' | 'boolean_change' | 'enforcement_change' | 'port_change';
     boundary_established: boolean;
     audit_sequence: number;
     boolean_changes: Array<{
@@ -1316,6 +1328,19 @@ export type SelinuxActivityItem = {
         old_mode: 'enforcing' | 'permissive';
         new_mode: 'enforcing' | 'permissive';
         state_change_established: boolean;
+    }>;
+    /**
+     * Validated port-write fields only. Delete omits type; modify has no old value and may be equal-value. Boundary does not claim a reconstructed mapping delta.
+     */
+    port_changes?: Array<{
+        operation: 'add' | 'modify' | 'delete';
+        protocol: 'tcp' | 'udp';
+        start: number;
+        end: number;
+        target_context: string | null;
+        selinux_type: string | null;
+        success: boolean;
+        boundary_established: boolean;
     }>;
     /**
      * Earlier historical checkpoint, not an assertion that it was current throughout the intervening period.
@@ -1334,7 +1359,7 @@ export type SelinuxActivityItem = {
         } | null;
     };
     /**
-     * Retained unassociated occurrences after this boundary, before the next boundary, and at/before the earliest retained checkpoint (checkpoint timestamp ties fail closed).
+     * Retained occurrences with unsafe affected checkpoint dimensions after this boundary, before an overlapping boundary, and at/before the earliest retained checkpoint. Different dimension intervals may overlap; counts are not additive.
      */
     window_avc_count: number;
 };

@@ -49,7 +49,7 @@ class PortCatalogOverlay
   end
 
   def inventory(host)
-    host.current_state_observation.host_snapshot.details.dig("selinux", "policy", "port_inventory") || { "status" => "unknown", "mappings" => [] }
+    host.port_inventory_for
   end
 
   def catalog_data

@@ -11,7 +11,8 @@ class RawEvent < ApplicationRecord
     :evidence_digest, :agent_received_at, :server_received_at, presence: true
   validates :category, inclusion: { in: %w[avc selinux_administrative] }
   POLICY_TRANSITIONS = %w[policy_load boolean_change].freeze
-  STATE_TRANSITIONS = (POLICY_TRANSITIONS + %w[enforcement_change]).freeze
+  STATE_TRANSITIONS = (POLICY_TRANSITIONS + %w[enforcement_change port_change]).freeze
+  CHECKPOINT_FIELDS = %w[enforcement ports policy_identity].freeze
   scope :state_transitions, -> { where(transition_type: STATE_TRANSITIONS) }
   scope :policy_transitions, -> { where(transition_type: POLICY_TRANSITIONS) }
   validates :transition_type, inclusion: { in: STATE_TRANSITIONS }, allow_nil: true
@@ -58,5 +59,49 @@ class RawEvent < ApplicationRecord
     return "unknown" if checkpoint_invalidated_fields.include?("enforcement") || !snapshot
 
     snapshot.details.dig("selinux", "enforcement") || "unknown"
+  end
+
+  def checkpoint_policy_identity(snapshot = host_snapshot)
+    snapshot&.details&.dig("selinux", "policy_identity") unless checkpoint_invalidated_fields.include?("policy_identity")
+  end
+
+  def checkpoint_port_inventory(snapshot = host_snapshot)
+    return { "status" => "unknown", "mappings" => [] } if checkpoint_invalidated_fields.include?("ports") || !snapshot
+
+    snapshot.details.dig("selinux", "policy", "port_inventory") || { "status" => "unknown", "mappings" => [] }
+  end
+
+  def self.port_record?(payload)
+    payload.scan(/(?:\A|\s)msg='([^']*)'(?:\s|\z)/).any? do |body|
+      body.first == "resrc=port" || body.first.start_with?("resrc=port ")
+    end
+  end
+
+  def self.port_change(payload)
+    messages = payload.scan(/(?:\A|\s)msg='([^']*)'(?:\s|\z)/)
+    return unless messages.one? && messages.sole.first.match?(/\A(?:[A-Za-z_]+=(?:"(?:\\.|[^"])*"|[^\s"]*)(?:\s+|\z))+\z/)
+
+    fields = {}
+    messages.sole.first.scan(/(?:\A|\s)([A-Za-z_]+)=("(?:\\.|[^"])*"|[^\s"]*)/).each do |key, value|
+      next unless %w[resrc op lport proto tcontext res success old_tcontext old_type].include?(key)
+      return if fields.key?(key)
+
+      fields[key] = value
+    end
+    return unless fields["resrc"] == "port" && %w[add modify delete].include?(fields["op"]) &&
+      %w[6 17].include?(fields["proto"]) && fields["lport"].to_s.match?(/\A[0-9]+(?:-[0-9]+)?\z/) &&
+      (fields.keys & %w[success old_tcontext old_type]).empty?
+
+    first, last = fields["lport"].split("-", 2).map(&:to_i)
+    last ||= first
+    return unless first.between?(1, 65535) && last.between?(first, 65535)
+    if fields["op"] == "delete"
+      return if fields.key?("tcontext")
+    else
+      return unless fields["tcontext"].to_s.match?(/\Asystem_u:object_r:[A-Za-z_][A-Za-z0-9_]*:s0\z/)
+    end
+    { "operation" => fields["op"], "protocol" => fields["proto"] == "6" ? "tcp" : "udp",
+      "start" => first, "end" => last, "target_context" => fields["tcontext"],
+      "selinux_type" => fields["tcontext"]&.split(":")&.[](2), "success" => fields["res"] == "success" }
   end
 end

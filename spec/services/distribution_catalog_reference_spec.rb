@@ -26,7 +26,11 @@ RSpec.describe DistributionCatalogReference do
   def host(identity:, booleans: [], boolean_status: "observed", mappings: [], port_status: "observed", stale: false)
     details = { "selinux" => { "policy_identity" => identity, "boolean_status" => boolean_status, "booleans" => booleans, "policy" => { "port_inventory" => { "status" => port_status, "mappings" => mappings } } } }
     observation = Struct.new(:host_snapshot, :stale?).new(Struct.new(:details).new(details), stale)
-    Struct.new(:id, :hostname, :current_state_observation).new(1, "host-1", observation)
+    Struct.new(:id, :hostname, :current_state_observation) do
+      def port_inventory_for
+        current_state_observation.host_snapshot.details.dig("selinux", "policy", "port_inventory")
+      end
+    end.new(1, "host-1", observation)
   end
 
   def mapping(type, port, provenance: "not_confirmed_custom")

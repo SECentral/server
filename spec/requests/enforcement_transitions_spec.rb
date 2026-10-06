@@ -165,7 +165,7 @@ RSpec.describe "Runtime enforcement transition correctness", type: :request do
   end
 
   it "rejects unsupported/duplicated trust-mask fields at the protocol boundary" do
-    [["policy_identity"], ["enforcement", "enforcement"], "enforcement"].each do |fields|
+    [["unsupported"], ["enforcement", "enforcement"], "enforcement"].each do |fields|
       request = request_for(3, 11, "boot-1", [[1400, "AVC", avc_text(0)]], "avc", 0)
       request["checkpoint_invalidated_fields"] = fields
       post "/api/v1/events", params: request.to_json, headers: headers

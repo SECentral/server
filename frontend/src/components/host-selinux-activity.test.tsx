@@ -68,6 +68,17 @@ async function openAudit() {
 }
 
 describe("Monitored-server SELinux activity", () => {
+  it.each(["add", "modify", "delete"] as const)("renders a validated %s port write without inventing old/delete type", async (operation) => {
+    renderActivity(response([item({ transition_type: "port_change", boolean_changes: [],
+      port_changes: [{ operation, protocol: "tcp", start: 23451, end: 23451, target_context: operation === "delete" ? null : "system_u:object_r:http_port_t:s0",
+        selinux_type: operation === "delete" ? null : "http_port_t", success: true, boundary_established: true }] })]));
+    expect(await screen.findByText(new RegExp(`TCP/23451 · ${operation}`))).toBeVisible();
+    await openAudit();
+    expect(screen.getByText(/USER_MAC_CONFIG_CHANGE/)).toBeVisible();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Technical Provenance & Hashes" }));
+    expect(screen.getByText(/no port delta is reconstructed/)).toBeVisible();
+    expect(screen.queryByText(/unreserved_port_t/)).not.toBeInTheDocument();
+  });
   it.each([["enforcing", "permissive", "Enforcing → Permissive"], ["permissive", "enforcing", "Permissive → Enforcing"]] as const)("renders a scoped %s -> %s transition", async (old_mode, new_mode, label) => {
     renderActivity(response([item({ transition_type: "enforcement_change", boolean_changes: [],
       enforcement_changes: [{ old_mode, new_mode, state_change_established: true }] })]));

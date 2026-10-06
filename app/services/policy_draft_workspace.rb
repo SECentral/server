@@ -8,7 +8,7 @@ class PolicyDraftWorkspace
     alternatives = ResolutionCandidates.new(issue, intelligence: intelligence, analyzer: analyzer).call[:candidates].map { |c| c.slice(:kind, :title, :status) }
     findings = analyzer.per_host.flat_map { |h| h[:occurrence_diagnoses] }.find { |o| o[:occurrence_id] == occurrence.id }
     provenance = { issue_id: issue.id, occurrence_id: occurrence.id, host_id: occurrence.host_id,
-      occurred_at: occurrence.occurred_at.iso8601(6), policy_identity: occurrence.host_snapshot&.details&.dig("selinux", "policy_identity"),
+      occurred_at: occurrence.occurred_at.iso8601(6), policy_identity: occurrence.policy_identity,
       resources: Array(denial.details.dig("target_evidence", "filesystem_paths")),
       destination_ports: IssueIntelligence.destination_ports(denial.details), known_alternatives: alternatives,
       finding_kinds: Array(findings&.dig(:findings)).map { |f| f[:kind] },

@@ -128,7 +128,7 @@ class ResolutionCandidates
       checkpoint_id: occurrence.host_snapshot_id, checkpoint_observed_at: occurrence.raw_event.host_observed_at,
       observation_event_id: finding[:observation_event_id], expected_context_observed_at: finding[:expected_context_observed_at],
       path: path, file_type: finding[:file_type], observed_context: finding[:observed_context], expected_context: finding[:expected_context],
-      historical_policy_identity: occurrence.host_snapshot&.details&.dig("selinux", "policy_identity"),
+      historical_policy_identity: occurrence.policy_identity,
       current_host_state: state.except(:configuration_current, :selinux),
       current_configuration_digest: label_configuration_digest(occurrence, state) }
     semantic_basis = {

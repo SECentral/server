@@ -1,6 +1,6 @@
 class IngestEvents
   COMPLETION_REASONS = %w[eoe timeout capacity shutdown].freeze
-  TYPE_CODES = { "avc" => 1400, "user_avc" => 1107, "syscall" => 1300, "path" => 1302, "avc_path" => 1402, "proctitle" => 1327, "execve" => 1309, "cwd" => 1307, "eoe" => 1320, "mac_policy_load" => 1403, "mac_config_change" => 1405, "mac_status" => 1404 }.freeze
+  TYPE_CODES = { "avc" => 1400, "user_avc" => 1107, "syscall" => 1300, "path" => 1302, "avc_path" => 1402, "proctitle" => 1327, "execve" => 1309, "cwd" => 1307, "eoe" => 1320, "mac_policy_load" => 1403, "mac_config_change" => 1405, "mac_status" => 1404, "user_mac_config_change" => 2312 }.freeze
 
   def self.type_code(value)
     return value if value.is_a?(Integer)
@@ -68,7 +68,7 @@ class IngestEvents
     details << detail("boot_id", "required") if blank?(@payload["boot_id"])
     details << detail("host_observed_at", "invalid_timestamp") if present?(@payload["host_observed_at"]) && !timestamp?(@payload["host_observed_at"])
     fields = @payload.fetch("checkpoint_invalidated_fields", [])
-    unless fields.is_a?(Array) && (fields - ["enforcement"]).empty? && fields.uniq == fields
+    unless fields.is_a?(Array) && (fields - RawEvent::CHECKPOINT_FIELDS).empty? && fields.uniq == fields
       details << detail("checkpoint_invalidated_fields", "invalid_checkpoint_fields")
     end
     details << detail("events", "required") unless @payload["events"].is_a?(Array) && @payload["events"].any?
@@ -123,7 +123,7 @@ class IngestEvents
     record_types = Array(records).filter_map { |record| type_code(record["type"]) if record.is_a?(Hash) }
     if event["category"] == "avc" && (record_types & [ 1400, 1107 ]).empty?
       details << detail("#{path}.category", "avc_record_required")
-    elsif event["category"] == "selinux_administrative" && (record_types & [1403, 1404]).empty? && boolean_changes(event).empty?
+    elsif event["category"] == "selinux_administrative" && (record_types & [1403, 1404]).empty? && boolean_changes(event).empty? && !port_record?(event)
       details << detail("#{path}.category", "supported_administrative_record_required")
     end
     details
@@ -150,6 +150,7 @@ class IngestEvents
       transition_type: transition_type(event),
       boolean_changes: boolean_changes(event),
       enforcement_changes: enforcement_changes(event),
+      port_changes: port_changes(event),
       checkpoint_invalidated_fields: checkpoint_invalidated_fields(host, event, timestamp, sequence, host_observed_at),
       audit_timestamp: timestamp,
       audit_sequence: sequence,
@@ -206,7 +207,9 @@ class IngestEvents
 
     return "boolean_change" if boolean_changes(event).any? { |change| change["success"] && change["old_value"] != change["new_value"] }
 
-    "enforcement_change" if enforcement_changes(event).any? { |change| change["success"] && change["old_mode"] != change["new_mode"] }
+    return "enforcement_change" if enforcement_changes(event).any? { |change| change["success"] && change["old_mode"] != change["new_mode"] }
+
+    "port_change" if port_changes(event).any? { |change| change["success"] }
   end
 
   def boolean_changes(event)
@@ -231,11 +234,31 @@ class IngestEvents
 
   def checkpoint_invalidated_fields(host, event, time, sequence, observed_at)
     fields = @payload.fetch("checkpoint_invalidated_fields", []).dup
-    if event["category"] == "avc" && observed_at && host.raw_events.where(boot_id: @payload["boot_id"], transition_type: "enforcement_change")
-      .where("(audit_timestamp, audit_sequence) <= (?, ?)", time, sequence).where("audit_timestamp >= ?", observed_at).exists?
-      fields |= ["enforcement"]
+    if event["category"] == "avc" && observed_at
+      transitions = host.raw_events.where(boot_id: @payload["boot_id"], transition_type: %w[enforcement_change port_change])
+        .where("(audit_timestamp, audit_sequence) <= (?, ?)", time, sequence).where("audit_timestamp >= ?", observed_at).distinct.pluck(:transition_type)
+      fields |= ["enforcement"] if transitions.include?("enforcement_change")
+      fields |= %w[ports policy_identity] if transitions.include?("port_change")
     end
-    fields
+    fields.sort
+  end
+
+  def port_record?(event)
+    Array(event["records"]).any? do |record|
+      record.is_a?(Hash) && type_code(record["type"]) == 2312 && RawEvent.port_record?(Base64.strict_decode64(record.fetch("payload")))
+    rescue ArgumentError, KeyError
+      false
+    end
+  end
+
+  def port_changes(event)
+    Array(event["records"]).filter_map do |record|
+      next unless record.is_a?(Hash) && type_code(record["type"]) == 2312
+
+      RawEvent.port_change(Base64.strict_decode64(record.fetch("payload")))
+    rescue ArgumentError, KeyError
+      nil
+    end
   end
 
   # Transport order is not audit order. Retract unsafe associations, never
@@ -244,10 +267,12 @@ class IngestEvents
     events = transition.host.raw_events.where(boot_id: transition.boot_id, category: "avc")
       .where("(audit_timestamp, audit_sequence) >= (?, ?)", transition.audit_timestamp, transition.audit_sequence)
       .where("host_observed_at <= ?", transition.audit_timestamp)
-    if transition.transition_type == "enforcement_change"
+    if %w[enforcement_change port_change].include?(transition.transition_type)
       # Unchanged policy/boolean facts keep their historical checkpoint. Only
       # the enforcement claim is unsafe, including on transport reordering.
-      events.update_all(checkpoint_invalidated_fields: ["enforcement"])
+      fields = transition.transition_type == "port_change" ? %w[ports policy_identity] : ["enforcement"]
+      quoted = ActiveRecord::Base.connection.quote(fields.to_json)
+      events.update_all("checkpoint_invalidated_fields = (SELECT jsonb_agg(DISTINCT value) FROM jsonb_array_elements(checkpoint_invalidated_fields || #{quoted}::jsonb))")
     else
       transition.host.occurrences.where(raw_event_id: events.select(:id)).update_all(host_snapshot_id: nil)
       events.update_all(host_snapshot_id: nil)

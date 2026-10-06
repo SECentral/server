@@ -21,7 +21,11 @@ RSpec.describe PortCatalogOverlay do
   def host(id, mappings:, status: "observed", stale: false, identity: self.identity)
     details = { "selinux" => { "policy_identity" => identity, "policy" => { "port_inventory" => { "status" => status, "local_classification_status" => "observed", "mappings" => mappings } } } }
     observation = Struct.new(:host_snapshot, :stale?).new(Struct.new(:details).new(details), stale)
-    Struct.new(:id, :hostname, :current_state_observation).new(id, "host-#{id}", observation)
+    Struct.new(:id, :hostname, :current_state_observation) do
+      def port_inventory_for
+        current_state_observation.host_snapshot.details.dig("selinux", "policy", "port_inventory")
+      end
+    end.new(id, "host-#{id}", observation)
   end
 
   def mapping(type, start_port, end_port = start_port, protocol: "tcp", provenance: "not_confirmed_custom")

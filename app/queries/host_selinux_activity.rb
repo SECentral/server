@@ -20,10 +20,15 @@ class HostSelinuxActivity
     return response(project(relation.where(id: relation.find(event_id).id))) if event_id
     if occurrence_id
       occurrence = @host.occurrences.includes(:raw_event).find(occurrence_id)
-      return response([]) if occurrence.host_snapshot_id && !occurrence.raw_event.checkpoint_invalidated_fields.include?("enforcement")
+      return response([]) if occurrence.host_snapshot_id && occurrence.raw_event.checkpoint_invalidated_fields.empty?
 
       raw = occurrence.raw_event
-      relation = relation.where(transition_type: "enforcement_change") if occurrence.host_snapshot_id
+      if occurrence.host_snapshot_id
+        types = []
+        types << "enforcement_change" if raw.checkpoint_invalidated_fields.include?("enforcement")
+        types << "port_change" if (raw.checkpoint_invalidated_fields & %w[ports policy_identity]).any?
+        relation = relation.where(transition_type: types)
+      end
       event = relation.state_transitions.where(boot_id: raw.boot_id)
         .where("(audit_timestamp, audit_sequence) <= (?, ?)", raw.audit_timestamp, raw.audit_sequence)
         .order(audit_timestamp: :desc, audit_sequence: :desc).first
@@ -68,7 +73,7 @@ class HostSelinuxActivity
 
   def supported_events
     @host.raw_events.where(category: "selinux_administrative")
-      .where("transition_type IN (?) OR boolean_changes <> '[]'::jsonb OR EXISTS (SELECT 1 FROM raw_audit_records WHERE raw_event_id = raw_events.id AND record_type IN (1403, 1404))", RawEvent::STATE_TRANSITIONS)
+      .where("transition_type IN (?) OR boolean_changes <> '[]'::jsonb OR EXISTS (SELECT 1 FROM raw_audit_records WHERE raw_event_id = raw_events.id AND record_type IN (1403, 1404, 2312))", RawEvent::STATE_TRANSITIONS)
   end
 
   def response(items, cursor = nil, **pagination)
@@ -102,12 +107,13 @@ class HostSelinuxActivity
       LEFT JOIN LATERAL (SELECT id, audit_timestamp, audit_sequence FROM raw_events r
         WHERE r.host_id = e.host_id AND r.boot_id = e.boot_id
           AND ((e.transition_type = 'enforcement_change' AND r.transition_type = 'enforcement_change')
-            OR (e.transition_type IN ('policy_load', 'boolean_change') AND r.transition_type IN ('policy_load', 'boolean_change')))
+            OR (e.transition_type IN ('policy_load', 'boolean_change', 'port_change') AND r.transition_type IN ('policy_load', 'boolean_change', 'port_change')))
           AND (r.audit_timestamp, r.audit_sequence) > (e.audit_timestamp, e.audit_sequence)
         ORDER BY r.audit_timestamp, r.audit_sequence LIMIT 1) following ON true
       LEFT JOIN LATERAL (SELECT count(*) FROM occurrences o JOIN raw_events r ON r.id = o.raw_event_id
         WHERE e.transition_type IS NOT NULL AND o.host_id = e.host_id
           AND ((e.transition_type = 'enforcement_change' AND (o.host_snapshot_id IS NULL OR r.checkpoint_invalidated_fields ? 'enforcement'))
+            OR (e.transition_type = 'port_change' AND (o.host_snapshot_id IS NULL OR r.checkpoint_invalidated_fields ? 'ports'))
             OR (e.transition_type IN ('policy_load', 'boolean_change') AND o.host_snapshot_id IS NULL))
           AND r.boot_id = e.boot_id AND r.category = 'avc'
           AND (r.audit_timestamp, r.audit_sequence) >= (e.audit_timestamp, e.audit_sequence)
@@ -137,7 +143,8 @@ class HostSelinuxActivity
       { old_mode: change["old_mode"], new_mode: change["new_mode"],
         state_change_established: change["success"] && change["old_mode"] != change["new_mode"] }
     end
-    type = event.transition_type || (event.raw_audit_records.any? { |record| record.record_type == 1404 } ? "enforcement_change" : changes.any? ? "boolean_change" : "policy_load")
+    ports = event.port_changes.map { |change| change.merge("boundary_established" => change["success"]) }
+    type = event.transition_type || (event.raw_audit_records.any? { |record| record.record_type == 2312 } ? "port_change" : event.raw_audit_records.any? { |record| record.record_type == 1404 } ? "enforcement_change" : changes.any? ? "boolean_change" : "policy_load")
     names = changes.map { |change| change[:name] }
     refreshed = checkpoint(event.refreshed_snapshot_id, event.refreshed_time, snapshots, names) if boundary
     status = if !boundary
@@ -154,6 +161,7 @@ class HostSelinuxActivity
       evidence_class: boundary ? "observed_transition" : "administrative_history", transition_type: type,
       boundary_established: boundary, audit_sequence: event.audit_sequence, boolean_changes: changes,
       enforcement_changes: enforcement,
+      port_changes: ports,
       previous_checkpoint: checkpoint(event.previous_snapshot_id, event.previous_time, snapshots, names),
       reconciliation: { status: status, checkpoint: refreshed,
         next_transition: event.following_id ? { id: event.following_id, event_time: event.following_time.iso8601(6), audit_sequence: event.following_sequence } : nil },
@@ -184,6 +192,8 @@ class HostSelinuxActivity
       .where("(raw_events.audit_timestamp, raw_events.audit_sequence) >= (?, ?)", event.audit_timestamp, event.audit_sequence)
     relation = if event.transition_type == "enforcement_change"
       relation.where("occurrences.host_snapshot_id IS NULL OR raw_events.checkpoint_invalidated_fields ? 'enforcement'")
+    elsif event.transition_type == "port_change"
+      relation.where("occurrences.host_snapshot_id IS NULL OR raw_events.checkpoint_invalidated_fields ? 'ports'")
     else
       relation.where(host_snapshot_id: nil)
     end
@@ -199,7 +209,7 @@ class HostSelinuxActivity
 
   def actor(records)
     fields = Hash.new { |hash, key| hash[key] = [] }
-    records.select { |record| [1403, 1404, 1405, 1300, 1327].include?(record.record_type) }.each do |record|
+    records.select { |record| [1403, 1404, 1405, 2312, 1300, 1327].include?(record.record_type) }.each do |record|
         record.payload.scan(/(?:\A|\s)(auid|uid|pid|ses|subj|exe|comm|proctitle)=("(?:\\.|[^"])*"|\S+)/).each do |key, value|
         decoded = if value.start_with?('"')
           value[1...-1].gsub('\\"', '"').gsub("\\\\", "\\")

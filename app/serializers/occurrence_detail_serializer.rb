@@ -28,6 +28,8 @@ class OccurrenceDetailSerializer
         transition_type: raw_event.transition_type,
         checkpoint_enforcement_mode: raw_event.checkpoint_enforcement_mode(occurrence.host_snapshot),
         checkpoint_invalidated_fields: raw_event.checkpoint_invalidated_fields,
+        checkpoint_port_inventory_status: raw_event.checkpoint_port_inventory(occurrence.host_snapshot)["status"],
+        checkpoint_policy_identity: raw_event.checkpoint_policy_identity(occurrence.host_snapshot),
         completion_reason: raw_event.completion_reason,
         evidence_digest: raw_event.evidence_digest,
         file_context_observations: raw_event.file_context_observations,

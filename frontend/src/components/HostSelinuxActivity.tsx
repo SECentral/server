@@ -53,9 +53,12 @@ function ActivityItem({ item, selected }: { item: SelinuxActivityItem; selected:
   const checkpoint = reconciliation.checkpoint;
   const actor = details.data?.item.actor ?? item.actor;
   const enforcement = activity.transition_type === "enforcement_change";
+  const ports = activity.transition_type === "port_change";
+  const portChanges = activity.port_changes ?? [];
+  const portSummary = portChanges.map((change) => `${change.protocol.toUpperCase()}/${change.start}${change.end === change.start ? "" : `-${change.end}`} · ${change.operation}${change.selinux_type ? ` → ${change.selinux_type}` : ""}${change.boundary_established ? "" : " · boundary not established"}`).join("; ") || "Port configuration reported · boundary not established";
   const enforcementChanges = activity.enforcement_changes ?? [];
   const persistentRequested = actor?.proctitle?.split(/\s+/).some((argument) => argument === "-P" || argument === "--persistent");
-  const title = !activity.boundary_established ? (enforcement ? "Enforcement status reported" : activity.transition_type === "policy_load" ? "Policy load reported" : "Boolean change reported")
+  const title = ports ? (activity.boundary_established ? "Port mapping write reported" : "Port configuration reported") : !activity.boundary_established ? (enforcement ? "Enforcement status reported" : activity.transition_type === "policy_load" ? "Policy load reported" : "Boolean change reported")
     : activity.transition_type === "policy_load" ? "SELinux policy loaded"
     : enforcement ? "Enforcement changed"
     : activity.boolean_changes.length > 1 ? "SELinux booleans changed" : "Boolean changed";
@@ -64,8 +67,8 @@ function ActivityItem({ item, selected }: { item: SelinuxActivityItem; selected:
     <Tbody>
       <Tr id={`selinux-activity-${item.id}`} aria-label={`SELinux activity ${item.id}`}>
         <Td dataLabel="Timestamp"><time dateTime={activity.event_time} title={activity.event_time}>{formatUtc(activity.event_time)}</time></Td>
-        <Td dataLabel="Type">{enforcement ? "Enforcement" : activity.transition_type === "policy_load" ? "Policy load" : "Boolean"}</Td>
-        <Td dataLabel="Summary" className="selinux-activity-summary">{enforcement ? enforcementChanges.length ? enforcementChanges.map((change, index) => <span key={index}>
+        <Td dataLabel="Type">{ports ? "Port mapping" : enforcement ? "Enforcement" : activity.transition_type === "policy_load" ? "Policy load" : "Boolean"}</Td>
+        <Td dataLabel="Summary" className="selinux-activity-summary">{ports ? portSummary : enforcement ? enforcementChanges.length ? enforcementChanges.map((change, index) => <span key={index}>
           {index ? "; " : ""}{change.state_change_established ? "" : "Reported: "}{mode(change.old_mode)} → {mode(change.new_mode)}{change.state_change_established ? "" : " · state change not established"}
         </span>) : "Enforcement status reported · state change not established" : activity.transition_type === "policy_load" ? title : activity.boolean_changes.map((change, index) => <span key={`${change.name}-${index}`}>
           {index > 0 ? "; " : ""}<code>{change.name}</code>: {change.state_change_established ? "" : "Reported: "}{state(change.old_value)} → {state(change.new_value)}{change.state_change_established ? "" : " · state change not established"}
@@ -82,13 +85,13 @@ function ActivityItem({ item, selected }: { item: SelinuxActivityItem; selected:
               ["Execution User / PID", <code>UID {actor?.execution_uid ?? "Unknown"}{actor?.execution_uid === 0 ? " (root)" : ""} / PID {actor?.pid ?? "Unknown"}</code>],
               ["Command Executed", <code>{actor?.executable ?? actor?.command ?? "Unknown"}</code>],
                ["Scope", <Tooltip content="A validated runtime record establishes an observed change. Command flags record requested scope, not proof of saved configuration."><span tabIndex={0}>{enforcement ? "Temporary (runtime)" : persistentRequested ? "Persistent (command request)" : activity.transition_type === "boolean_change" ? "Temporary (runtime)" : "Unknown"}</span></Tooltip>],
-               ["Audit Identity", <code>{enforcement ? "MAC_STATUS" : activity.transition_type === "policy_load" ? "MAC_POLICY_LOAD" : "MAC_CONFIG_CHANGE"} · {activity.audit_sequence}</code>]
+               ["Audit Identity", <code>{ports ? "USER_MAC_CONFIG_CHANGE" : enforcement ? "MAC_STATUS" : activity.transition_type === "policy_load" ? "MAC_POLICY_LOAD" : "MAC_CONFIG_CHANGE"} · {activity.audit_sequence}</code>]
             ]} />
           </section></GridItem>
           <GridItem span={12} lg={6}><section aria-label="SELinux Policy Effect">
             <Title headingLevel="h3" size="md">SELinux Policy Effect</Title>
             <AuditFacts fields={[
-               ["Affected Target", enforcement ? "Runtime host enforcement mode" : activity.boolean_changes.length ? activity.boolean_changes.map((change) => <code key={change.name}>{change.name} </code>) : "Kernel policy"],
+               ["Affected Target", ports ? portSummary : enforcement ? "Runtime host enforcement mode" : activity.boolean_changes.length ? activity.boolean_changes.map((change) => <code key={change.name}>{change.name} </code>) : "Kernel policy"],
               ["System Context", <code>{actor?.context ?? "Unknown"}</code>],
               ["Reconciliation", !activity.boundary_established ? "State change not established; this event did not invalidate the checkpoint."
                 : reconciliation.status === "pending" ? "State awaiting reconciliation."
@@ -120,7 +123,8 @@ function ActivityItem({ item, selected }: { item: SelinuxActivityItem; selected:
           {historyExpanded ? <>
             {activity.previous_checkpoint ? <Checkpoint checkpoint={activity.previous_checkpoint} title="Earlier historical checkpoint" /> : <p>No earlier checkpoint retained for this boot.</p>}
              {activity.transition_type === "policy_load" && activity.boundary_established ? <p>Previous exact policy state invalidated. The load record does not identify the new policy SHA.</p> : null}
-             {enforcement && activity.boundary_established ? <p>The earlier checkpoint's host enforcement state became untrusted until refresh. Exact policy identity and boolean evidence remain valid. AVC-local permissive evidence is separate.</p> : null}
+              {enforcement && activity.boundary_established ? <p>The earlier checkpoint's host enforcement state became untrusted until refresh. Exact policy identity and boolean evidence remain valid. AVC-local permissive evidence is separate.</p> : null}
+              {ports && activity.boundary_established ? <p>Port inventory and exact policy identity are unknown until refresh. This successful write may be an equal-value modify; no port delta is reconstructed. AVC-local target context remains evidence. Separate policy-load boundaries can invalidate additional checkpoint evidence.</p> : null}
             <p>The audit transition is separate from checkpoint observations. Command fields provide context, not the authority for a state change.</p>
             <AuditFacts fields={[
               ["Boot", <code>{activity.boot_id}</code>],
@@ -159,7 +163,7 @@ export function HostSelinuxActivity({ activity }: { activity: UseQueryResult<Sel
       <Card className="host-surface-card host-table-card"><CardBody>
       <div className="host-activity-heading selinux-activity-heading">
         <Title headingLevel="h2" size="lg">SELinux Administrative Activity ({activity.data?.meta.total?.toLocaleString("en-US") ?? "…"})</Title>
-        <Tooltip content={<><p>Tracked setsebool, semanage, semodule, and setenforce changes observed in this host's audit stream.</p><p>{activity.data?.coverage ?? "Currently supported: runtime boolean changes and policy loads. Absence of an event does not prove that no change occurred."}</p></>}>
+        <Tooltip content={<><p>Supported policy loads, runtime boolean/enforcement changes, and validated SELinux port writes observed in this host's audit stream.</p><p>{activity.data?.coverage ?? "Absence of an event does not prove that no change occurred."}</p></>}>
           <Button variant="plain" aria-label="About SELinux administrative activity"><InfoCircleIcon aria-hidden="true" /></Button>
         </Tooltip>
       </div>

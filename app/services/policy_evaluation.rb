@@ -60,7 +60,7 @@ class PolicyEvaluation
 
   def policy_facts(occurrences)
     identities = occurrences.filter_map do |occurrence|
-      identity = occurrence.host_snapshot&.details&.dig("selinux", "policy_identity")
+      identity = occurrence.raw_event&.checkpoint_policy_identity(occurrence.host_snapshot)
       identity if identity.to_s.match?(PolicyArtifact::IDENTITY_FORMAT)
     end.uniq
     return {} if identities.empty?
@@ -77,7 +77,7 @@ class PolicyEvaluation
     # but attach each event's own checkpoint timestamp and identity afterwards.
     @policy_contexts ||= {}
     denial = occurrence.normalized_denial
-    key = [ occurrence.host_snapshot&.object_id, Array(denial&.permissions).uniq.sort,
+    key = [ occurrence.host_snapshot&.object_id, occurrence.raw_event&.checkpoint_invalidated_fields, Array(denial&.permissions).uniq.sort,
       denial&.details.to_h.fetch("enforcement_mode", "unknown") ]
     context = @policy_contexts[key] ||= evaluate_policy_context(occurrence, facts_by_key)
       .except(:occurrence_id, :host_id, :checkpoint_observed_at)
@@ -88,7 +88,7 @@ class PolicyEvaluation
 
   def evaluate_policy_context(occurrence, facts_by_key)
     denial = occurrence.normalized_denial
-    identity = occurrence.host_snapshot&.details&.dig("selinux", "policy_identity")
+    identity = occurrence.raw_event&.checkpoint_policy_identity(occurrence.host_snapshot)
     return unavailable_occurrence(occurrence, "exact policy identity is unavailable") unless identity.to_s.match?(PolicyArtifact::IDENTITY_FORMAT)
 
     permissions = Array(denial&.permissions).uniq
