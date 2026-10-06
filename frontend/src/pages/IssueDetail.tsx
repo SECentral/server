@@ -270,7 +270,7 @@ function DiagnosisEvidence({ diagnosis }: { diagnosis: Diagnosis }) {
 
 function diagnosisVariantDetail(diagnosis: Diagnosis | null | undefined): string | null {
   if (!diagnosis) return "No evidence-backed explanation";
-  let detail: string | null = null;
+  let detail: string | null;
   if (diagnosis.kind === "file_context_mismatch") detail = [diagnosis.path, diagnosis.observed_type && `${diagnosis.observed_type} → ${diagnosis.expected_type ?? "expected type unavailable"}`].filter(Boolean).join(" · ");
   else if (diagnosis.kind === "conditional_allow_inactive") {
     const conditions = rows(diagnosis.condition_boolean_states).flatMap((condition) => rows(condition.booleans).map((boolean) => `${text(boolean.name) ?? "Boolean"} ${typeof boolean.current === "boolean" ? (boolean.current ? "On" : "Off") : "state unavailable"}`));
