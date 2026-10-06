@@ -56,8 +56,9 @@ class ResolutionCandidates
     return @current_states[occurrence.host_id] if @current_states.key?(occurrence.host_id)
     host = occurrence.host
     snapshot = host.current_snapshot
-    @current_states[occurrence.host_id] = { host_snapshot_id: snapshot&.id, policy_identity: host.current_policy_identity,
-      boot_id: snapshot&.details&.dig("boot_id"), selinux: snapshot&.details&.fetch("selinux", {}) || {},
+    selinux = host.selinux_state_for
+    @current_states[occurrence.host_id] = { host_snapshot_id: snapshot&.id, policy_identity: selinux["policy_identity"],
+      boot_id: snapshot&.details&.dig("boot_id"), selinux: selinux,
       configuration_current: host.current_configuration? }
   end
 

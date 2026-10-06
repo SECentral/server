@@ -24,9 +24,7 @@ class HostSelinuxActivity
 
       raw = occurrence.raw_event
       if occurrence.host_snapshot_id
-        types = []
-        types << "enforcement_change" if raw.checkpoint_invalidated_fields.include?("enforcement")
-        types << "port_change" if (raw.checkpoint_invalidated_fields & %w[ports policy_identity]).any?
+        types = CheckpointTrust::TRANSITION_FIELDS.filter_map { |type, fields| type if (fields & raw.checkpoint_invalidated_fields).any? }
         relation = relation.where(transition_type: types)
       end
       event = relation.state_transitions.where(boot_id: raw.boot_id)
@@ -36,7 +34,7 @@ class HostSelinuxActivity
 
       item = project(relation.where(id: event.id)).first
       checkpoint = item.dig(:reconciliation, :checkpoint, :event_time)
-      return response([]) if checkpoint && raw.audit_timestamp > Time.iso8601(checkpoint)
+      return response([]) if checkpoint && item.dig(:reconciliation, :unreconciled_fields).empty? && raw.audit_timestamp > Time.iso8601(checkpoint)
 
       return response([item])
     end
@@ -84,7 +82,10 @@ class HostSelinuxActivity
     # Observations coalesce identical heartbeats. Only endpoints and accepted
     # event references retain exact checkpoint times; never interpolate a range.
     sql = <<~SQL
-      WITH checkpoints AS (
+      WITH observed_dimensions AS MATERIALIZED (
+        SELECT s.id, #{CheckpointTrust.observed_fields_sql('s.details')} AS fields
+        FROM host_snapshots s WHERE s.host_id = :host
+      ), checkpoints AS (
         SELECT o.host_snapshot_id, s.details->>'boot_id' AS boot_id, o.first_observed_at AS observed_at
         FROM host_snapshot_observations o JOIN host_snapshots s ON s.id = o.host_snapshot_id WHERE o.host_id = :host
         UNION
@@ -96,6 +97,7 @@ class HostSelinuxActivity
           AND (category = 'selinux_administrative' OR host_observed_at < audit_timestamp)
       )
       SELECT e.*, previous.host_snapshot_id AS previous_snapshot_id, previous.observed_at AS previous_time,
+        observed.host_snapshot_id AS observed_snapshot_id, observed.observed_at AS observed_time,
         refreshed.host_snapshot_id AS refreshed_snapshot_id, refreshed.observed_at AS refreshed_time,
         following.id AS following_id, following.audit_timestamp AS following_time, following.audit_sequence AS following_sequence,
         uncertainty.count AS window_count
@@ -103,18 +105,20 @@ class HostSelinuxActivity
       LEFT JOIN LATERAL (SELECT * FROM checkpoints c WHERE c.boot_id = e.boot_id AND c.observed_at < e.audit_timestamp
         ORDER BY c.observed_at DESC, c.host_snapshot_id DESC LIMIT 1) previous ON true
       LEFT JOIN LATERAL (SELECT * FROM checkpoints c WHERE c.boot_id = e.boot_id AND c.observed_at > e.audit_timestamp
+        ORDER BY c.observed_at, c.host_snapshot_id LIMIT 1) observed ON true
+      LEFT JOIN LATERAL (SELECT c.* FROM checkpoints c JOIN observed_dimensions d ON d.id = c.host_snapshot_id
+        WHERE c.boot_id = e.boot_id AND c.observed_at > e.audit_timestamp
+          AND (#{CheckpointTrust.transition_fields_sql('e.transition_type')}) <@ d.fields
         ORDER BY c.observed_at, c.host_snapshot_id LIMIT 1) refreshed ON true
       LEFT JOIN LATERAL (SELECT id, audit_timestamp, audit_sequence FROM raw_events r
         WHERE r.host_id = e.host_id AND r.boot_id = e.boot_id
-          AND ((e.transition_type = 'enforcement_change' AND r.transition_type = 'enforcement_change')
-            OR (e.transition_type IN ('policy_load', 'boolean_change', 'port_change') AND r.transition_type IN ('policy_load', 'boolean_change', 'port_change')))
+          AND (#{CheckpointTrust.transition_fields_sql('e.transition_type')}) && (#{CheckpointTrust.transition_fields_sql('r.transition_type')})
           AND (r.audit_timestamp, r.audit_sequence) > (e.audit_timestamp, e.audit_sequence)
         ORDER BY r.audit_timestamp, r.audit_sequence LIMIT 1) following ON true
       LEFT JOIN LATERAL (SELECT count(*) FROM occurrences o JOIN raw_events r ON r.id = o.raw_event_id
         WHERE e.transition_type IS NOT NULL AND o.host_id = e.host_id
-          AND ((e.transition_type = 'enforcement_change' AND (o.host_snapshot_id IS NULL OR r.checkpoint_invalidated_fields ? 'enforcement'))
-            OR (e.transition_type = 'port_change' AND (o.host_snapshot_id IS NULL OR r.checkpoint_invalidated_fields ? 'ports'))
-            OR (e.transition_type IN ('policy_load', 'boolean_change') AND o.host_snapshot_id IS NULL))
+          AND (o.host_snapshot_id IS NULL OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(r.checkpoint_invalidated_fields) f
+            WHERE f = ANY(#{CheckpointTrust.transition_fields_sql('e.transition_type')})))
           AND r.boot_id = e.boot_id AND r.category = 'avc'
           AND (r.audit_timestamp, r.audit_sequence) >= (e.audit_timestamp, e.audit_sequence)
           AND (following.id IS NULL OR (r.audit_timestamp, r.audit_sequence) < (following.audit_timestamp, following.audit_sequence))
@@ -123,11 +127,11 @@ class HostSelinuxActivity
     SQL
     events = RawEvent.find_by_sql([sql, { host: @host.id }])
     events.each do |event|
-      %w[previous_time refreshed_time following_time].each do |field|
+      %w[previous_time observed_time refreshed_time following_time].each do |field|
         event[field] = Time.zone.parse(event[field]) if event[field].is_a?(String)
       end
     end
-    snapshots = @host.host_snapshots.where(id: events.flat_map { |event| [event.previous_snapshot_id, event.refreshed_snapshot_id] }.compact).index_by(&:id)
+    snapshots = @host.host_snapshots.where(id: events.flat_map { |event| [event.previous_snapshot_id, event.refreshed_snapshot_id || event.observed_snapshot_id] }.compact).index_by(&:id)
     # Actor summaries are needed on initial render; batch retained records for the bounded page.
     ActiveRecord::Associations::Preloader.new(records: events, associations: :raw_audit_records).call
     events.map { |event| item(event, snapshots).merge(actor: actor(event.raw_audit_records)) }
@@ -146,12 +150,16 @@ class HostSelinuxActivity
     ports = event.port_changes.map { |change| change.merge("boundary_established" => change["success"]) }
     type = event.transition_type || (event.raw_audit_records.any? { |record| record.record_type == 2312 } ? "port_change" : event.raw_audit_records.any? { |record| record.record_type == 1404 } ? "enforcement_change" : changes.any? ? "boolean_change" : "policy_load")
     names = changes.map { |change| change[:name] }
-    refreshed = checkpoint(event.refreshed_snapshot_id, event.refreshed_time, snapshots, names) if boundary
+    checkpoint_id = event.refreshed_snapshot_id || event.observed_snapshot_id
+    checkpoint_time = event.refreshed_time || event.observed_time
+    refreshed = checkpoint(checkpoint_id, checkpoint_time, snapshots, names) if boundary
+    trust = CheckpointTrust.new(snapshots[checkpoint_id])
+    unreconciled = CheckpointTrust.fields_for(event.transition_type).reject { |field| trust.trusted?(field) }
     status = if !boundary
       "not_applicable"
-    elsif event.following_id && (!refreshed || event.following_time <= event.refreshed_time)
+    elsif event.following_id && (!event.refreshed_time || event.following_time <= event.refreshed_time)
       "superseded"
-    elsif refreshed
+    elsif event.refreshed_time
       "reconciled"
     else
       "pending"
@@ -163,7 +171,7 @@ class HostSelinuxActivity
       enforcement_changes: enforcement,
       port_changes: ports,
       previous_checkpoint: checkpoint(event.previous_snapshot_id, event.previous_time, snapshots, names),
-      reconciliation: { status: status, checkpoint: refreshed,
+      reconciliation: { status: status, checkpoint: refreshed, unreconciled_fields: unreconciled,
         next_transition: event.following_id ? { id: event.following_id, event_time: event.following_time.iso8601(6), audit_sequence: event.following_sequence } : nil },
       window_avc_count: event.window_count.to_i
     }
@@ -190,16 +198,11 @@ class HostSelinuxActivity
     relation = @host.occurrences.joins(:raw_event)
       .where(raw_events: { boot_id: event.boot_id, category: "avc" })
       .where("(raw_events.audit_timestamp, raw_events.audit_sequence) >= (?, ?)", event.audit_timestamp, event.audit_sequence)
-    relation = if event.transition_type == "enforcement_change"
-      relation.where("occurrences.host_snapshot_id IS NULL OR raw_events.checkpoint_invalidated_fields ? 'enforcement'")
-    elsif event.transition_type == "port_change"
-      relation.where("occurrences.host_snapshot_id IS NULL OR raw_events.checkpoint_invalidated_fields ? 'ports'")
-    else
-      relation.where(host_snapshot_id: nil)
-    end
+    fields = CheckpointTrust.fields_for(event.transition_type)
+    relation = relation.where("occurrences.host_snapshot_id IS NULL OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(raw_events.checkpoint_invalidated_fields) f WHERE f IN (?))", fields)
     following = item.dig(:reconciliation, :next_transition)
     relation = relation.where("(raw_events.audit_timestamp, raw_events.audit_sequence) < (?, ?)", following[:event_time], following[:audit_sequence]) if following
-    time = item.dig(:reconciliation, :checkpoint, :event_time)
+    time = item.dig(:reconciliation, :checkpoint, :event_time) if item.dig(:reconciliation, :unreconciled_fields).empty?
     relation = relation.where("raw_events.audit_timestamp <= ?", time) if time
     relation.order("raw_events.audit_timestamp DESC, raw_events.audit_sequence DESC, occurrences.id DESC").limit(PAGE_SIZE)
       .pluck("occurrences.id", "occurrences.issue_id", "occurrences.occurred_at").map do |id, issue, occurred_at|

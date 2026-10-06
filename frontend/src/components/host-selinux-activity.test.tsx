@@ -68,6 +68,13 @@ async function openAudit() {
 }
 
 describe("Monitored-server SELinux activity", () => {
+  it("labels a later incomplete observation without claiming state reconciliation", async () => {
+    renderActivity(response([item({ reconciliation: { status: "pending", checkpoint: { ...checkpoint(false), booleans: [{ name: "httpd_can_network_connect", value: null }] }, next_transition: null } })]));
+    await openAudit();
+    expect(screen.getByText("Later incomplete checkpoint")).toBeVisible();
+    expect(screen.queryByText("SELinux state confirmed")).not.toBeInTheDocument();
+    expect(screen.getByText(/State awaiting reconciliation/)).toBeVisible();
+  });
   it.each(["add", "modify", "delete"] as const)("renders a validated %s port write without inventing old/delete type", async (operation) => {
     renderActivity(response([item({ transition_type: "port_change", boolean_changes: [],
       port_changes: [{ operation, protocol: "tcp", start: 23451, end: 23451, target_context: operation === "delete" ? null : "system_u:object_r:http_port_t:s0",

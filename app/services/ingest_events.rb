@@ -137,7 +137,13 @@ class IngestEvents
     host_observed_at = Time.iso8601(@payload["host_observed_at"]) if present?(@payload["host_observed_at"])
     existing = organization.raw_events.find_by({ host: host, boot_id: boot_id, audit_timestamp: timestamp, audit_sequence: sequence })
     if existing
-      return [snapshot, existing] if existing.evidence_digest == digest
+      if existing.evidence_digest == digest
+        # Replayed envelope metadata can strengthen trust uncertainty, never
+        # replace the original source reference or erase an existing mask.
+        fields = existing.checkpoint_invalidated_fields | checkpoint_invalidated_fields(host, event, timestamp, sequence, existing.host_observed_at)
+        existing.update!(checkpoint_invalidated_fields: fields.sort) unless fields.sort == existing.checkpoint_invalidated_fields.sort
+        return [snapshot, existing]
+      end
 
       raise EvidenceConflict, [detail("events", "conflicting_duplicate")]
     end
@@ -235,10 +241,9 @@ class IngestEvents
   def checkpoint_invalidated_fields(host, event, time, sequence, observed_at)
     fields = @payload.fetch("checkpoint_invalidated_fields", []).dup
     if event["category"] == "avc" && observed_at
-      transitions = host.raw_events.where(boot_id: @payload["boot_id"], transition_type: %w[enforcement_change port_change])
+      transitions = host.raw_events.state_transitions.where(boot_id: @payload["boot_id"])
         .where("(audit_timestamp, audit_sequence) <= (?, ?)", time, sequence).where("audit_timestamp >= ?", observed_at).distinct.pluck(:transition_type)
-      fields |= ["enforcement"] if transitions.include?("enforcement_change")
-      fields |= %w[ports policy_identity] if transitions.include?("port_change")
+      fields |= CheckpointTrust.fields_for(transitions)
     end
     fields.sort
   end
@@ -267,13 +272,10 @@ class IngestEvents
     events = transition.host.raw_events.where(boot_id: transition.boot_id, category: "avc")
       .where("(audit_timestamp, audit_sequence) >= (?, ?)", transition.audit_timestamp, transition.audit_sequence)
       .where("host_observed_at <= ?", transition.audit_timestamp)
-    if %w[enforcement_change port_change].include?(transition.transition_type)
-      # Unchanged policy/boolean facts keep their historical checkpoint. Only
-      # the enforcement claim is unsafe, including on transport reordering.
-      fields = transition.transition_type == "port_change" ? %w[ports policy_identity] : ["enforcement"]
-      quoted = ActiveRecord::Base.connection.quote(fields.to_json)
-      events.update_all("checkpoint_invalidated_fields = (SELECT jsonb_agg(DISTINCT value) FROM jsonb_array_elements(checkpoint_invalidated_fields || #{quoted}::jsonb))")
-    else
+    fields = CheckpointTrust.fields_for(transition.transition_type)
+    quoted = ActiveRecord::Base.connection.quote(fields.to_json)
+    events.update_all("checkpoint_invalidated_fields = (SELECT jsonb_agg(DISTINCT value ORDER BY value) FROM jsonb_array_elements(checkpoint_invalidated_fields || #{quoted}::jsonb))")
+    if CheckpointTrust::WITHHELD_ASSOCIATIONS.include?(transition.transition_type)
       transition.host.occurrences.where(raw_event_id: events.select(:id)).update_all(host_snapshot_id: nil)
       events.update_all(host_snapshot_id: nil)
     end

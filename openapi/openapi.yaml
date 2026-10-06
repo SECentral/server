@@ -3353,7 +3353,7 @@ components:
           description: Host mode from the associated checkpoint only when that dimension remains trusted; distinct from AVC-local permissive evidence.
         checkpoint_invalidated_fields:
           type: array
-          items: { type: string, enum: [enforcement, ports, policy_identity] }
+          items: { type: string, enum: [enforcement, ports, policy_identity, booleans] }
           description: Scoped checkpoint uncertainty reported by the collector or derived independently from retained transitions.
         checkpoint_port_inventory_status:
           type: string
@@ -3691,8 +3691,12 @@ components:
           required: [status, checkpoint, next_transition]
           properties:
             status: { type: string, enum: [pending, reconciled, superseded, not_applicable] }
+            unreconciled_fields:
+              type: array
+              items: { type: string, enum: [policy_identity, booleans, enforcement, ports] }
+              description: Affected dimensions lacking authoritative evidence in the projected checkpoint. A later incomplete observation does not establish reconciliation.
             checkpoint:
-              description: Earliest retained post-event checkpoint for this boot; a superseding transition may precede it. Individual unknown fields remain unknown.
+              description: Earliest retained checkpoint authoritatively observing all affected dimensions, or the earliest later incomplete observation if no such checkpoint exists. A superseding transition may precede it; unknown fields are not inferred.
               oneOf:
                 - $ref: "#/components/schemas/SelinuxCheckpoint"
                 - type: "null"

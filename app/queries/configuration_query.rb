@@ -118,7 +118,7 @@ class ConfigurationQuery
     return :unknown unless observation
     return :stale if observation.stale?
 
-    selinux = observation.host_snapshot.details.fetch("selinux", {})
+    selinux = selinux_state(host)
     return :unavailable if selinux["boolean_status"] == "unavailable"
     return :observed if Array(selinux["booleans"]).any? { |boolean| boolean["status"] == "observed" && boolean["current"].in?([true, false]) }
     return :unavailable if Array(selinux["booleans"]).any? { |boolean| boolean["status"] == "unavailable" }
@@ -136,7 +136,7 @@ class ConfigurationQuery
   end
 
   def boolean_inventory
-    names = @hosts.flat_map { |host| Array(host.current_snapshot&.details&.dig("selinux", "booleans")).filter_map { |boolean| boolean["name"] } }.uniq.sort
+    names = @hosts.flat_map { |host| Array(selinux_state(host)["booleans"]).filter_map { |boolean| boolean["name"] } }.uniq.sort
     names.map do |name|
       counts = { enabled: 0, disabled: 0, unknown: 0, unavailable: 0, stale: 0, drift: 0 }
       description = nil
@@ -150,7 +150,7 @@ class ConfigurationQuery
           counts[:stale] += 1
           next
         end
-        selinux = observation.host_snapshot.details.fetch("selinux", {})
+        selinux = selinux_state(host)
         if selinux["boolean_status"] == "unavailable"
           counts[:unavailable] += 1
           next
@@ -173,5 +173,10 @@ class ConfigurationQuery
       end
       { name: name, description: description, counts: counts }
     end
+  end
+
+  def selinux_state(host)
+    @selinux_states ||= {}
+    @selinux_states[host.id] ||= host.selinux_state_for
   end
 end

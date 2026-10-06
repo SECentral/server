@@ -34,35 +34,22 @@ class Host < ApplicationRecord
   end
 
   def policy_identity_for(observation)
-    return unless observation
-
-    snapshot = observation.host_snapshot
-    details = snapshot.details
-    transition = raw_events.where(boot_id: details["boot_id"])
-      .where("transition_type IN ('policy_load', 'boolean_change', 'port_change') OR (category = 'avc' AND checkpoint_invalidated_fields ? 'policy_identity')")
-      .where("audit_timestamp >= ?", observation.last_observed_at).exists?
-    return if transition
-
-    details.dig("selinux", "policy_identity")
+    checkpoint_trust_for(observation).policy_identity
   end
 
   def enforcement_for(observation = current_state_observation)
-    return unless observation
-
-    details = observation.host_snapshot.details
-    unsafe = raw_events.where(boot_id: details["boot_id"])
-      .where("audit_timestamp >= ?", observation.last_observed_at)
-      .where("transition_type = 'enforcement_change' OR (category = 'avc' AND checkpoint_invalidated_fields ? 'enforcement')").exists?
-    unsafe ? "unknown" : details.dig("selinux", "enforcement")
+    checkpoint_trust_for(observation).enforcement
   end
 
   def port_inventory_for(observation = current_state_observation)
-    return { "status" => "unknown", "mappings" => [] } unless observation
+    checkpoint_trust_for(observation).ports
+  end
 
-    details = observation.host_snapshot.details
-    unsafe = raw_events.where(boot_id: details["boot_id"])
-      .where("audit_timestamp >= ?", observation.last_observed_at)
-      .where("transition_type IN ('port_change', 'policy_load') OR (category = 'avc' AND checkpoint_invalidated_fields ? 'ports')").exists?
-    unsafe ? { "status" => "unknown", "mappings" => [] } : details.dig("selinux", "policy", "port_inventory") || { "status" => "unknown", "mappings" => [] }
+  def checkpoint_trust_for(observation = current_state_observation)
+    CheckpointTrust.for_host(self, observation)
+  end
+
+  def selinux_state_for(observation = current_state_observation)
+    checkpoint_trust_for(observation).selinux
   end
 end

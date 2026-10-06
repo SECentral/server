@@ -10,9 +10,9 @@ class RawEvent < ApplicationRecord
   validates :audit_timestamp, :audit_sequence, :boot_id, :completion_reason,
     :evidence_digest, :agent_received_at, :server_received_at, presence: true
   validates :category, inclusion: { in: %w[avc selinux_administrative] }
-  POLICY_TRANSITIONS = %w[policy_load boolean_change].freeze
-  STATE_TRANSITIONS = (POLICY_TRANSITIONS + %w[enforcement_change port_change]).freeze
-  CHECKPOINT_FIELDS = %w[enforcement ports policy_identity].freeze
+  POLICY_TRANSITIONS = CheckpointTrust::WITHHELD_ASSOCIATIONS
+  STATE_TRANSITIONS = CheckpointTrust::TRANSITION_FIELDS.keys.freeze
+  CHECKPOINT_FIELDS = CheckpointTrust::FIELDS
   scope :state_transitions, -> { where(transition_type: STATE_TRANSITIONS) }
   scope :policy_transitions, -> { where(transition_type: POLICY_TRANSITIONS) }
   validates :transition_type, inclusion: { in: STATE_TRANSITIONS }, allow_nil: true
@@ -56,19 +56,19 @@ class RawEvent < ApplicationRecord
   end
 
   def checkpoint_enforcement_mode(snapshot = host_snapshot)
-    return "unknown" if checkpoint_invalidated_fields.include?("enforcement") || !snapshot
-
-    snapshot.details.dig("selinux", "enforcement") || "unknown"
+    checkpoint_trust(snapshot).enforcement || "unknown"
   end
 
   def checkpoint_policy_identity(snapshot = host_snapshot)
-    snapshot&.details&.dig("selinux", "policy_identity") unless checkpoint_invalidated_fields.include?("policy_identity")
+    checkpoint_trust(snapshot).policy_identity
   end
 
   def checkpoint_port_inventory(snapshot = host_snapshot)
-    return { "status" => "unknown", "mappings" => [] } if checkpoint_invalidated_fields.include?("ports") || !snapshot
+    checkpoint_trust(snapshot).ports
+  end
 
-    snapshot.details.dig("selinux", "policy", "port_inventory") || { "status" => "unknown", "mappings" => [] }
+  def checkpoint_trust(snapshot = host_snapshot)
+    CheckpointTrust.new(snapshot, checkpoint_invalidated_fields)
   end
 
   def self.port_record?(payload)

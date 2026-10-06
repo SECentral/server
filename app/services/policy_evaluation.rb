@@ -77,7 +77,7 @@ class PolicyEvaluation
     # but attach each event's own checkpoint timestamp and identity afterwards.
     @policy_contexts ||= {}
     denial = occurrence.normalized_denial
-    key = [ occurrence.host_snapshot&.object_id, occurrence.raw_event&.checkpoint_invalidated_fields, Array(denial&.permissions).uniq.sort,
+    key = [ occurrence.host_snapshot&.object_id, (Array(occurrence.raw_event&.checkpoint_invalidated_fields) & %w[policy_identity booleans]).sort, Array(denial&.permissions).uniq.sort,
       denial&.details.to_h.fetch("enforcement_mode", "unknown") ]
     context = @policy_contexts[key] ||= evaluate_policy_context(occurrence, facts_by_key)
       .except(:occurrence_id, :host_id, :checkpoint_observed_at)
@@ -166,7 +166,7 @@ class PolicyEvaluation
   end
 
   def checkpoint_booleans(occurrence)
-    Array(occurrence.host_snapshot&.details&.dig("selinux", "booleans"))
+    occurrence.raw_event&.checkpoint_trust(occurrence.host_snapshot)&.booleans || []
   end
 
   def conditional_state(facts, booleans)

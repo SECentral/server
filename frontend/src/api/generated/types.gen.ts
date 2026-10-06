@@ -1170,7 +1170,7 @@ export type RawEventDetail = {
     /**
      * Scoped checkpoint uncertainty reported by the collector or derived independently from retained transitions.
      */
-    checkpoint_invalidated_fields?: Array<'enforcement' | 'ports' | 'policy_identity'>;
+    checkpoint_invalidated_fields?: Array<'enforcement' | 'ports' | 'policy_identity' | 'booleans'>;
     /**
      * Trusted checkpoint port inventory coverage; Unknown during a known port boundary. AVC target context is separate direct evidence.
      */
@@ -1349,7 +1349,11 @@ export type SelinuxActivityItem = {
     reconciliation: {
         status: 'pending' | 'reconciled' | 'superseded' | 'not_applicable';
         /**
-         * Earliest retained post-event checkpoint for this boot; a superseding transition may precede it. Individual unknown fields remain unknown.
+         * Affected dimensions lacking authoritative evidence in the projected checkpoint. A later incomplete observation does not establish reconciliation.
+         */
+        unreconciled_fields?: Array<'policy_identity' | 'booleans' | 'enforcement' | 'ports'>;
+        /**
+         * Earliest retained checkpoint authoritatively observing all affected dimensions, or the earliest later incomplete observation if no such checkpoint exists. A superseding transition may precede it; unknown fields are not inferred.
          */
         checkpoint: SelinuxCheckpoint | null;
         next_transition: {

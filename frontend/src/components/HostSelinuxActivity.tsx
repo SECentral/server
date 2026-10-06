@@ -98,7 +98,7 @@ function ActivityItem({ item, selected }: { item: SelinuxActivityItem; selected:
                 : reconciliation.status === "superseded" ? <>Another transition was observed before reconciliation. {reconciliation.next_transition ? <Link to={`/hosts/${item.host_id}?selinux_activity=${reconciliation.next_transition.id}#selinux-activity`}>View later transition</Link> : null}</>
                 : "Observed at host checkpoint"],
               ["Observed Result", title],
-              ["Host Checkpoint", checkpoint ? <Checkpoint checkpoint={checkpoint} title={reconciliation.status === "superseded" ? "Later SELinux state observed" : "SELinux state confirmed"} /> : "No later checkpoint retained for this boot"]
+              ["Host Checkpoint", checkpoint ? <Checkpoint checkpoint={checkpoint} title={reconciliation.status === "pending" ? "Later incomplete checkpoint" : reconciliation.status === "superseded" ? "Later SELinux state observed" : "SELinux state confirmed"} /> : "No later checkpoint retained for this boot"]
             ]} />
           </section></GridItem>
         </Grid>

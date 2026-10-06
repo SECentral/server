@@ -55,7 +55,7 @@ class BooleanCatalogOverlay
   end
 
   def observed_names(fresh, stale)
-    (fresh + stale).flat_map { |host| Array(host.current_state_observation.host_snapshot.details.dig("selinux", "booleans")).filter_map { |boolean| boolean["name"] } }.uniq.sort
+    (fresh + stale).flat_map { |host| Array(selinux_state(host)["booleans"]).filter_map { |boolean| boolean["name"] } }.uniq.sort
   end
 
   def row(name, fresh, stale)
@@ -72,7 +72,7 @@ class BooleanCatalogOverlay
   end
 
   def boolean_state(host, name)
-    selinux = host.current_state_observation.host_snapshot.details.fetch("selinux", {})
+    selinux = selinux_state(host)
     return :unavailable if selinux["boolean_status"] == "unavailable"
 
     boolean = Array(selinux["booleans"]).find { |entry| entry["name"] == name }
@@ -85,9 +85,14 @@ class BooleanCatalogOverlay
     counts[state.to_s] += 1
     return unless %i[on off].include?(state)
 
-    boolean = host.current_state_observation.host_snapshot.details.dig("selinux", "booleans").find { |entry| entry["name"] == name }
+    boolean = selinux_state(host)["booleans"].find { |entry| entry["name"] == name }
     counts[boolean["current"] == entry["default"] ? "reference_match" : "reference_difference"] += 1 if entry
     reported_default = boolean.key?("default") ? boolean["default"] : boolean["persistent"]
     counts["runtime_default_divergence"] += 1 if reported_default.in?([true, false]) && reported_default != boolean["current"]
+  end
+
+  def selinux_state(host)
+    @selinux_states ||= {}
+    @selinux_states[host.object_id] ||= host.respond_to?(:selinux_state_for) ? host.selinux_state_for : host.current_state_observation.host_snapshot.details.fetch("selinux", {})
   end
 end

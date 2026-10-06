@@ -26,6 +26,8 @@ class Heartbeat
         installation.update!(last_seen_at: now, agent_version: @payload.dig("agent", "version"))
         stale_policy_state = host.raw_events.state_transitions.where(boot_id: @payload.dig("host", "boot_id"))
           .where("audit_timestamp >= ?", observed_at).exists?
+        current = host.host_snapshot_observations.first
+        stale_policy_state ||= current && current.host_snapshot.details["boot_id"] == @payload.dig("host", "boot_id") && observed_at < current.last_observed_at
         unless stale_policy_state
           snapshot = host.host_snapshots.find_or_create_by!(details: @payload.fetch("host"))
           observation = host.host_snapshot_observations.first

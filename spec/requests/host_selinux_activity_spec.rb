@@ -252,6 +252,7 @@ RSpec.describe "Monitored-server SELinux activity", type: :request do
     Heartbeat.call(organization: organization, payload: { "schema_version" => 2, "agent" => { "version" => "test" },
       "host_observed_at" => (base + offset).iso8601(6), "host" => { "id" => "activity-host", "boot_id" => boot,
         "selinux" => { "enforcement" => "enforcing", "policy_identity" => identity(value),
+          "policy" => { "port_inventory" => { "status" => "observed", "mappings" => [] } },
           "booleans" => booleans || [{ "name" => "httpd_can_network_connect", "current" => value, "status" => "observed" }] } } })
   end
 

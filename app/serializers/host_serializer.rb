@@ -4,8 +4,8 @@ class HostSerializer
     observation = host.current_state_observation
     snapshot = observation&.host_snapshot
     platform = platform_payload(snapshot&.details)
-    selinux = selinux_payload(snapshot&.details, include_identity: include_snapshot, policy_identity: host.policy_identity_for(observation))
-    selinux[:enforcement] = host.enforcement_for(observation)
+    state = host.selinux_state_for(observation)
+    selinux = selinux_payload({ "selinux" => state }, include_identity: include_snapshot, policy_identity: state["policy_identity"])
     payload = {
       id: host.id,
       hostname: host.hostname,
