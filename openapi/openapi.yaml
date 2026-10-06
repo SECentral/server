@@ -2398,6 +2398,10 @@ components:
               type: string
               enum: [observed, partial, unavailable, unknown]
               description: Effective port inventory trust, independent of aggregate checkpoint age and unrelated inventory families.
+            file_context_mappings_status:
+              type: string
+              enum: [observed, partial, unavailable, unknown]
+              description: Expected-label configuration completeness/trust, separate from actual object labels.
             policy_identity:
               type:
                 - string
@@ -3346,19 +3350,23 @@ components:
           type:
             - string
             - "null"
-          enum: [policy_load, boolean_change, enforcement_change, port_change, null]
+          enum: [policy_load, boolean_change, enforcement_change, port_change, file_context_change, null]
         checkpoint_enforcement_mode:
           type: string
           enum: [enforcing, permissive, disabled, unknown]
           description: Host mode from the associated checkpoint only when that dimension remains trusted; distinct from AVC-local permissive evidence.
         checkpoint_invalidated_fields:
           type: array
-          items: { type: string, enum: [enforcement, ports, policy_identity, booleans] }
+          items: { type: string, enum: [enforcement, ports, policy_identity, booleans, file_context_mappings] }
           description: Scoped checkpoint uncertainty reported by the collector or derived independently from retained transitions.
         checkpoint_port_inventory_status:
           type: string
           enum: [observed, partial, unavailable, unknown]
           description: Trusted checkpoint port inventory coverage; Unknown during a known port boundary. AVC target context is separate direct evidence.
+        checkpoint_file_context_mappings_status:
+          type: string
+          enum: [observed, partial, unavailable, unknown]
+          description: Expected-label mapping configuration trust; not actual inode labels or retrospective matchpathcon evidence.
         checkpoint_policy_identity:
           type: [string, "null"]
           description: Exact identity only when the occurrence checkpoint identity dimension is trusted.
@@ -3643,7 +3651,7 @@ components:
         boot_id: { type: string }
         event_time: { type: string, format: date-time }
         evidence_class: { type: string, enum: [observed_transition, administrative_history] }
-        transition_type: { type: string, enum: [policy_load, boolean_change, enforcement_change, port_change] }
+        transition_type: { type: string, enum: [policy_load, boolean_change, enforcement_change, port_change, file_context_change] }
         boundary_established: { type: boolean }
         audit_sequence: { type: integer }
         boolean_changes:
@@ -3681,6 +3689,21 @@ components:
               selinux_type: { type: [string, "null"] }
               success: { type: boolean }
               boundary_established: { type: boolean }
+        file_context_changes:
+          type: array
+          description: Validated expected-label configuration writes; no old context or resulting inode label inferred.
+          items:
+            type: object
+            required: [operation, expression, file_selector, target_context, selinux_type, success, boundary_established, state_change_established]
+            properties:
+              operation: { type: string, enum: [add, modify, delete] }
+              expression: { type: string }
+              file_selector: { type: string, enum: [any, file] }
+              target_context: { type: [string, "null"] }
+              selinux_type: { type: [string, "null"] }
+              success: { type: boolean }
+              boundary_established: { type: boolean }
+              state_change_established: { type: boolean, const: false }
         previous_checkpoint:
           description: Earlier historical checkpoint, not an assertion that it was current throughout the intervening period.
           oneOf:
@@ -3693,7 +3716,7 @@ components:
             status: { type: string, enum: [pending, reconciled, superseded, not_applicable] }
             unreconciled_fields:
               type: array
-              items: { type: string, enum: [policy_identity, booleans, enforcement, ports] }
+              items: { type: string, enum: [policy_identity, booleans, enforcement, ports, file_context_mappings] }
               description: Affected dimensions lacking authoritative evidence in the projected checkpoint. A later incomplete observation does not establish reconciliation.
             checkpoint:
               description: Earliest retained checkpoint authoritatively observing all affected dimensions, or the earliest later incomplete observation if no such checkpoint exists. A superseding transition may precede it; unknown fields are not inferred.

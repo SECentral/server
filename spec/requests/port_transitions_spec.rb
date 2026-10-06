@@ -103,7 +103,7 @@ RSpec.describe "Validated SELinux port writes", type: :request do
     expect(occurrence.reload.host_snapshot).to be_present
     administrative(3, 13, "res=1", code: 1403)
     expect(occurrence.reload.host_snapshot).to be_nil
-    expect(occurrence.raw_event.reload.checkpoint_invalidated_fields).to contain_exactly("booleans", "enforcement", "ports", "policy_identity")
+    expect(occurrence.raw_event.reload.checkpoint_invalidated_fields).to contain_exactly("booleans", "enforcement", "ports", "policy_identity", "file_context_mappings")
   end
 
   ["res=failed", "proto=bad", "lport=65536", "lport=23453-23451", "proto=6 proto=17", "proto=6 proto=", 'proto=6 proto="broken', "op=unsupported"].each do |bad|
@@ -120,7 +120,7 @@ RSpec.describe "Validated SELinux port writes", type: :request do
 
   it "rejects unrelated semanage families and never uses command arguments as authority" do
     checkpoint(0)
-    fields = add.sub("resrc=port", "resrc=fcontext") + ' comm="resrc=port op=add lport=23451 proto=6"'
+    fields = add.sub("resrc=port", "resrc=login") + ' comm="resrc=port op=add lport=23451 proto=6"'
     submit(2, 10, fields, "selinux_administrative", 2312)
     expect(response).to have_http_status(:unprocessable_content)
     expect(RawEvent.count).to eq(0)

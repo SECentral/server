@@ -123,7 +123,7 @@ class IngestEvents
     record_types = Array(records).filter_map { |record| type_code(record["type"]) if record.is_a?(Hash) }
     if event["category"] == "avc" && (record_types & [ 1400, 1107 ]).empty?
       details << detail("#{path}.category", "avc_record_required")
-    elsif event["category"] == "selinux_administrative" && (record_types & [1403, 1404]).empty? && boolean_changes(event).empty? && !port_record?(event)
+    elsif event["category"] == "selinux_administrative" && (record_types & [1403, 1404]).empty? && boolean_changes(event).empty? && !port_record?(event) && !file_context_record?(event)
       details << detail("#{path}.category", "supported_administrative_record_required")
     end
     details
@@ -157,6 +157,7 @@ class IngestEvents
       boolean_changes: boolean_changes(event),
       enforcement_changes: enforcement_changes(event),
       port_changes: port_changes(event),
+      file_context_changes: file_context_changes(event),
       checkpoint_invalidated_fields: checkpoint_invalidated_fields(host, event, timestamp, sequence, host_observed_at),
       audit_timestamp: timestamp,
       audit_sequence: sequence,
@@ -215,7 +216,9 @@ class IngestEvents
 
     return "enforcement_change" if enforcement_changes(event).any? { |change| change["success"] && change["old_mode"] != change["new_mode"] }
 
-    "port_change" if port_changes(event).any? { |change| change["success"] }
+    return "port_change" if port_changes(event).any? { |change| change["success"] }
+
+    "file_context_change" if file_context_changes(event).any? { |change| change["success"] }
   end
 
   def boolean_changes(event)
@@ -261,6 +264,24 @@ class IngestEvents
       next unless record.is_a?(Hash) && type_code(record["type"]) == 2312
 
       RawEvent.port_change(Base64.strict_decode64(record.fetch("payload")))
+    rescue ArgumentError, KeyError
+      nil
+    end
+  end
+
+  def file_context_record?(event)
+    Array(event["records"]).any? do |record|
+      record.is_a?(Hash) && type_code(record["type"]) == 2312 && RawEvent.file_context_record?(Base64.strict_decode64(record.fetch("payload")))
+    rescue ArgumentError, KeyError
+      false
+    end
+  end
+
+  def file_context_changes(event)
+    Array(event["records"]).filter_map do |record|
+      next unless record.is_a?(Hash) && type_code(record["type"]) == 2312
+
+      RawEvent.file_context_change(Base64.strict_decode64(record.fetch("payload")))
     rescue ArgumentError, KeyError
       nil
     end

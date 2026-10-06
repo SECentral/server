@@ -17,9 +17,10 @@ class InvestigationGuidance
     names = evidence.flat_map { |value| Array(value["object_names"]) }.uniq
     network = denials.map { |denial| network_evidence(denial.details) }.reduce(network_defaults) { |combined, value| combined.to_h { |key| [key, (combined[key] + value[key]).uniq] } }
     process = denials.map { |denial| process_evidence(denial) }.reduce(process_defaults) { |combined, value| combined.to_h { |key| [key, (combined[key] + value[key]).uniq] } }
-    event_file_contexts = denials.flat_map { |denial| Array(denial.details["event_file_contexts"]) }
+    event_file_contexts = denials.each_with_index.flat_map { |denial, index| RawEvent.effective_context_observations(denial.details["event_file_contexts"], occurrences[index].try(:raw_event).try(:checkpoint_invalidated_fields)) }
     expected_context_observations = occurrences.flat_map do |occurrence|
-      Array(occurrence.try(:raw_event)&.file_context_observations).select { |item| item["kind"] == "expected_context" }
+      raw = occurrence.try(:raw_event)
+      RawEvent.effective_context_observations(raw&.file_context_observations, raw.try(:checkpoint_invalidated_fields)).select { |item| item["kind"] == "expected_context" }
     end
     provenance = denials.flat_map { |denial| Array(denial.details["evidence_provenance"]) }
     permissions = @occurrence ? denials.first.permissions : @issue.permissions

@@ -75,7 +75,7 @@ class ConfigurationQuery
       inventory = host.port_inventory_for(observation)
       values = case @family
       when "ports" then inventory&.fetch("mappings", [])
-      when "file_contexts" then selinux.dig("policy", "file_contexts")
+      when "file_contexts" then host.file_context_mappings_for(observation)["mappings"]
       when "modules" then selinux.dig("policy", "modules").presence || selinux.dig("policy", "custom_modules")
       end
       next if values.blank? || observation.nil? || observation.stale?

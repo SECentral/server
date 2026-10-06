@@ -68,6 +68,22 @@ async function openAudit() {
 }
 
 describe("Monitored-server SELinux activity", () => {
+  it("retains unsupported fcontext history without interpreting an operation", async () => {
+    renderActivity(response([item({transition_type:"file_context_change",boundary_established:false,evidence_class:"administrative_history",boolean_changes:[],file_context_changes:[]})]));
+    expect(await screen.findByText("Mapping configuration reported · boundary not established")).toBeVisible();
+    await openAudit();
+    expect(screen.getByText("File-context configuration reported")).toBeVisible();
+    expect(screen.queryByText("File-context mapping write reported")).not.toBeInTheDocument();
+  });
+  it.each(["add", "modify", "delete"] as const)("renders a %s expected-label mapping write without claiming relabeling", async (operation) => {
+    renderActivity(response([item({ transition_type: "file_context_change", boolean_changes: [], file_context_changes: [{operation, expression: "/srv/test(/.*)?", file_selector: "any", target_context: operation === "delete" ? null : "system_u:object_r:httpd_sys_content_t:", selinux_type: operation === "delete" ? null : "httpd_sys_content_t", success: true, boundary_established: true, state_change_established: false}] })]));
+    expect(await screen.findByText(new RegExp(`/srv/test.* · any · ${operation}`))).toBeVisible();
+    await openAudit();
+    expect(screen.getByText(/USER_MAC_CONFIG_CHANGE/)).toBeVisible();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Technical Provenance & Hashes" }));
+    expect(screen.getByText(/does not prove the value differed or any inode was relabeled/)).toBeVisible();
+    if (operation === "delete") expect(screen.queryByText(/httpd_sys_content_t/)).not.toBeInTheDocument();
+  });
   it("labels a later incomplete observation without claiming state reconciliation", async () => {
     renderActivity(response([item({ reconciliation: { status: "pending", checkpoint: { ...checkpoint(false), booleans: [{ name: "httpd_can_network_connect", value: null }] }, next_transition: null } })]));
     await openAudit();

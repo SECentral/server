@@ -371,6 +371,7 @@ class IssueDiagnosis
   end
 
   def expected_context_observations_for(occurrence)
+    return [] if Array(occurrence.raw_event.try(:checkpoint_invalidated_fields)).include?("file_context_mappings")
     observations = Array(@intelligence[:expected_context_observations])
     direct = observations.select { |item| item[:occurrence_id] == occurrence.id }
     denial = occurrence.normalized_denial

@@ -213,7 +213,7 @@ RSpec.describe "Runtime enforcement transition correctness", type: :request do
     payload = { "schema_version" => 2, "agent" => { "version" => "test" }, "host_observed_at" => (base + offset).iso8601(6),
       "host" => { "id" => "mode-host", "hostname" => "mode-test", "boot_id" => boot,
         "selinux" => { "enabled" => true, "enforcement" => mode, "policy_identity" => identity,
-          "policy" => { "port_inventory" => { "status" => "observed", "mappings" => [] } },
+          "policy" => { "port_inventory" => { "status" => "observed", "mappings" => [] }, "file_context_mappings_status" => "observed", "file_contexts" => [], "local_file_context_mappings" => [], "file_context_equivalences" => [] },
           "booleans" => [{ "name" => "httpd_read_user_content", "current" => false, "status" => "observed" }] } } }
     post "/api/v1/heartbeat", params: payload.to_json, headers: headers
     expect(response).to have_http_status(:accepted)

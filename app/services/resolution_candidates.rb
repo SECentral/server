@@ -124,6 +124,7 @@ class ResolutionCandidates
         "Current path existence, inode identity and local mapping continuity are not verified.",
         "Automatic rollback cannot be generated safely from current evidence."])
     candidate[:status] = "evidence_changed" unless state[:configuration_current]
+    candidate[:status] = "evidence_changed" if state[:selinux].dig("policy", "file_context_mappings_status").in?(%w[unknown partial unavailable])
     q = Shellwords.escape(path)
     basis = { version: VERSION, occurrence_id: occurrence.id, host_id: occurrence.host_id,
       checkpoint_id: occurrence.host_snapshot_id, checkpoint_observed_at: occurrence.raw_event.host_observed_at,

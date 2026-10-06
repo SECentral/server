@@ -691,6 +691,10 @@ export type HostConfigurationResponse = {
          * Effective port inventory trust, independent of aggregate checkpoint age and unrelated inventory families.
          */
         port_inventory_status?: 'observed' | 'partial' | 'unavailable' | 'unknown';
+        /**
+         * Expected-label configuration completeness/trust, separate from actual object labels.
+         */
+        file_context_mappings_status?: 'observed' | 'partial' | 'unavailable' | 'unknown';
         policy_identity: string | null;
     };
     reference: {
@@ -1162,7 +1166,7 @@ export type RawEventDetail = {
     audit_sequence: number;
     boot_id: string;
     category: 'avc' | 'selinux_administrative';
-    transition_type: 'policy_load' | 'boolean_change' | 'enforcement_change' | 'port_change' | null;
+    transition_type: 'policy_load' | 'boolean_change' | 'enforcement_change' | 'port_change' | 'file_context_change' | null;
     /**
      * Host mode from the associated checkpoint only when that dimension remains trusted; distinct from AVC-local permissive evidence.
      */
@@ -1170,11 +1174,15 @@ export type RawEventDetail = {
     /**
      * Scoped checkpoint uncertainty reported by the collector or derived independently from retained transitions.
      */
-    checkpoint_invalidated_fields?: Array<'enforcement' | 'ports' | 'policy_identity' | 'booleans'>;
+    checkpoint_invalidated_fields?: Array<'enforcement' | 'ports' | 'policy_identity' | 'booleans' | 'file_context_mappings'>;
     /**
      * Trusted checkpoint port inventory coverage; Unknown during a known port boundary. AVC target context is separate direct evidence.
      */
     checkpoint_port_inventory_status?: 'observed' | 'partial' | 'unavailable' | 'unknown';
+    /**
+     * Expected-label mapping configuration trust; not actual inode labels or retrospective matchpathcon evidence.
+     */
+    checkpoint_file_context_mappings_status?: 'observed' | 'partial' | 'unavailable' | 'unknown';
     /**
      * Exact identity only when the occurrence checkpoint identity dimension is trusted.
      */
@@ -1312,7 +1320,7 @@ export type SelinuxActivityItem = {
     boot_id: string;
     event_time: string;
     evidence_class: 'observed_transition' | 'administrative_history';
-    transition_type: 'policy_load' | 'boolean_change' | 'enforcement_change' | 'port_change';
+    transition_type: 'policy_load' | 'boolean_change' | 'enforcement_change' | 'port_change' | 'file_context_change';
     boundary_established: boolean;
     audit_sequence: number;
     boolean_changes: Array<{
@@ -1343,6 +1351,19 @@ export type SelinuxActivityItem = {
         boundary_established: boolean;
     }>;
     /**
+     * Validated expected-label configuration writes; no old context or resulting inode label inferred.
+     */
+    file_context_changes?: Array<{
+        operation: 'add' | 'modify' | 'delete';
+        expression: string;
+        file_selector: 'any' | 'file';
+        target_context: string | null;
+        selinux_type: string | null;
+        success: boolean;
+        boundary_established: boolean;
+        state_change_established: false;
+    }>;
+    /**
      * Earlier historical checkpoint, not an assertion that it was current throughout the intervening period.
      */
     previous_checkpoint: SelinuxCheckpoint | null;
@@ -1351,7 +1372,7 @@ export type SelinuxActivityItem = {
         /**
          * Affected dimensions lacking authoritative evidence in the projected checkpoint. A later incomplete observation does not establish reconciliation.
          */
-        unreconciled_fields?: Array<'policy_identity' | 'booleans' | 'enforcement' | 'ports'>;
+        unreconciled_fields?: Array<'policy_identity' | 'booleans' | 'enforcement' | 'ports' | 'file_context_mappings'>;
         /**
          * Earliest retained checkpoint authoritatively observing all affected dimensions, or the earliest later incomplete observation if no such checkpoint exists. A superseding transition may precede it; unknown fields are not inferred.
          */

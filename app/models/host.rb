@@ -52,4 +52,8 @@ class Host < ApplicationRecord
   def selinux_state_for(observation = current_state_observation)
     checkpoint_trust_for(observation).selinux
   end
+
+  def file_context_mappings_for(observation = current_state_observation)
+    checkpoint_trust_for(observation).file_context_mappings
+  end
 end

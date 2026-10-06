@@ -4,7 +4,7 @@ RSpec.describe CheckpointTrust do
   let(:state) do
     { "selinux" => { "policy_identity" => "sha256:#{'a' * 64}", "enforcement" => "enforcing",
       "boolean_status" => "observed", "booleans" => [{ "name" => "nis_enabled", "status" => "observed", "current" => false }],
-      "policy" => { "port_inventory" => { "status" => "observed", "mappings" => [] } } } }
+      "policy" => { "port_inventory" => { "status" => "observed", "mappings" => [] }, "file_context_mappings_status" => "observed", "file_contexts" => [], "local_file_context_mappings" => [], "file_context_equivalences" => [] } } }
   end
   def trust(details, fields = [])
     described_class.new(HostSnapshot.new(details: details), fields)

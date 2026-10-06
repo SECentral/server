@@ -1,11 +1,12 @@
 # Immutable observation + known trust boundaries; never a reconstructed state.
 class CheckpointTrust
-  FIELDS = %w[policy_identity booleans enforcement ports].freeze
+  FIELDS = %w[policy_identity booleans enforcement ports file_context_mappings].freeze
   TRANSITION_FIELDS = {
-    "policy_load" => %w[policy_identity booleans ports].freeze,
+    "policy_load" => %w[policy_identity booleans ports file_context_mappings].freeze,
     "boolean_change" => %w[policy_identity booleans].freeze,
     "enforcement_change" => %w[enforcement].freeze,
-    "port_change" => %w[policy_identity ports].freeze
+    "port_change" => %w[policy_identity ports].freeze,
+    "file_context_change" => %w[file_context_mappings].freeze
   }.freeze
   # Preserve the live-accepted stronger policy/boolean association boundary.
   WITHHELD_ASSOCIATIONS = %w[policy_load boolean_change].freeze
@@ -60,10 +61,21 @@ class CheckpointTrust
   def selinux
     values = @selinux.merge("policy_identity" => policy_identity, "enforcement" => enforcement,
       "policy" => @selinux.fetch("policy", {}).merge("port_inventory" => ports))
+    if @invalidated_fields.include?("file_context_mappings")
+      values["policy"] = values["policy"].merge("file_context_mappings_status" => "unknown", "file_contexts" => [], "local_file_context_mappings" => [], "file_context_equivalences" => [])
+    end
     if @invalidated_fields.include?("booleans")
       values = values.merge("boolean_status" => "unknown", "booleans" => Array(@selinux["booleans"]).map { |entry| entry.merge("status" => "unknown", "current" => nil) })
     end
     values
+  end
+
+  def file_context_mappings
+    return { "status" => "unknown", "mappings" => [], "local_mappings" => [], "equivalences" => [] } if @invalidated_fields.include?("file_context_mappings")
+
+    policy = @selinux.fetch("policy", {})
+    { "status" => policy["file_context_mappings_status"] || "unknown", "mappings" => Array(policy["file_contexts"]),
+      "local_mappings" => Array(policy["local_file_context_mappings"]), "equivalences" => Array(policy["file_context_equivalences"]) }
   end
 
   # Same readiness rules in the bounded SQL activity projection; no per-row queries.
@@ -79,7 +91,8 @@ class CheckpointTrust
     SQL
     "array_remove(ARRAY[CASE WHEN #{identity} THEN 'policy_identity' END, CASE WHEN #{booleans} THEN 'booleans' END, " \
       "CASE WHEN #{details} #>> '{selinux,enforcement}' IN ('enforcing','permissive','disabled') THEN 'enforcement' END, " \
-      "CASE WHEN #{details} #>> '{selinux,policy,port_inventory,status}' = 'observed' AND jsonb_typeof(#{details} #> '{selinux,policy,port_inventory,mappings}') = 'array' THEN 'ports' END], NULL)"
+      "CASE WHEN #{details} #>> '{selinux,policy,port_inventory,status}' = 'observed' AND jsonb_typeof(#{details} #> '{selinux,policy,port_inventory,mappings}') = 'array' THEN 'ports' END, " \
+      "CASE WHEN #{details} #>> '{selinux,policy,file_context_mappings_status}' = 'observed' AND jsonb_typeof(#{details} #> '{selinux,policy,file_contexts}') = 'array' AND jsonb_typeof(#{details} #> '{selinux,policy,local_file_context_mappings}') = 'array' AND jsonb_typeof(#{details} #> '{selinux,policy,file_context_equivalences}') = 'array' THEN 'file_context_mappings' END], NULL)"
   end
 
   def self.transition_fields_sql(column)
@@ -99,6 +112,9 @@ class CheckpointTrust
       (@selinux["boolean_status"] == "observed" || (!@selinux.key?("boolean_status") && entries.any?)) &&
         entries.all? { |entry| entry.is_a?(Hash) && entry["status"] == "observed" && (entry["current"] == true || entry["current"] == false) }
     when "ports" then ports["status"] == "observed" && ports["mappings"].is_a?(Array)
+    when "file_context_mappings"
+      policy = @selinux.fetch("policy", {})
+      policy["file_context_mappings_status"] == "observed" && %w[file_contexts local_file_context_mappings file_context_equivalences].all? { |key| policy[key].is_a?(Array) }
     end
   end
 end

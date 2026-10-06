@@ -86,7 +86,9 @@ export function HostOccurrenceDetail() {
       </p>
       <OccurrenceInvestigation occurrence={occurrence} />
       {activityQuery.data?.items[0] ? <Alert variant="info" isInline title="SELinux state changed before this occurrence" className="pf-v6-u-mt-lg">
-        {activityQuery.data.items[0].transition_type === "port_change"
+        {activityQuery.data.items[0].transition_type === "file_context_change"
+          ? "The earlier checkpoint's expected-label mapping configuration is untrusted for this occurrence. The AVC target label and path remain direct evidence; the mapping write does not establish relabeling. "
+          : activityQuery.data.items[0].transition_type === "port_change"
           ? "The earlier checkpoint's port inventory and exact policy identity are untrusted for this occurrence. AVC-local target context remains authoritative; unrelated checkpoint dimensions stay available unless another observed transition invalidated them. "
           : activityQuery.data.items[0].transition_type === "enforcement_change"
           ? "The earlier checkpoint's host enforcement mode is untrusted for this occurrence. AVC-local permissive evidence remains authoritative, and unchanged policy/boolean evidence can still support analysis. "

@@ -19,7 +19,7 @@ class IssueIntelligence
       "normalized_denials.source_context", "normalized_denials.target_context",
       "normalized_denials.command", "normalized_denials.executable", "occurrences.id",
       "occurrences.raw_event_id", "raw_events.file_context_observations", "occurrences.occurred_at",
-      "raw_events.host_observed_at", "raw_events.boot_id"
+      "raw_events.host_observed_at", "raw_events.boot_id", "raw_events.checkpoint_invalidated_fields"
     )
     activity_hosts = Host.where(organization: @issue.organization).where("last_seen_at >= ?", Host::STALE_AFTER.ago).includes(current_state_observation: :host_snapshot).to_a
     configuration_hosts = activity_hosts.select(&:current_configuration?)
@@ -46,7 +46,7 @@ class IssueIntelligence
       process_evidence: rows.flat_map { |row| [ row[2].to_h.fetch("process_evidence", {}) ] }.then { |values| merge_process_evidence(values) },
        contexts: rows.filter_map { |row| { source: row[3], target: row[4] } if row[3] || row[4] }.uniq,
        observed_target_contexts: rows.filter_map { |row| row[4] }.uniq,
-        event_file_contexts: rows.flat_map { |row| Array(row[2].to_h["event_file_contexts"]) },
+        event_file_contexts: rows.flat_map { |row| RawEvent.effective_context_observations(row[2].to_h["event_file_contexts"], row[13]) },
         expected_context_observations: expected_context_observations(rows),
         correlated_file_contexts: correlated_file_contexts(rows),
       affected_hosts: @issue.occurrences.distinct.count(:host_id),
@@ -161,7 +161,7 @@ class IssueIntelligence
 
   def file_context_distribution(hosts)
     hosts.flat_map do |host|
-      Array(host.current_snapshot&.details&.dig("selinux", "policy", "file_contexts")).map do |mapping|
+      mapping_inventory(host)["mappings"].map do |mapping|
         [mapping["pattern"], mapping["file_type"], mapping["context"], mapping.fetch("provenance", "unknown")]
       end
     end.tally
@@ -170,7 +170,7 @@ class IssueIntelligence
   def current_file_context_matches(hosts)
     paths = rows_for_file_contexts
     hosts.flat_map do |host|
-      mappings = host.current_snapshot&.details&.dig("selinux", "policy", "file_contexts")
+      mappings = mapping_inventory(host)["mappings"]
       paths.flat_map do |path|
         result = FileContextMatcher.call(path, mappings)
         result[:matches].map { |mapping| { host_id: host.id, hostname: host.hostname, path: path, mapping: mapping, temporal_scope: "current_configuration_fleet" } }
@@ -186,15 +186,15 @@ class IssueIntelligence
 
   def correlated_file_contexts(rows)
     rows.flat_map do |row|
-      Array(row[2].to_h["event_file_contexts"]).map { |observation| observation.merge(host_id: row[0], occurrence_id: row[7]) }
+      RawEvent.effective_context_observations(row[2].to_h["event_file_contexts"], row[13]).map { |observation| observation.merge(host_id: row[0], occurrence_id: row[7]) }
     end
   end
 
   def expected_context_observations(rows)
     rows.flat_map do |row|
       target = target_evidence(row[2])
-      observations = Array(row[9])
-      legacy = Array(row[2].to_h["event_file_contexts"]).reject do |item|
+      observations = RawEvent.effective_context_observations(row[9], row[13])
+      legacy = RawEvent.effective_context_observations(row[2].to_h["event_file_contexts"], row[13]).reject do |item|
         observations.any? do |observation|
           observation["kind"] == "expected_context" &&
             observation["path"] == item["path"] &&
@@ -229,6 +229,11 @@ class IssueIntelligence
         }
       end
     end
+  end
+
+  def mapping_inventory(host)
+    @mapping_inventories ||= {}
+    @mapping_inventories[host.id] ||= host.file_context_mappings_for
   end
 
   def matchpathcon_file_type(object_class)

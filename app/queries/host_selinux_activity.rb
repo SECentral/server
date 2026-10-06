@@ -148,7 +148,8 @@ class HostSelinuxActivity
         state_change_established: change["success"] && change["old_mode"] != change["new_mode"] }
     end
     ports = event.port_changes.map { |change| change.merge("boundary_established" => change["success"]) }
-    type = event.transition_type || (event.raw_audit_records.any? { |record| record.record_type == 2312 } ? "port_change" : event.raw_audit_records.any? { |record| record.record_type == 1404 } ? "enforcement_change" : changes.any? ? "boolean_change" : "policy_load")
+    mappings = event.file_context_changes.map { |change| change.merge("boundary_established" => change["success"], "state_change_established" => false) }
+    type = event.transition_type || (event.raw_audit_records.any? { |record| record.record_type == 2312 && RawEvent.file_context_record?(record.payload) } ? "file_context_change" : event.raw_audit_records.any? { |record| record.record_type == 2312 } ? "port_change" : event.raw_audit_records.any? { |record| record.record_type == 1404 } ? "enforcement_change" : changes.any? ? "boolean_change" : "policy_load")
     names = changes.map { |change| change[:name] }
     checkpoint_id = event.refreshed_snapshot_id || event.observed_snapshot_id
     checkpoint_time = event.refreshed_time || event.observed_time
@@ -170,6 +171,7 @@ class HostSelinuxActivity
       boundary_established: boundary, audit_sequence: event.audit_sequence, boolean_changes: changes,
       enforcement_changes: enforcement,
       port_changes: ports,
+      file_context_changes: mappings,
       previous_checkpoint: checkpoint(event.previous_snapshot_id, event.previous_time, snapshots, names),
       reconciliation: { status: status, checkpoint: refreshed, unreconciled_fields: unreconciled,
         next_transition: event.following_id ? { id: event.following_id, event_time: event.following_time.iso8601(6), audit_sequence: event.following_sequence } : nil },

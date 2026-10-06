@@ -71,6 +71,30 @@ class RawEvent < ApplicationRecord
     CheckpointTrust.new(snapshot, checkpoint_invalidated_fields)
   end
 
+  def self.file_context_record?(payload)
+    payload.scan(/(?:\A|\s)msg='([^']*)'(?:\s|\z)/).any? { |body| body.first == "resrc=fcontext" || body.first.start_with?("resrc=fcontext ") }
+  end
+
+  def self.file_context_change(payload)
+    fields = user_change_fields(payload)
+    return unless fields && fields["resrc"] == "fcontext" && %w[add modify delete].include?(fields["op"]) && %w[any file].include?(fields["ftype"]) &&
+      (fields.keys & %w[success old_tcontext old_type sglob lport proto]).empty?
+    expression = fields["tglob"]
+    return unless expression&.start_with?('"/') && expression.end_with?('"') && expression.bytesize.between?(3, 4098)
+
+    expression = expression[1...-1]
+    expression = expression.dup.force_encoding(Encoding::UTF_8)
+    return unless expression.valid_encoding?
+    return if expression.match?(/[\s\p{Cc}"\\]/)
+    if fields["op"] == "delete"
+      return if fields.key?("tcontext")
+    else
+      return unless fields["tcontext"].to_s.match?(/\Asystem_u:object_r:[A-Za-z_][A-Za-z0-9_]*:(?:s0)?\z/)
+    end
+    { "operation" => fields["op"], "expression" => expression, "file_selector" => fields["ftype"],
+      "target_context" => fields["tcontext"], "selinux_type" => fields["tcontext"]&.split(":")&.[](2), "success" => fields["res"] == "success" }
+  end
+
   def self.port_record?(payload)
     payload.scan(/(?:\A|\s)msg='([^']*)'(?:\s|\z)/).any? do |body|
       body.first == "resrc=port" || body.first.start_with?("resrc=port ")
@@ -78,19 +102,11 @@ class RawEvent < ApplicationRecord
   end
 
   def self.port_change(payload)
-    messages = payload.scan(/(?:\A|\s)msg='([^']*)'(?:\s|\z)/)
-    return unless messages.one? && messages.sole.first.match?(/\A(?:[A-Za-z_]+=(?:"(?:\\.|[^"])*"|[^\s"]*)(?:\s+|\z))+\z/)
-
-    fields = {}
-    messages.sole.first.scan(/(?:\A|\s)([A-Za-z_]+)=("(?:\\.|[^"])*"|[^\s"]*)/).each do |key, value|
-      next unless %w[resrc op lport proto tcontext res success old_tcontext old_type].include?(key)
-      return if fields.key?(key)
-
-      fields[key] = value
-    end
+    fields = user_change_fields(payload)
+    return unless fields
     return unless fields["resrc"] == "port" && %w[add modify delete].include?(fields["op"]) &&
       %w[6 17].include?(fields["proto"]) && fields["lport"].to_s.match?(/\A[0-9]+(?:-[0-9]+)?\z/) &&
-      (fields.keys & %w[success old_tcontext old_type]).empty?
+      (fields.keys & %w[success old_tcontext old_type tglob ftype sglob]).empty?
 
     first, last = fields["lport"].split("-", 2).map(&:to_i)
     last ||= first
@@ -103,5 +119,30 @@ class RawEvent < ApplicationRecord
     { "operation" => fields["op"], "protocol" => fields["proto"] == "6" ? "tcp" : "udp",
       "start" => first, "end" => last, "target_context" => fields["tcontext"],
       "selinux_type" => fields["tcontext"]&.split(":")&.[](2), "success" => fields["res"] == "success" }
+  end
+
+  def self.user_change_fields(payload)
+    messages = payload.scan(/(?:\A|\s)msg='([^']*)'(?:\s|\z)/)
+    return unless messages.one? && messages.sole.first.match?(/\A(?:[A-Za-z_]+=(?:"(?:\\.|[^"])*"|[^\s"]*)(?:\s+|\z))+\z/)
+
+    fields = {}
+    messages.sole.first.scan(/(?:\A|\s)([A-Za-z_]+)=("(?:\\.|[^"])*"|[^\s"]*)/).each do |key, value|
+      return if fields.key?(key)
+
+      fields[key] = value
+    end
+    fields
+  end
+
+  def self.effective_context_observations(observations, invalidated_fields)
+    return Array(observations) unless Array(invalidated_fields).include?("file_context_mappings")
+
+    Array(observations).map do |item|
+      item["kind"] == "expected_context" ? item.merge("status" => "unavailable", "reason" => "file_context_mapping_boundary") : item.merge("expected_status" => "unknown")
+    end
+  end
+
+  def effective_file_context_observations
+    self.class.effective_context_observations(file_context_observations, checkpoint_invalidated_fields)
   end
 end

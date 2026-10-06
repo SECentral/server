@@ -17,7 +17,7 @@ class OccurrenceDetailSerializer
         target_context: denial.target_context,
         command: denial.command,
         executable: denial.executable,
-        details: denial.details
+        details: denial.details.merge("event_file_contexts" => RawEvent.effective_context_observations(denial.details["event_file_contexts"], raw_event.checkpoint_invalidated_fields))
       },
       raw_event: {
         id: raw_event.id,
@@ -29,10 +29,11 @@ class OccurrenceDetailSerializer
         checkpoint_enforcement_mode: raw_event.checkpoint_enforcement_mode(occurrence.host_snapshot),
         checkpoint_invalidated_fields: raw_event.checkpoint_invalidated_fields,
         checkpoint_port_inventory_status: raw_event.checkpoint_port_inventory(occurrence.host_snapshot)["status"],
+        checkpoint_file_context_mappings_status: raw_event.checkpoint_trust(occurrence.host_snapshot).file_context_mappings["status"],
         checkpoint_policy_identity: raw_event.checkpoint_policy_identity(occurrence.host_snapshot),
         completion_reason: raw_event.completion_reason,
         evidence_digest: raw_event.evidence_digest,
-        file_context_observations: raw_event.file_context_observations,
+        file_context_observations: raw_event.effective_file_context_observations,
         audit_records: raw_event.raw_audit_records.map do |record|
           {
             position: record.position,
