@@ -1459,8 +1459,7 @@ components:
         id:
           type: integer
         hostname:
-          type: string
-          nullable: true
+          type: [string, "null"]
     OverviewAttentionIssue:
       type: object
       required:
@@ -1489,11 +1488,10 @@ components:
         host_count:
           type: integer
         heartbeat_range:
-          type: array
+          type: [array, "null"]
           items:
             type: string
             format: date-time
-          nullable: true
           description: Oldest and newest agent heartbeat in the group.
         example_hosts:
           type: array
@@ -2476,8 +2474,7 @@ components:
         id:
           type: integer
         source_path:
-          type: string
-          nullable: true
+          type: [string, "null"]
         acquisition_metadata:
           type: object
           additionalProperties: true
@@ -3419,9 +3416,9 @@ components:
           $ref: "#/components/schemas/RawEventDetail"
         guidance:
           description: Investigation guidance, or null for ungrouped occurrences.
-          allOf:
+          anyOf:
             - $ref: "#/components/schemas/OccurrenceGuidance"
-          nullable: true
+            - type: "null"
         issue:
           description: Grouping issue, or null for ungrouped occurrences.
           type:

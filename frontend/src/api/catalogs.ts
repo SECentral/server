@@ -1,10 +1,10 @@
 import { apiFetch } from "./client";
-import type { components } from "./types.gen";
+import type * as Types from "./generated/types.gen";
 
-export type Catalog = components["schemas"]["Catalog"];
-export type CatalogDetail = components["schemas"]["CatalogDetail"];
-export type CatalogListResponse = components["schemas"]["CatalogListResponse"];
-export type CatalogDetailResponse = components["schemas"]["CatalogDetailResponse"];
+export type Catalog = Types.Catalog;
+export type CatalogDetail = Types.CatalogDetail;
+export type CatalogListResponse = Types.CatalogListResponse;
+export type CatalogDetailResponse = Types.CatalogDetailResponse;
 
 export function fetchCatalogs(): Promise<CatalogListResponse> {
   return apiFetch<CatalogListResponse>("/api/v1/catalogs");

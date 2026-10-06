@@ -1,12 +1,12 @@
 import { apiFetch } from "./client";
-import type { components } from "./types.gen";
+import type * as Types from "./generated/types.gen";
 
-export type IssueHost = components["schemas"]["IssueHost"];
-export type IssueListItem = components["schemas"]["IssueListItem"];
-export type IssueListSummary = components["schemas"]["IssueListSummary"];
-export type IssueListResponse = components["schemas"]["IssueListResponse"];
-export type UngroupableEvent = components["schemas"]["UngroupableEvent"];
-export type UngroupableEventsResponse = components["schemas"]["UngroupableEventsResponse"];
+export type IssueHost = Types.IssueHost;
+export type IssueListItem = Types.IssueListItem;
+export type IssueListSummary = Types.IssueListSummary;
+export type IssueListResponse = Types.IssueListResponse;
+export type UngroupableEvent = Types.UngroupableEvent;
+export type UngroupableEventsResponse = Types.UngroupableEventsResponse;
 
 export function fetchIssues(params: URLSearchParams): Promise<IssueListResponse> {
   const query = params.toString();

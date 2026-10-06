@@ -1,13 +1,13 @@
 import { apiFetch } from "./client";
-import type { components } from "./types.gen";
+import type * as Types from "./generated/types.gen";
 
-export type Issue = components["schemas"]["Issue"];
-export type Diagnosis = components["schemas"]["Diagnosis"];
-export type IssueDetailResponse = components["schemas"]["IssueDetailResponse"];
-export type OccurrenceDetail = components["schemas"]["OccurrenceDetail"];
-export type IssueOccurrencesResponse = components["schemas"]["IssueOccurrencesResponse"];
-export type IssueAnalysisResponse = components["schemas"]["IssueAnalysisResponse"];
-export type OccurrencePage = components["schemas"]["OccurrenceSummaryPage"];
+export type Issue = Types.Issue;
+export type Diagnosis = Types.Diagnosis;
+export type IssueDetailResponse = Types.IssueDetailResponse;
+export type OccurrenceDetail = Types.OccurrenceDetail;
+export type IssueOccurrencesResponse = Types.IssueOccurrencesResponse;
+export type IssueAnalysisResponse = Types.IssueAnalysisResponse;
+export type OccurrencePage = Types.OccurrenceSummaryPage;
 
 export function fetchIssueOccurrencePage(id: number, page: number): Promise<OccurrencePage> {
   return apiFetch<OccurrencePage>(`/api/v1/issues/${id}/occurrences?view=summary&page=${page}`);

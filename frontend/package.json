@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "npm run gen:types && npm run typecheck && vite build && node scripts/check-build.mjs",
     "typecheck": "tsc --noEmit",
-    "gen:types": "openapi-typescript ../openapi/openapi.yaml -o src/api/types.gen.ts",
+    "gen:types": "openapi-ts -f openapi-ts.config.ts",
     "lint": "eslint src",
     "test": "vitest run"
   },
@@ -23,6 +23,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@hey-api/openapi-ts": "0.97.3",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.6.1",
@@ -34,10 +35,14 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.7",
     "jsdom": "^26.1.0",
-    "openapi-typescript": "^7.6.1",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.71.0",
     "vite": "^8.3.2",
     "vitest": "^5.0.3"
+  },
+  "overrides": {
+    "@hey-api/json-schema-ref-parser": {
+      "js-yaml": "4.3.2"
+    }
   }
 }

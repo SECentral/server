@@ -1,15 +1,15 @@
 import { apiFetch } from "./client";
-import type { components } from "./types.gen";
+import type * as Types from "./generated/types.gen";
 
-export type HostListItem = components["schemas"]["HostListItem"];
-export type HostDetail = components["schemas"]["HostDetail"];
-export type HostListResponse = components["schemas"]["HostListResponse"];
-export type HostDetailResponse = components["schemas"]["HostDetailResponse"];
-export type HostOccurrencesResponse = components["schemas"]["HostOccurrencesResponse"];
-export type SelinuxActivityItem = components["schemas"]["SelinuxActivityItem"];
-export type SelinuxCheckpoint = components["schemas"]["SelinuxCheckpoint"];
-export type SelinuxActivityResponse = components["schemas"]["SelinuxActivityResponse"];
-export type SelinuxActivityDetailResponse = components["schemas"]["SelinuxActivityDetailResponse"];
+export type HostListItem = Types.HostListItem;
+export type HostDetail = Types.HostDetail;
+export type HostListResponse = Types.HostListResponse;
+export type HostDetailResponse = Types.HostDetailResponse;
+export type HostOccurrencesResponse = Types.HostOccurrencesResponse;
+export type SelinuxActivityItem = Types.SelinuxActivityItem;
+export type SelinuxCheckpoint = Types.SelinuxCheckpoint;
+export type SelinuxActivityResponse = Types.SelinuxActivityResponse;
+export type SelinuxActivityDetailResponse = Types.SelinuxActivityDetailResponse;
 
 export function fetchHosts(params: URLSearchParams): Promise<HostListResponse> {
   const suffix = params.toString();
