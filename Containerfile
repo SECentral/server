@@ -54,6 +54,7 @@ COPY . .
 
 # Build the React SPA to public/spa (regenerates API types from openapi/).
 RUN npm ci --prefix frontend && npm run build --prefix frontend
+RUN rm -rf frontend/node_modules
 
 # Precompile bootsnap code for faster boot times.
 # -j 1 disable parallel compilation to avoid a QEMU bug: https://github.com/rails/bootsnap/issues/495
