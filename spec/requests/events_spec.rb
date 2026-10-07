@@ -566,6 +566,156 @@ RSpec.describe "Events API", type: :request do
     expect(HostSnapshot.count).to eq(0)
   end
 
+  %w[malformed_avc valid_boundary malformed_boundary conflict unknown_type invalid_envelope].each do |failure|
+    it "records the current atomic batch failure boundary for #{failure}" do
+      request = ingest_request(sequence: 8123, raw_payload: avc_payload("/srv/first", ["read"]))
+      middle = ingest_request["events"][0]
+      case failure
+      when "malformed_avc"
+        middle["records"][0]["position"] = 99
+      when "valid_boundary"
+        request["events"] = boolean_change_request["events"]
+        middle["records"][0]["position"] = 99
+        middle["audit_event"]["sequence"] = 8125
+        middle["records"][0]["sequence"] = 8125
+      when "malformed_boundary"
+        middle = boolean_change_request["events"][0]
+        middle["records"][0]["position"] = 99
+        request["events"] = []
+      when "conflict"
+        post "/api/v1/events", params: ingest_request.to_json, headers: headers
+        expect(response).to have_http_status(:accepted)
+        middle["records"][0]["payload"] = Base64.strict_encode64("changed evidence")
+      when "unknown_type"
+        middle["records"][0].merge!("type" => "unregistered", "type_name" => "unregistered")
+      when "invalid_envelope"
+        request["boot_id"] = ""
+      end
+      request["events"] += [middle, ingest_request(sequence: 8126)["events"][0]]
+      retained = [RawEvent.count, RawAuditRecord.count, Occurrence.count]
+      expect {
+        post "/api/v1/events", params: request.to_json, headers: headers
+      }.not_to have_enqueued_job(RequestPolicyFactsJob)
+      expect(response).to have_http_status(:unprocessable_content)
+      expect([RawEvent.count, RawAuditRecord.count, Occurrence.count]).to eq(retained)
+      expect(RawEvent.state_transitions.count).to eq(0)
+      expect(JSON.parse(response.body).dig("error", "details")).to include(
+        hash_including("code" => failure == "conflict" ? "conflicting_duplicate" : failure == "unknown_type" ? "invalid_type" : failure == "invalid_envelope" ? "required" : "position_mismatch"))
+      if failure == "valid_boundary"
+        repaired = request.deep_dup
+        repaired["events"].delete_at(1)
+        post "/api/v1/events", params: repaired.to_json, headers: headers
+        expect(response).to have_http_status(:accepted)
+        expect(RawEvent.state_transitions.sole.transition_type).to eq("boolean_change")
+        expect(Occurrence.sole.raw_event.checkpoint_invalidated_fields).to eq(CheckpointTrust.fields_for("boolean_change"))
+      end
+    end
+  end
+
+  it "rejects the starvation simulation's AVC-category poison with no AVC record before persistence" do
+    request = ingest_request(sequence: 8123)
+    poison = ingest_request["events"][0]
+    poison["records"][0].merge!("type" => "syscall", "type_name" => "SYSCALL", "payload" => Base64.strict_encode64("syscall=188 success=no exit=-22"))
+    request["events"] += [poison, ingest_request(sequence: 8125)["events"][0]]
+    post "/api/v1/events", params: request.to_json, headers: headers
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(JSON.parse(response.body).dig("error", "details")).to eq([{"path" => "events[1].category", "code" => "avc_record_required"}])
+    expect([RawEvent.count, Occurrence.count]).to eq([0, 0])
+  end
+
+  {
+    "policy_load" => ["mac_policy_load", "MAC_POLICY_LOAD", "res=1"],
+    "boolean_change" => ["mac_config_change", "MAC_CONFIG_CHANGE", "bool=httpd_can_network_connect val=0 old_val=1"],
+    "enforcement_change" => ["mac_status", "MAC_STATUS", "enforcing=0 old_enforcing=1 enabled=1 old-enabled=1 lsm=selinux res=1"],
+    "port_change" => ["user_mac_config_change", "USER_MAC_CONFIG_CHANGE", "msg='resrc=port op=add proto=6 lport=12345 tcontext=system_u:object_r:http_port_t:s0 res=success'"],
+    "file_context_change" => ["user_mac_config_change", "USER_MAC_CONFIG_CHANGE", 'msg=\'resrc=fcontext op=add tglob="/srv/example(/.*)?" ftype=any tcontext=system_u:object_r:httpd_sys_content_t: res=success\'']
+  }.each do |family, (type, name, payload)|
+    it "exposes and later corrects stale trust if a rejected #{family} is bypassed by an unmasked AVC" do
+      checkpoint = boolean_checkpoint(1)
+      bytes = "batch-isolation policy fixture"
+      identity = "sha256:#{Digest::SHA256.hexdigest(bytes)}"
+      checkpoint["host"]["selinux"]["policy_identity"] = identity
+      checkpoint["host"]["selinux"].merge!("enforcement" => "enforcing", "policy" => {
+        "port_inventory" => { "status" => "observed", "mappings" => [] },
+        "file_context_mappings_status" => "observed", "file_contexts" => [], "local_file_context_mappings" => [], "file_context_equivalences" => []
+      })
+      post "/api/v1/heartbeat", params: checkpoint.to_json, headers: headers
+      boundary = policy_load_request
+      boundary["events"][0]["records"][0].merge!("type" => type, "type_name" => name, "payload" => Base64.strict_encode64(payload))
+      avc = ingest_request(sequence: 8126, raw_payload: avc_payload("/srv/after", ["read"]))
+      timestamp = "2026-09-13T17:30:12.128456Z"
+      avc["events"][0]["audit_event"]["timestamp"] = timestamp
+      avc["events"][0]["records"][0]["timestamp"] = timestamp
+      batch = boundary.deep_dup
+      batch["events"][0]["records"][0]["position"] = 99
+      batch["events"] += avc["events"]
+      post "/api/v1/events", params: batch.to_json, headers: headers
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(RawEvent.count).to eq(0)
+
+      # Emulate naive isolation through existing atomic single-event requests.
+      post "/api/v1/events", params: avc.to_json, headers: headers
+      event = RawEvent.sole
+      occurrence = Occurrence.sole
+      digest = event.evidence_digest
+      expect(event.checkpoint_invalidated_fields).to eq([])
+      expect(event.checkpoint_policy_identity).to eq(checkpoint.dig("host", "selinux", "policy_identity"))
+      expect(event.checkpoint_enforcement_mode).to eq("enforcing")
+      CheckpointTrust.fields_for(family).each { |field| expect(event.checkpoint_trust.trusted?(field)).to eq(true) }
+      host = event.host
+      PolicyArtifactIngestion.call(host: host, policy_identity: identity, bytes: bytes)
+      PolicyFactRequest.for_event(event)
+      expect(PolicyFact.count).to eq(1)
+
+      post "/api/v1/events", params: boundary.to_json, headers: headers
+      expect(response).to have_http_status(:accepted)
+      expect(RawEvent.state_transitions.sole.transition_type).to eq(family)
+      expect(event.reload.checkpoint_invalidated_fields).to eq(CheckpointTrust.fields_for(family))
+      CheckpointTrust.fields_for(family).each { |field| expect(event.checkpoint_trust.trusted?(field)).to eq(false) }
+      if CheckpointTrust.fields_for(family).include?("policy_identity")
+        expect { PolicyArtifactIngestion.call(host: host, policy_identity: identity, bytes: bytes) }.to raise_error(PolicyArtifactIngestion::HostIdentityMismatch)
+      else
+        expect(PolicyArtifactIngestion.call(host: host, policy_identity: identity, bytes: bytes)).to be_persisted
+      end
+      expect(event.evidence_digest).to eq(digest)
+      expect(occurrence.reload.host_snapshot.nil?).to eq(CheckpointTrust::WITHHELD_ASSOCIATIONS.include?(family))
+      expect(PolicyFact.count).to eq(1) # Historical exact questions are not deleted.
+      ProcessRawEvent.call(event)
+      expect(occurrence.reload.host_snapshot.nil?).to eq(CheckpointTrust::WITHHELD_ASSOCIATIONS.include?(family))
+      replay = boundary.deep_dup
+      replay["events"] += avc["events"]
+      [replay, replay.merge("events" => replay["events"].reverse), boundary].each do |retry_request|
+        post "/api/v1/events", params: retry_request.to_json, headers: headers
+        expect(response).to have_http_status(:accepted)
+      end
+      expect([RawEvent.count, Occurrence.count, PolicyFact.count]).to eq([2, 1, 1])
+    end
+  end
+
+  it "can return a processing 422 after raw batch commit and recover through idempotent retry" do
+    request = ingest_request(sequence: 8123, raw_payload: avc_payload("/srv/first", ["read"]))
+    request["events"] += [ingest_request["events"][0], ingest_request(sequence: 8125)["events"][0]]
+    allow(ProcessRawEvent).to receive(:call).and_wrap_original do |original, event|
+      raise ActiveRecord::RecordInvalid.new(Occurrence.new) if event.audit_sequence == 8124
+      original.call(event)
+    end
+    post "/api/v1/events", params: request.to_json, headers: headers
+    expect(response).to have_http_status(:unprocessable_content)
+    expect([RawEvent.count, Occurrence.count]).to eq([3, 1])
+    expect(JSON.parse(response.body)["error"]).not_to have_key("details")
+    allow(ProcessRawEvent).to receive(:call).and_call_original
+    post "/api/v1/events", params: request.to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+    expect([RawEvent.count, Occurrence.count]).to eq([3, 3])
+  end
+
+  it "does not mistake an unhandled malformed payload for a structured permanent event rejection" do
+    request = ingest_request
+    request["events"][0]["records"][0]["payload"] = 42
+    expect { IngestEvents.new(organization: organization, payload: request).call }.to raise_error(NoMethodError, /unpack1/)
+    expect(RawEvent.count).to eq(0)
+  end
+
   it "accepts different hosts with the same ingestion key" do
     post "/api/v1/events", params: ingest_request.to_json, headers: headers
     expect(response).to have_http_status(:accepted)
