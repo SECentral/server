@@ -1,0 +1,16 @@
+{
+  "ignored_warnings": [
+    {
+      "warning_type": "SQL Injection",
+      "fingerprint": "ff275b23f2b360880f5510cba30c0810d299d930ec630551b5c6edcc10ec7d35",
+      "check_name": "SQL",
+      "file": "app/queries/host_selinux_activity.rb",
+      "location": {
+        "type": "method",
+        "class": "HostSelinuxActivity",
+        "method": "project"
+      },
+      "note": "Reviewed false positive: CheckpointTrust SQL helpers receive only literal column names and build fragments from fixed constants. The private project method receives internally constructed Active Record relations whose filter values are quoted by to_sql. The host value is sanitized through find_by_sql's named placeholder. No request or audit payload is interpolated as SQL syntax."
+    }
+  ]
+}
