@@ -51,6 +51,104 @@ RSpec.describe "Events API", type: :request do
     expect(HostSnapshotObservation.count).to eq(0)
   end
 
+  it "accepts the collector's textual SELINUX_ERR identity without changing denial semantics" do
+    request = selinux_error_request
+    post "/api/v1/events", params: request.to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+    event = RawEvent.sole
+    expect(event).to have_attributes(category: "avc", transition_type: nil, checkpoint_invalidated_fields: [])
+    expect(event.raw_audit_records.order(:position).pluck(:record_type)).to eq([1400, 1401, 1300, 1327, 1320])
+    expect(event.raw_audit_records.order(:position).pluck(:payload)).to eq(request["events"][0]["records"].map { |r| Base64.strict_decode64(r["payload"]) })
+    expect(Occurrence.count).to eq(1)
+  end
+
+  it "deduplicates numeric and case aliases with identical evidence and rejects changed payloads" do
+    request = selinux_error_request
+    digests = []
+    [1401, "SELINUX_ERR", "selinux_err"].product(%w[SELINUX_ERR selinux_err]).each do |type, name|
+      request["events"][0]["records"][1].merge!("type" => type, "type_name" => name)
+      digests << EvidenceDigest.call(request["events"][0])
+      post "/api/v1/events", params: request.to_json, headers: headers
+      expect(response).to have_http_status(:accepted)
+    end
+    expect(digests.uniq.size).to eq(1)
+    expect(RawEvent.sole.evidence_digest).to eq(digests.first)
+    expect(Occurrence.count).to eq(1)
+    request["events"][0]["records"][1]["payload"] = Base64.strict_encode64("different evidence")
+    post "/api/v1/events", params: request.to_json, headers: headers
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(JSON.parse(response.body).dig("error", "details")).to include("path" => "events", "code" => "conflicting_duplicate")
+    expect(RawEvent.count).to eq(1)
+  end
+
+  it "requires primary AVC evidence before accepting its optional observation in a SELINUX_ERR batch" do
+    request = ingest_request(raw_payload: avc_payload("/srv/test", ["read"]))
+    request["events"] << selinux_error_request["events"][0].tap do |event|
+      event["audit_event"]["sequence"] = 8125
+      event["records"].each { |record| record["sequence"] = 8125 }
+    end
+    observation = expected_context_request(request, path: "/srv/test")
+    post "/api/v1/expected-context-observations", params: observation.to_json, headers: headers
+    expect(response).to have_http_status(:not_found)
+    expect(RawEvent.count).to eq(0)
+    post "/api/v1/events", params: request.to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+    post "/api/v1/expected-context-observations", params: observation.to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+    expect(RawEvent.find_by!(audit_sequence: 8124).file_context_observations.size).to eq(1)
+    expect(RawEvent.find_by!(audit_sequence: 8125).file_context_observations).to be_empty
+  end
+
+  [[1401, "AVC"], [65500, "SELINUX_ERR"], [1401, "invented_type"],
+   ["invented_type", "SELINUX_ERR"], [1401, nil], [nil, "SELINUX_ERR"]].each do |type, name|
+    it "rejects incompatible or missing SELINUX_ERR metadata #{[type, name].inspect} atomically" do
+      request = selinux_error_request
+      request["events"][0]["records"][1].merge!("type" => type, "type_name" => name)
+      request["events"] << ingest_request(sequence: 8125)["events"][0]
+      post "/api/v1/events", params: request.to_json, headers: headers
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(RawEvent.count).to eq(0)
+      expect(Occurrence.count).to eq(0)
+      expect(JSON.parse(response.body).dig("error", "details")).to include(
+        hash_including("path" => /events\[0\].records\[1\].type/))
+    end
+  end
+
+  it "preserves existing opaque numeric/UNKNOWN type acceptance and arbitrary-text rejection" do
+    [[65500, "UNKNOWN[65500]"], ["unknown[65500]", "UNKNOWN[65500]"], [65500, "opaque_diagnostic"]].each_with_index do |(type, name), index|
+      request = selinux_error_request
+      request["events"][0]["records"][1].merge!("type" => type, "type_name" => name)
+      request["events"][0]["audit_event"]["sequence"] += index
+      request["events"][0]["records"].each { |r| r["sequence"] += index }
+      post "/api/v1/events", params: request.to_json, headers: headers
+      expect(response).to have_http_status(:accepted)
+      expect(RawEvent.last.raw_audit_records.find_by!(position: 1).record_type).to eq(65500)
+      expect(RawEvent.last.transition_type).to be_nil
+    end
+    request = selinux_error_request
+    request["events"][0]["records"][1].merge!("type" => "invented_type", "type_name" => "invented_type")
+    post "/api/v1/events", params: request.to_json, headers: headers
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(RawEvent.count).to eq(3)
+  end
+
+  it "resolves every registered type in numeric, upper-case and lower-case form" do
+    [["AVC", 1400], ["SELINUX_ERR", 1401], ["USER_AVC", 1107], ["SYSCALL", 1300],
+     ["PATH", 1302], ["AVC_PATH", 1402], ["PROCTITLE", 1327], ["EXECVE", 1309],
+     ["CWD", 1307], ["EOE", 1320], ["MAC_POLICY_LOAD", 1403], ["MAC_CONFIG_CHANGE", 1405],
+     ["MAC_STATUS", 1404], ["USER_MAC_CONFIG_CHANGE", 2312]].each_with_index do |(name, code), index|
+      [code, name, name.downcase].each do |type|
+        expect(IngestEvents.type_code(type)).to eq(code)
+        request = ingest_request(sequence: 8200 + index)
+        record = request["events"][0]["records"][0].merge("position" => 1, "type" => type, "type_name" => name)
+        request["events"][0]["records"] << record
+        post "/api/v1/events", params: request.to_json, headers: headers
+        expect(response).to have_http_status(:accepted)
+        expect(RawEvent.find_by!(audit_sequence: 8200 + index).raw_audit_records.find_by!(position: 1).record_type).to eq(code)
+      end
+    end
+  end
+
   it "stores an asynchronous expected-context result separately from immutable raw audit evidence" do
     request = ingest_request(raw_payload: avc_payload("/srv/test", ["read"]))
     request["host_observed_at"] = "2026-09-13T17:29:00.000000123Z"
@@ -659,6 +757,19 @@ RSpec.describe "Events API", type: :request do
         "sequence" => event.dig("audit_event", "sequence"),
         "payload" => Base64.strict_encode64(payload)
       }
+    end
+    request
+  end
+
+  def selinux_error_request
+    request = ingest_request(raw_payload: 'avc: denied { mac_admin } for pid=10 comm="chcon" capability=33 scontext=unconfined_u:unconfined_r:unconfined_t:s0 tcontext=unconfined_u:unconfined_r:unconfined_t:s0 tclass=capability2 permissive=0')
+    event = request["events"][0]
+    [["selinux_err", "SELINUX_ERR", "op=setxattr invalid_context=unconfined_u:object_r:secentral_nonexistent_t:s0"],
+     ["syscall", "SYSCALL", 'arch=c000003e syscall=188 success=no exit=-22 comm="chcon" exe="/usr/bin/chcon"'],
+     ["proctitle", "PROCTITLE", "proctitle=6368636F6E"],
+     ["eoe", "EOE", ""]].each do |type, name, payload|
+      event["records"] << event["records"][0].merge("position" => event["records"].size, "type" => type, "type_name" => name,
+        "payload" => Base64.strict_encode64("audit(1789320612.123456:8124): #{payload}"))
     end
     request
   end

@@ -1,6 +1,6 @@
 class IngestEvents
   COMPLETION_REASONS = %w[eoe timeout capacity shutdown].freeze
-  TYPE_CODES = { "avc" => 1400, "user_avc" => 1107, "syscall" => 1300, "path" => 1302, "avc_path" => 1402, "proctitle" => 1327, "execve" => 1309, "cwd" => 1307, "eoe" => 1320, "mac_policy_load" => 1403, "mac_config_change" => 1405, "mac_status" => 1404, "user_mac_config_change" => 2312 }.freeze
+  TYPE_CODES = { "avc" => 1400, "selinux_err" => 1401, "user_avc" => 1107, "syscall" => 1300, "path" => 1302, "avc_path" => 1402, "proctitle" => 1327, "execve" => 1309, "cwd" => 1307, "eoe" => 1320, "mac_policy_load" => 1403, "mac_config_change" => 1405, "mac_status" => 1404, "user_mac_config_change" => 2312 }.freeze
 
   def self.type_code(value)
     return value if value.is_a?(Integer)
@@ -119,6 +119,12 @@ class IngestEvents
         details << detail("#{record_path}.payload", "invalid_base64")
       end
       details << detail("#{record_path}.type_name", "required") if blank?(record["type_name"])
+      code = type_code(record["type"])
+      name_code = record["type_name"].is_a?(String) ? type_code(record["type_name"]) : nil
+      # Known identities must agree; leave existing opaque unknown-type handling unchanged.
+      if present?(record["type_name"]) && (TYPE_CODES.value?(code) || TYPE_CODES.value?(name_code)) && code != name_code
+        details << detail("#{record_path}.type_name", "record_type_name_mismatch")
+      end
     end
     record_types = Array(records).filter_map { |record| type_code(record["type"]) if record.is_a?(Hash) }
     if event["category"] == "avc" && (record_types & [ 1400, 1107 ]).empty?

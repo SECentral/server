@@ -3309,9 +3309,10 @@ components:
         position:
           type: integer
         record_type:
-          description: Kernel audit record type code (e.g. 1400 = AVC).
+          description: Authoritative kernel audit record type code (e.g. 1400 = AVC, 1401 = SELINUX_ERR).
           type: integer
         type_name:
+          description: Retained diagnostic type name. Known names must resolve case-insensitively to record_type; original payload text is not normalized.
           type: string
         audit_timestamp:
           type: string
