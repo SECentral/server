@@ -31,6 +31,35 @@ podman run --rm --userns=keep-id -v "$PWD:/workspace/server:z" \
 `npm run build` generates API types from `openapi/openapi.yaml`, type-checks,
 builds the SPA, and checks the generated output.
 
+Run RuboCop before RSpec to catch style violations locally:
+
+```sh
+podman run --rm --userns=keep-id -v "$PWD:/workspace/server:z" \
+  -w /workspace/server secentral-server-dev bin/rubocop
+```
+
+Run architecture checks before database-backed specs (no Rails boot or database
+is needed). The same command is included in `bin/ci`:
+
+```sh
+podman run --rm --userns=keep-id -v "$PWD:/workspace/server:z" \
+  -w /workspace/server secentral-server-dev bundle exec archspec check
+```
+
+`Archspec.rb` keeps models, services, queries, and jobs independent of controllers
+and HTTP APIs, and bans obvious persistence calls in queries. It analyzes application
+Ruby and library/task files, not specs or frontend code. Inspect reported evidence
+before changing the rules; unknown/dynamic receivers and indirect writes are not
+proof of correctness. The initial rules need no baseline or suppressions.
+
+The architecture regression spec tests the actual CLI against temporary positive
+and forbidden examples without changing application files or booting Rails:
+
+```sh
+podman run --rm --userns=keep-id -v "$PWD:/workspace/server:z" \
+  -w /workspace/server secentral-server-dev bundle exec rspec spec/architecture_spec.rb
+```
+
 Run RSpec against an isolated PostgreSQL container. Start the database on a
 Podman network:
 
