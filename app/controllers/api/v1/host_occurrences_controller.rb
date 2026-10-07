@@ -32,9 +32,10 @@ class Api::V1::HostOccurrencesController < Api::V1::BaseController
     end
 
     occurrences = relation.limit(limit).to_a
+    policy_states = OccurrenceDetailSerializer.policy_states(occurrences)
     next_cursor = occurrences.size == limit ? encode_cursor(occurrences.last.occurred_at, occurrences.last.id) : nil
     render json: {
-      occurrences: occurrences.map { |occurrence| OccurrenceDetailSerializer.call(occurrence, guidance: occurrence_guidance(occurrence)) },
+      occurrences: occurrences.map { |occurrence| OccurrenceDetailSerializer.call(occurrence, guidance: occurrence_guidance(occurrence), policy_states: policy_states) },
       meta: { next_cursor: next_cursor }.merge(page ? { page: page, page_size: limit, total: total, total_pages: total_pages } : {})
     }
   end

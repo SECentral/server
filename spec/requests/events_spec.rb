@@ -1114,6 +1114,47 @@ RSpec.describe "Events API", type: :request do
     Host.find_by!(external_id: "host-1").agent_installations.sole
   end
 
+  it "exposes SHA-bound source membership and derived load comparisons without synthetic events" do
+    identities = %w[ordinary permissive].map do |bytes|
+      artifact = PolicyArtifact.create!(policy_identity: "sha256:#{Digest::SHA256.hexdigest(bytes)}", artifact: bytes, artifact_size: bytes.bytesize,
+        permissive_domain_analysis: {"status" => "observed", "domains" => bytes == "permissive" ? ["postgresql_t"] : []})
+      artifact.policy_identity
+    end
+    checkpoint = heartbeat_request
+    checkpoint["host"]["selinux"].merge!("policy_identity" => identities[0], "boolean_status" => "observed", "booleans" => [], "policy" => {
+      "port_inventory" => {"status" => "observed", "mappings" => []}, "file_context_mappings_status" => "observed", "file_contexts" => [], "local_file_context_mappings" => [], "file_context_equivalences" => []
+    })
+    post "/api/v1/heartbeat", params: checkpoint.to_json, headers: headers
+    post "/api/v1/events", params: policy_load_request.to_json, headers: headers
+    boundary = RawEvent.sole
+    checkpoint["host_observed_at"] = "2026-09-13T17:31:00.000000Z"
+    checkpoint["host"]["selinux"]["policy_identity"] = identities[1]
+    post "/api/v1/heartbeat", params: checkpoint.to_json, headers: headers
+    host = Host.sole
+    comparison = HostSelinuxActivity.new(host).detail(boundary.id)[:permissive_domain_comparison]
+    expect(comparison).to include(evidence_class: "derived_exact_policy_comparison", added: ["postgresql_t"], removed: [])
+    expect(comparison).not_to have_key(:actor)
+    expect(RawEvent.count).to eq(1)
+    expect(HostSerializer.call(host, include_snapshot: true).dig(:selinux, :effective_permissive_domains)).to include(status: "observed", domains: ["postgresql_t"])
+
+    event = ingest_request(sequence: 8200, raw_payload: avc_payload("/srv/test", ["read"]).sub("httpd_t", "postgresql_t") + " permissive=1")
+    event["host_observed_at"] = checkpoint["host_observed_at"]
+    event["events"][0]["audit_event"]["timestamp"] = "2026-09-13T17:32:00.000000Z"
+    event["events"][0]["records"][0]["timestamp"] = event["events"][0]["audit_event"]["timestamp"]
+    post "/api/v1/events", params: event.to_json, headers: headers
+    item = OccurrenceDetailSerializer.call(Occurrence.sole)
+    expect(item.dig(:raw_event, :permissive_policy_state)).to include(source_domain_permissive: true, policy_identity: identities[1])
+    expect(item.dig(:raw_event, :checkpoint_enforcement_mode)).to eq("enforcing")
+
+    # Another identity-affecting boundary before the result checkpoint makes
+    # attribution to this particular load ineligible, even with both artifacts.
+    intervening = policy_load_request
+    intervening["events"][0]["audit_event"].merge!("timestamp" => "2026-09-13T17:30:30.000000Z", "sequence" => 8201)
+    intervening["events"][0]["records"].each { |record| record.merge!("timestamp" => "2026-09-13T17:30:30.000000Z", "sequence" => 8201) }
+    post "/api/v1/events", params: intervening.to_json, headers: headers
+    expect(HostSelinuxActivity.new(host).detail(boundary.id)[:permissive_domain_comparison]).to be_nil
+  end
+
   def ingest_request(host_id: "host-1", sequence: 8124, raw_payload: "avc: denied")
     timestamp = "2026-09-13T17:30:12.123456Z"
     {

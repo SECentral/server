@@ -28,6 +28,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { formatUtc } from "../components/OccurrenceEvidence";
 import { HostSelinuxActivity } from "../components/HostSelinuxActivity";
+import { EffectivePermissiveDomains } from "../components/EffectivePermissiveDomains";
 import { StatusLabel } from "../components/StatusLabel";
 import { fetchHostConfiguration, type HostConfigurationResponse } from "../api/configuration";
 import { fetchHost, fetchHostOccurrences, fetchHostSelinuxActivity } from "../api/hosts";
@@ -101,6 +102,7 @@ export function HostDetail() {
   const detailQuery = useQuery({
     queryKey: ["host", hostId],
     queryFn: () => fetchHost(hostId),
+    refetchInterval: (query) => query.state.data?.host.selinux.effective_permissive_domains?.status === "pending" ? 2000 : false,
     enabled: validId
   });
   const configurationQuery = useQuery({
@@ -222,6 +224,8 @@ export function HostDetail() {
           <CardFooter className="host-comparison-footer"><Button component="a" href={`/hosts/${host.id}/configuration`} variant="link" isInline>View full comparison <span aria-hidden="true">→</span></Button></CardFooter>
         </Card>
       </div>
+
+      <Card className="host-surface-card"><CardBody><EffectivePermissiveDomains key={selinux.effective_permissive_domains?.policy_identity} state={selinux.effective_permissive_domains} /></CardBody></Card>
 
       <section className="host-activity-section" aria-labelledby="host-activity-title">
         <div className="host-activity-heading">

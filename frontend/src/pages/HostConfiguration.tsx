@@ -24,6 +24,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { fetchHostConfiguration } from "../api/configuration";
 import type { HostConfigurationResponse } from "../api/configuration";
 import { fetchHost, type HostDetailResponse } from "../api/hosts";
+import { EffectivePermissiveDomains } from "../components/EffectivePermissiveDomains";
 
 const VIEWS = [
   { value: "differences", label: "Differences" },
@@ -454,6 +455,7 @@ export function HostConfiguration() {
   const configQuery = useQuery({
     queryKey: ["host-configuration", Number(id), view, q, page],
     queryFn: () => fetchHostConfiguration(Number(id), { view, q: q || undefined, page }),
+    refetchInterval: (query) => query.state.data?.selinux.effective_permissive_domains?.status === "pending" ? 2000 : false,
     placeholderData: (previousData) => previousData
   });
   const hostQuery = useQuery({
@@ -517,6 +519,7 @@ export function HostConfiguration() {
         <>
           {data && <ComparisonHeader data={data} host={hostQuery.data?.host} />}
           {data && <TechnicalDetails data={data} host={hostQuery.data?.host} />}
+          <EffectivePermissiveDomains key={data?.selinux.effective_permissive_domains?.policy_identity} state={data?.selinux.effective_permissive_domains} />
           {comparisonAvailable ? (
             <>
               {(data?.comparison.paused || data?.observation?.status === "stale") && (

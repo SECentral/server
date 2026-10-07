@@ -50,7 +50,8 @@ class HostConfigurationQuery
       boolean_status: selinux["boolean_status"],
       port_inventory_status: selinux.dig("policy", "port_inventory", "status"),
       file_context_mappings_status: selinux.dig("policy", "file_context_mappings_status") || "unknown",
-      policy_identity: @comparison.policy_identity
+      policy_identity: @comparison.policy_identity,
+      effective_permissive_domains: PolicyPermissiveDomains.lookup(@comparison.policy_identity)
     }
   end
 

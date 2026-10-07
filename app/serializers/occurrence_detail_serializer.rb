@@ -1,5 +1,9 @@
 class OccurrenceDetailSerializer
-  def self.call(occurrence, guidance: nil)
+  def self.policy_states(occurrences)
+    PolicyPermissiveDomains.for_identities(occurrences.map { |occurrence| occurrence.raw_event.checkpoint_policy_identity(occurrence.host_snapshot) })
+  end
+
+  def self.call(occurrence, guidance: nil, policy_states: nil)
     denial = occurrence.normalized_denial
     raw_event = occurrence.raw_event
     {
@@ -31,6 +35,7 @@ class OccurrenceDetailSerializer
         checkpoint_port_inventory_status: raw_event.checkpoint_port_inventory(occurrence.host_snapshot)["status"],
         checkpoint_file_context_mappings_status: raw_event.checkpoint_trust(occurrence.host_snapshot).file_context_mappings["status"],
         checkpoint_policy_identity: raw_event.checkpoint_policy_identity(occurrence.host_snapshot),
+        permissive_policy_state: PolicyPermissiveDomains.for_occurrence(occurrence, policy_states),
         completion_reason: raw_event.completion_reason,
         evidence_digest: raw_event.evidence_digest,
         file_context_observations: raw_event.effective_file_context_observations,

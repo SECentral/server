@@ -171,16 +171,17 @@ RSpec.describe "Hosts API", type: :request do
       "agent" => { "reporting_state" => "reporting", "agent_version" => "0.2.0", "last_seen_at" => kind_of(String) },
       "observation" => { "status" => "current", "last_received_at" => kind_of(String), "last_observed_at" => kind_of(String) },
       "platform" => { "os_id" => "almalinux", "os_version" => "9.3", "architecture" => "x86_64" },
-      "selinux" => {
+      "selinux" => hash_including(
         "enforcement" => "enforcing", "configured_policy_type" => "targeted",
         "kernel_policy_version" => 33, "policy_identity" => "sha256:" + "a" * 64
-      },
+      ),
       "counts" => { "active_issues" => 1, "avcs_24h" => 2, "total_events" => 2 }
     )
     expect(body["snapshot"]).to eq(
       "platform" => { "os_id" => "almalinux", "os_version" => "9.3", "architecture" => "x86_64" },
       "selinux" => body["selinux"]
     )
+    expect(body.dig("selinux", "effective_permissive_domains")).to include("status" => "unavailable", "domains" => nil)
     expect(body).not_to have_key("booleans")
     expect(body["snapshot"]["selinux"]).not_to have_key("booleans")
     expect(body["snapshot"]["selinux"]).not_to have_key("boolean_status")

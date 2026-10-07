@@ -101,7 +101,8 @@ RSpec.describe "Host SELinux configuration API", type: :request do
     payload = JSON.parse(response.body)
     expect(payload.fetch("host")).to eq("id" => record.id, "hostname" => "alma-01", "external_id" => record.external_id)
     expect(payload.fetch("observation")).to include("status" => "current", "last_observed_at" => observed_at.iso8601(3))
-    expect(payload.fetch("selinux")).to eq("enforcement" => nil, "configured_policy_type" => "targeted", "boolean_status" => "observed", "port_inventory_status" => "observed", "file_context_mappings_status" => "unknown", "policy_identity" => "sha256:" + "b" * 64)
+    expect(payload.fetch("selinux").except("effective_permissive_domains")).to eq("enforcement" => nil, "configured_policy_type" => "targeted", "boolean_status" => "observed", "port_inventory_status" => "observed", "file_context_mappings_status" => "unknown", "policy_identity" => "sha256:" + "b" * 64)
+    expect(payload.dig("selinux", "effective_permissive_domains")).to include("status" => "unavailable", "domains" => nil, "policy_identity" => "sha256:" + "b" * 64)
     expect(payload.fetch("reference")).to eq("kind" => "distribution_catalog", "catalog_revision" => {
       "id" => catalog.id, "display_name" => "AlmaLinux 9", "policy_type" => "targeted", "architecture" => "x86_64", "loaded_policy_digest" => identity, "applicability" => "major_release"
     })
@@ -281,7 +282,8 @@ RSpec.describe "Host SELinux configuration API", type: :request do
 
     payload = JSON.parse(response.body)
     expect(payload.fetch("observation")).to be_nil
-    expect(payload.fetch("selinux")).to eq("enforcement" => nil, "configured_policy_type" => nil, "boolean_status" => nil, "port_inventory_status" => "unknown", "file_context_mappings_status" => "unknown", "policy_identity" => nil)
+    expect(payload.fetch("selinux").except("effective_permissive_domains")).to eq("enforcement" => nil, "configured_policy_type" => nil, "boolean_status" => nil, "port_inventory_status" => "unknown", "file_context_mappings_status" => "unknown", "policy_identity" => nil)
+    expect(payload.dig("selinux", "effective_permissive_domains")).to include("status" => "unavailable", "domains" => nil, "policy_identity" => nil)
     expect(payload.fetch("reference")).to eq("kind" => "none")
     expect(payload.dig("comparison", "available")).to be false
     expect(payload.dig("comparison", "summary")).to eq("booleans" => nil, "ports" => nil)

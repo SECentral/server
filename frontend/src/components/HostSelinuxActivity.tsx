@@ -106,7 +106,14 @@ function ActivityItem({ item, selected }: { item: SelinuxActivityItem; selected:
         </Grid>
           {details.isPending ? <Spinner size="md" aria-label="Loading transition evidence" />
             : details.isError ? <Alert variant="warning" isInline title="Could not load transition evidence" />
-            : details.data ? <>
+             : details.data ? <>
+               {details.data.item.permissive_domain_comparison ? <section aria-label="Derived permissive-domain comparison">
+                 <h3>Permissive-domain differences between exact policies</h3>
+                 <p>Derived by comparing exact loaded-policy artifacts at the earlier and later checkpoints; not an audit event, command attribution or exact change time.</p>
+                 <p>Added: {details.data.item.permissive_domain_comparison.added.join(", ") || "None"}</p>
+                 <p>Removed: {details.data.item.permissive_domain_comparison.removed.join(", ") || "None"}</p>
+                 <details><summary>Compared exact policies</summary><code>{details.data.item.permissive_domain_comparison.from_policy_identity}</code> → <code>{details.data.item.permissive_domain_comparison.to_policy_identity}</code></details>
+               </section> : null}
                {activity.window_avc_count > 0 ? <section aria-label="Unresolved interval AVCs">
                  <strong>{activity.window_avc_count} {activity.window_avc_count === 1 ? "AVC" : "AVCs"} in the unresolved interval.</strong>
                 <p>These AVCs occurred after this observed transition, before a refreshed checkpoint could apply, or before a further transition. This relationship does not establish causation.</p>

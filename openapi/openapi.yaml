@@ -1390,6 +1390,46 @@ components:
               type: string
               const: pre_persistence
               description: Only emitted by event ingestion for exclusively indexed validation errors before persistence entry. Absent for shared/mixed validation, integrity conflicts, model/processing failures and security failures. HTTP 422 alone does not imply this guarantee.
+    EffectivePermissiveDomains:
+      type: object
+      required: [status, policy_identity, domains, provenance]
+      description: Effective permissive flags cached by exact artifact SHA; never stored semanage configuration, global host mode or administrative event evidence. Unknown domains are null; observed empty is authoritative.
+      properties:
+        status: {type: string, enum: [pending, observed, unavailable, error]}
+        policy_identity: {type: [string, 'null']}
+        domains: {type: [array, 'null'], items: {type: string}}
+        provenance: {type: string, const: exact_loaded_policy_artifact}
+        evaluator_version: {type: [string, 'null']}
+        evaluated_at: {type: [string, 'null'], format: date-time}
+        reason: {type: [string, 'null']}
+    OccurrencePermissivePolicyState:
+      type: object
+      required: [status, policy_identity, provenance, source_type, source_domain_permissive, avc_policy_consistency]
+      properties:
+        status: {type: string, enum: [pending, observed, unavailable, error]}
+        policy_identity: {type: [string, 'null']}
+        provenance: {type: string, const: exact_loaded_policy_artifact}
+        evaluator_version: {type: [string, 'null']}
+        evaluated_at: {type: [string, 'null'], format: date-time}
+        reason: {type: [string, 'null']}
+        source_type: {type: [string, 'null']}
+        source_domain_permissive: {type: [boolean, 'null']}
+        avc_policy_consistency:
+          type: string
+          enum: [consistent, global_mode_may_explain, diagnostic_mismatch, unavailable]
+          description: Diagnostic evidence only, never a new issue; global permissive mode can explain AVC permissive=1 without domain membership.
+    PermissivePolicyComparison:
+      type: object
+      required: [evidence_class, from_policy_identity, to_policy_identity, added, removed]
+      description: Derived set differences, not an audit event, actor, cause or exact change time. Load attachment requires strict same-host/boot chronology without intervening identity boundaries.
+      properties:
+        evidence_class: {type: string, const: derived_exact_policy_comparison}
+        from_policy_identity: {type: string}
+        to_policy_identity: {type: string}
+        added: {type: array, items: {type: string}}
+        removed: {type: array, items: {type: string}}
+        previous_checkpoint: {$ref: "#/components/schemas/SelinuxCheckpoint"}
+        later_checkpoint: {$ref: "#/components/schemas/SelinuxCheckpoint"}
     System:
       type: object
       required:
@@ -1534,6 +1574,8 @@ components:
         - configured_policy_type
         - kernel_policy_version
       properties:
+        effective_permissive_domains:
+          $ref: "#/components/schemas/EffectivePermissiveDomains"
         enforcement:
           type:
             - string
@@ -2547,6 +2589,8 @@ components:
           type: object
           required: [enforcement, boolean_status, policy_identity]
           properties:
+            effective_permissive_domains:
+              $ref: "#/components/schemas/EffectivePermissiveDomains"
             enforcement:
               type:
                 - string
@@ -3536,6 +3580,8 @@ components:
         checkpoint_policy_identity:
           type: [string, "null"]
           description: Exact identity only when the occurrence checkpoint identity dimension is trusted.
+        permissive_policy_state:
+          $ref: "#/components/schemas/OccurrencePermissivePolicyState"
         completion_reason:
           type: string
         evidence_digest:
@@ -3940,6 +3986,10 @@ components:
         - type: object
           required: [actor, evidence, window_occurrences]
           properties:
+            permissive_domain_comparison:
+              oneOf:
+                - $ref: "#/components/schemas/PermissivePolicyComparison"
+                - type: "null"
             actor:
               $ref: "#/components/schemas/SelinuxActivityActor"
             evidence:

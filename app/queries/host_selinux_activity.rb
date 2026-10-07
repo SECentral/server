@@ -61,13 +61,30 @@ class HostSelinuxActivity
     event = supported_events.find(id)
     item = project(supported_events.where(id: event.id)).first
     records = event.raw_audit_records.to_a
-    item.merge(actor: actor(records), evidence: {
+    item.merge(permissive_domain_comparison: permissive_comparison(event, item), actor: actor(records), evidence: {
       completion_reason: event.completion_reason, digest: event.evidence_digest,
       records: records.map { |record| record.attributes.slice("position", "record_type", "type_name", "audit_timestamp", "sequence", "payload") }
     }, window_occurrences: window_occurrences(event, item))
   end
 
   private
+
+  def permissive_comparison(event, item)
+    return unless event.transition_type == "policy_load" && item.dig(:reconciliation, :status) == "reconciled"
+    before = item[:previous_checkpoint]
+    after = item.dig(:reconciliation, :checkpoint)
+    return unless before && after && before[:policy_identity] && after[:policy_identity]
+
+    # Strict checkpoint endpoints in this host/boot, with no other identity-affecting
+    # boundary in the span. A diff describes observations, never exact change time.
+    identity_types = CheckpointTrust::TRANSITION_FIELDS.filter_map { |type, fields| type if fields.include?("policy_identity") }
+    span = @host.raw_events.where(boot_id: event.boot_id).where(audit_timestamp: Time.iso8601(before[:event_time])..Time.iso8601(after[:event_time]))
+    return if span.where(transition_type: identity_types).where.not(id: event.id).exists?
+    return if span.where(category: "avc").where("checkpoint_invalidated_fields ? 'policy_identity'").where("audit_timestamp < ? OR host_observed_at > ?", event.audit_timestamp, event.audit_timestamp).exists?
+
+    comparison = PolicyPermissiveDomains.compare(before[:policy_identity], after[:policy_identity])
+    comparison&.merge(previous_checkpoint: before, later_checkpoint: after)
+  end
 
   def supported_events
     @host.raw_events.where(category: "selinux_administrative")

@@ -43,6 +43,7 @@ export function HostOccurrenceDetail() {
   const occurrenceQuery = useQuery({
     queryKey: ["host-occurrence", hostId, occurrenceId],
     queryFn: () => fetchHostOccurrence(hostId, occurrenceId),
+    refetchInterval: (query) => query.state.data?.raw_event.permissive_policy_state?.status === "pending" ? 2000 : false,
     enabled: validIds
   });
   const activityQuery = useQuery({

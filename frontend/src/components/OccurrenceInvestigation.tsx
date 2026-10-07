@@ -106,7 +106,10 @@ export function OccurrenceInvestigation({ occurrence }: { occurrence: Occurrence
             ["Source context", denial.source_context && <code>{denial.source_context}</code>],
              ["Target context", denial.target_context && <code>{denial.target_context}</code>],
              ["AVC-local enforcement", denial.details.enforcement_mode === "permissive" ? "Non-enforced (AVC permissive=1)" : denial.details.enforcement_mode === "enforcing" ? "Enforced (AVC permissive=0)" : "Unknown"],
-              ["Trusted host enforcement for this occurrence", occurrence.raw_event.checkpoint_enforcement_mode],
+               ["Trusted host enforcement for this occurrence", occurrence.raw_event.checkpoint_enforcement_mode],
+               ["Source domain policy state", occurrence.raw_event.permissive_policy_state?.status === "observed" && occurrence.raw_event.permissive_policy_state.source_domain_permissive !== null
+                 ? <span>{denial.source_type} is {occurrence.raw_event.permissive_policy_state.source_domain_permissive ? "permissive" : "not permissive"} in exact policy <code>{occurrence.raw_event.permissive_policy_state.policy_identity}</code>.</span>
+                 : "Unknown — trusted exact-policy membership is unavailable"],
               ["Checkpoint port inventory", occurrence.raw_event.checkpoint_port_inventory_status],
               ["Checkpoint expected-label mappings", occurrence.raw_event.checkpoint_file_context_mappings_status],
             ["Observed path", denial.target_paths.length ? denial.target_paths.map((path) => <code key={path}>{path}</code>) : "None recorded"],

@@ -249,8 +249,10 @@ RSpec.describe "Validated SELinux port writes", type: :request do
     result = HostSerializer.call(value, include_snapshot: true)
     ActiveSupport::Notifications.unsubscribe(subscriber)
     expect(result.dig(:selinux, :policy_identity)).to eq(identity)
-    expect(queries.size).to eq(1)
-    expect(queries.sole).to include('FROM "raw_events"')
+    expect(queries.count { |sql| sql.include?('FROM "raw_events"') }).to eq(1)
+    expect(queries.count { |sql| sql.include?('FROM "policy_artifacts"') }).to eq(1)
+    expect(queries.size).to eq(2)
+    expect(queries.join).not_to include('"policy_artifacts"."artifact"')
   end
 
   def boundary(offset, serial, family)

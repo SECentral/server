@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_06_150000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_07_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -205,6 +205,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_150000) do
     t.string "policy_identity", null: false
     t.string "source_host_id"
     t.datetime "updated_at", null: false
+    t.jsonb "permissive_domain_analysis", default: {}, null: false
     t.index ["policy_identity"], name: "index_policy_artifacts_on_policy_identity", unique: true
   end
 

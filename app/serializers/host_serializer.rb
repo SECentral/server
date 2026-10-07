@@ -6,6 +6,7 @@ class HostSerializer
     platform = platform_payload(snapshot&.details)
     state = host.selinux_state_for(observation)
     selinux = selinux_payload({ "selinux" => state }, include_identity: include_snapshot, policy_identity: state["policy_identity"])
+    selinux[:effective_permissive_domains] = PolicyPermissiveDomains.lookup(state["policy_identity"]) if include_snapshot
     payload = {
       id: host.id,
       hostname: host.hostname,

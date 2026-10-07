@@ -228,6 +228,47 @@ export type Error = {
     };
 };
 
+/**
+ * Effective permissive flags cached by exact artifact SHA; never stored semanage configuration, global host mode or administrative event evidence. Unknown domains are null; observed empty is authoritative.
+ */
+export type EffectivePermissiveDomains = {
+    status: 'pending' | 'observed' | 'unavailable' | 'error';
+    policy_identity: string | null;
+    domains: Array<string> | null;
+    provenance: 'exact_loaded_policy_artifact';
+    evaluator_version?: string | null;
+    evaluated_at?: string | null;
+    reason?: string | null;
+};
+
+export type OccurrencePermissivePolicyState = {
+    status: 'pending' | 'observed' | 'unavailable' | 'error';
+    policy_identity: string | null;
+    provenance: 'exact_loaded_policy_artifact';
+    evaluator_version?: string | null;
+    evaluated_at?: string | null;
+    reason?: string | null;
+    source_type: string | null;
+    source_domain_permissive: boolean | null;
+    /**
+     * Diagnostic evidence only, never a new issue; global permissive mode can explain AVC permissive=1 without domain membership.
+     */
+    avc_policy_consistency: 'consistent' | 'global_mode_may_explain' | 'diagnostic_mismatch' | 'unavailable';
+};
+
+/**
+ * Derived set differences, not an audit event, actor, cause or exact change time. Load attachment requires strict same-host/boot chronology without intervening identity boundaries.
+ */
+export type PermissivePolicyComparison = {
+    evidence_class: 'derived_exact_policy_comparison';
+    from_policy_identity: string;
+    to_policy_identity: string;
+    added: Array<string>;
+    removed: Array<string>;
+    previous_checkpoint?: SelinuxCheckpoint;
+    later_checkpoint?: SelinuxCheckpoint;
+};
+
 export type System = {
     api_version: string;
     server_version: string;
@@ -292,6 +333,7 @@ export type HostPlatform = {
 };
 
 export type HostSelinux = {
+    effective_permissive_domains?: EffectivePermissiveDomains;
     enforcement: string | null;
     configured_policy_type: string | null;
     kernel_policy_version: number | null;
@@ -761,6 +803,7 @@ export type HostConfigurationResponse = {
         last_received_at: string;
     } | null;
     selinux: {
+        effective_permissive_domains?: EffectivePermissiveDomains;
         enforcement: string | null;
         configured_policy_type?: string | null;
         boolean_status: string | null;
@@ -1267,6 +1310,7 @@ export type RawEventDetail = {
      * Exact identity only when the occurrence checkpoint identity dimension is trusted.
      */
     checkpoint_policy_identity?: string | null;
+    permissive_policy_state?: OccurrencePermissivePolicyState;
     completion_reason: string;
     evidence_digest: string;
     file_context_observations?: Array<{
@@ -1499,6 +1543,7 @@ export type SelinuxActivityActor = {
 };
 
 export type SelinuxActivityDetail = SelinuxActivityItem & {
+    permissive_domain_comparison?: PermissivePolicyComparison | null;
     actor: SelinuxActivityActor;
     evidence: {
         completion_reason: string;
