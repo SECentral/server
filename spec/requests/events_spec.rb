@@ -29,6 +29,74 @@ RSpec.describe "Events API", type: :request do
   let(:organization) { Organization.create!(name: "Test organization") }
   let(:headers) { { "CONTENT_TYPE" => "application/json", "Authorization" => "Bearer test-ingestion-key" } }
 
+  def ingestion_state
+    models = [Host, AgentInstallation, HostSnapshot, HostSnapshotObservation, RawEvent,
+      RawAuditRecord, NormalizedDenial, Occurrence, Issue, PolicyFact, PolicyArtifact]
+    models.to_h { |model| [model.name, model.order(:id).map(&:attributes)] }.merge(
+      "effective_trust" => Host.order(:id).map { |host| [host.id, host.selinux_state_for] })
+  end
+
+  def seed_validation_state
+    checkpoint = boolean_checkpoint(1)
+    bytes = "pre-persistence validation fixture"
+    identity = "sha256:#{Digest::SHA256.hexdigest(bytes)}"
+    checkpoint["host"]["selinux"]["policy_identity"] = identity
+    post "/api/v1/heartbeat", params: checkpoint.to_json, headers: headers
+    post "/api/v1/events", params: ingest_request(sequence: 8000, raw_payload: avc_payload("/srv/seed", ["read"])).to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+    PolicyArtifactIngestion.call(host: Host.sole, policy_identity: identity, bytes: bytes)
+    PolicyFactRequest.for_event(RawEvent.sole)
+  end
+
+  def with_exception_rendering
+    environment = Rails.application.env_config
+    saved = environment.slice("action_dispatch.show_exceptions", "action_dispatch.show_detailed_exceptions")
+    environment["action_dispatch.show_exceptions"] = :all
+    environment["action_dispatch.show_detailed_exceptions"] = false
+    yield
+  ensure
+    environment.merge!(saved)
+  end
+
+  shared_examples "indexed pre-persistence validation" do
+    it "rejects deterministically without entering persistence, locking a host or changing state" do
+      seed_validation_state
+      before = ingestion_state
+      expect_any_instance_of(IngestEvents).not_to receive(:persist_raw_envelope!)
+      expect(Host).not_to receive(:find_for_ingestion!)
+      expect_any_instance_of(Host).not_to receive(:with_lock)
+      2.times do
+        expect {
+          post "/api/v1/events", params: malformed_request.to_json, headers: headers
+        }.not_to have_enqueued_job
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.parsed_body.fetch("error")).to include("code" => "invalid_request", "phase" => "pre_persistence")
+        details = response.parsed_body.dig("error", "details")
+        expect(details).to include(*expected_details)
+        expect(details).to all(include("path" => /\Aevents\[\d+\](?:\.|\z)/, "code" => /\A[a-z][a-z0-9_]*\z/))
+        @first_validation_details ||= details
+        expect(details).to eq(@first_validation_details)
+        expect(ingestion_state).to eq(before)
+      end
+    end
+  end
+
+  shared_examples "no pre-persistence guarantee" do
+    it "does not claim pre-persistence even when final rows might be unchanged" do
+      seed_validation_state
+      entries = 0
+      allow_any_instance_of(IngestEvents).to receive(:persist_raw_envelope!).and_wrap_original do |original, *args|
+        entries += 1
+        original.call(*args)
+      end
+      submit_failure.call
+      expect(response.status).to eq(expected_status)
+      error = response.parsed_body["error"]
+      expect(error).not_to have_key("phase") if error.is_a?(Hash)
+      expect(entries).to eq(expected_entries)
+    end
+  end
+
   it "accepts and deduplicates an authenticated batch" do
     request = ingest_request
 
@@ -709,11 +777,192 @@ RSpec.describe "Events API", type: :request do
     expect([RawEvent.count, Occurrence.count]).to eq([3, 3])
   end
 
-  it "does not mistake an unhandled malformed payload for a structured permanent event rejection" do
+  it "rejects a malformed payload for direct service callers before the persistence seam" do
     request = ingest_request
     request["events"][0]["records"][0]["payload"] = 42
-    expect { IngestEvents.new(organization: organization, payload: request).call }.to raise_error(NoMethodError, /unpack1/)
+    expect_any_instance_of(IngestEvents).not_to receive(:persist_raw_envelope!)
+    expect { IngestEvents.new(organization: organization, payload: request).call }.to raise_error(IngestEvents::InvalidRequest) { |error|
+      expect(error.details).to eq([{"path" => "events[0].records[0].payload", "code" => "invalid_type"}])
+    }
     expect(RawEvent.count).to eq(0)
+  end
+
+  it "returns structured validation through exception-rendering Rails middleware" do
+    request = ingest_request
+    request["events"][0]["records"][0]["payload"] = 123
+    expect_any_instance_of(IngestEvents).not_to receive(:persist_raw_envelope!)
+    expect(Host).not_to receive(:find_for_ingestion!)
+    with_exception_rendering do
+      post "/api/v1/events", params: request.to_json, headers: headers.merge("ACCEPT" => "application/json")
+    end
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(response.parsed_body.dig("error", "phase")).to eq("pre_persistence")
+    expect([Host.count, RawEvent.count, RawAuditRecord.count, Occurrence.count]).to eq([0, 0, 0, 0])
+  end
+
+  [123, nil, {}, [], true, "not base64!", "", Base64.strict_encode64(" ")].each do |payload|
+    context "payload #{payload.inspect}" do
+      let(:malformed_request) do
+        request = ingest_request(sequence: 8123)
+        middle = ingest_request["events"][0]
+        middle["records"][0]["payload"] = payload
+        request["events"] += [middle, ingest_request(sequence: 8125)["events"][0]]
+        request
+      end
+      let(:expected_details) do
+        code = if payload.nil? || payload == "" || payload == Base64.strict_encode64(" ")
+          "required"
+        elsif payload.is_a?(String)
+          "invalid_base64"
+        else
+          "invalid_type"
+        end
+        [{"path" => "events[1].records[0].payload", "code" => code}]
+      end
+      include_examples "indexed pre-persistence validation"
+    end
+  end
+
+  {
+    "event object" => ["events[0]", "object_required", ->(r) { r["events"][0] = true }],
+    "audit identity object" => ["events[0].audit_event", "object_required", ->(r) { r["events"][0]["audit_event"] = [] }],
+    "record array" => ["events[0].records", "array_required", ->(r) { r["events"][0]["records"] = {} }],
+    "record object" => ["events[0].records[0]", "object_required", ->(r) { r["events"][0]["records"][0] = 1 }],
+    "serial type" => ["events[0].audit_event.sequence", "invalid_integer", ->(r) { r["events"][0]["audit_event"]["sequence"] = {} }],
+    "timestamp type" => ["events[0].agent_received_at", "invalid_type", ->(r) { r["events"][0]["agent_received_at"] = true }],
+    "timestamp value" => ["events[0].agent_received_at", "invalid_timestamp", ->(r) { r["events"][0]["agent_received_at"] = "not-time" }],
+    "record position type" => ["events[0].records[0].position", "invalid_integer", ->(r) { r["events"][0]["records"][0]["position"] = "0" }],
+    "type name shape" => ["events[0].records[0].type_name", "invalid_type", ->(r) { r["events"][0]["records"][0]["type_name"] = {} }],
+    "category value" => ["events[0].category", "unknown_category", ->(r) { r["events"][0]["category"] = "unregistered" }],
+    "unknown type" => ["events[0].records[0].type", "invalid_type", ->(r) { r["events"][0]["records"][0]["type"] = "unregistered" }],
+    "SELINUX_ERR conflict" => ["events[0].records[1].type_name", "record_type_name_mismatch", ->(r) { r["events"][0]["records"][1].merge!("type" => 1401, "type_name" => "AVC") }],
+    "duplicate position" => ["events[0].records[1].position", "position_mismatch", ->(r) { r["events"][0]["records"][1]["position"] = 0 }]
+  }.each do |name, (path, code, mutate)|
+    context name do
+      let(:malformed_request) { selinux_error_request.tap { |request| mutate.call(request) } }
+      let(:expected_details) { [{"path" => path, "code" => code}] }
+      include_examples "indexed pre-persistence validation"
+    end
+  end
+
+  %w[MAC_POLICY_LOAD MAC_CONFIG_CHANGE MAC_STATUS port fcontext].each do |family|
+    context "malformed metadata in #{family}" do
+      let(:malformed_request) do
+        request = policy_load_request
+        type, payload = case family
+        when "MAC_POLICY_LOAD" then ["mac_policy_load", "res=1"]
+        when "MAC_CONFIG_CHANGE" then ["mac_config_change", "bool=httpd_can_network_connect val=0 old_val=1"]
+        when "MAC_STATUS" then ["mac_status", "enforcing=0 old_enforcing=1 enabled=1 old-enabled=1 lsm=selinux res=1"]
+        when "port" then ["user_mac_config_change", "msg='resrc=port op=add proto=6 lport=12345 tcontext=system_u:object_r:http_port_t:s0 res=success'"]
+        else ["user_mac_config_change", 'msg=\'resrc=fcontext op=add tglob="/srv/test" ftype=any tcontext=system_u:object_r:httpd_sys_content_t: res=success\'']
+        end
+        request["events"][0]["records"][0].merge!("type" => type, "type_name" => type.upcase, "payload" => Base64.strict_encode64(payload))
+        # Exercise both non-string supporting payload and array-index diagnostics.
+        request["events"][0]["records"][1].merge!("position" => 12, "payload" => {})
+        request["events"] += ingest_request(sequence: 8125)["events"]
+        request
+      end
+      let(:expected_details) { [{"path" => "events[0].records[1].position", "code" => "position_mismatch"}, {"path" => "events[0].records[1].payload", "code" => "invalid_type"}] }
+      include_examples "indexed pre-persistence validation"
+    end
+  end
+
+  context "multiple malformed events" do
+    let(:malformed_request) do
+      request = ingest_request
+      request["events"][0]["records"][0]["payload"] = 123
+      second = ingest_request(sequence: 8125)["events"][0]
+      second["records"][0]["position"] = 12
+      request["events"] << second
+      request
+    end
+    let(:expected_details) { [{"path" => "events[0].records[0].payload", "code" => "invalid_type"}, {"path" => "events[1].records[0].position", "code" => "position_mismatch"}] }
+    include_examples "indexed pre-persistence validation"
+  end
+
+  %w[agent events host checkpoint schema mixed].each do |shape|
+    context "envelope #{shape} failure" do
+      let(:expected_status) { 422 }
+      let(:expected_entries) { 0 }
+      let(:submit_failure) do
+        -> {
+          request = ingest_request
+          case shape
+          when "agent" then request["agent"] = []
+          when "events" then request["events"] = {}
+          when "host" then request["host_id"] = true
+          when "checkpoint" then request["host_observed_at"] = {}
+          when "schema" then request["schema_version"] = 3
+          when "mixed"
+            request["boot_id"] = ""
+            request["events"][0]["records"][0]["payload"] = 123
+          end
+          before = ingestion_state
+          post "/api/v1/events", params: request.to_json, headers: headers
+          expect(ingestion_state).to eq(before)
+        }
+      end
+      include_examples "no pre-persistence guarantee"
+    end
+  end
+
+  %w[authentication malformed_json conflict processing indexed_processing transient validator_bug].each do |failure|
+    context "non-validation #{failure}" do
+      let(:expected_status) { failure == "authentication" ? 401 : failure == "malformed_json" ? 400 : %w[transient validator_bug].include?(failure) ? 500 : 422 }
+      let(:expected_entries) { %w[conflict processing indexed_processing transient].include?(failure) ? 1 : 0 }
+      let(:submit_failure) do
+        -> {
+          request = ingest_request(sequence: 8123)
+          case failure
+          when "authentication"
+            post "/api/v1/events", params: request.to_json, headers: headers.except("Authorization")
+          when "malformed_json"
+            post "/api/v1/events", params: "{", headers: headers
+          when "conflict"
+            before = ingestion_state
+            conflict = ingest_request(sequence: 8000)["events"][0]
+            conflict["records"][0]["payload"] = Base64.strict_encode64("changed supporting evidence")
+            request["events"] << conflict
+            attempts = 0
+            allow_any_instance_of(IngestEvents).to receive(:persist_event!).and_wrap_original { |original, *args| attempts += 1; original.call(*args) }
+            post "/api/v1/events", params: request.to_json, headers: headers
+            expect(attempts).to eq(2)
+            expect(ingestion_state).to eq(before)
+            expect(response.parsed_body.dig("error", "details")).to eq([{"path" => "events", "code" => "conflicting_duplicate"}])
+          when "processing", "indexed_processing"
+            request["events"] += [ingest_request["events"][0], ingest_request(sequence: 8125)["events"][0]]
+            allow(ProcessRawEvent).to receive(:call).and_wrap_original do |original, event|
+              if event.audit_sequence == 8124
+                if failure == "indexed_processing"
+                  raise IngestEvents::InvalidRequest, [{"path" => "events[1].records[0].payload", "code" => "invalid_type"}]
+                end
+                raise ActiveRecord::RecordInvalid.new(Occurrence.new)
+              end
+              original.call(event)
+            end
+            post "/api/v1/events", params: request.to_json, headers: headers
+            expect([RawEvent.count, Occurrence.count]).to eq([4, 2]) # Seed + three new raw / one processed.
+          else
+            if failure == "transient"
+              allow(Host).to receive(:find_for_ingestion!).and_raise(ActiveRecord::ConnectionNotEstablished)
+            else
+              allow_any_instance_of(IngestEvents).to receive(:validate!).and_raise("unexpected validator defect")
+            end
+            with_exception_rendering { post "/api/v1/events", params: request.to_json, headers: headers.merge("ACCEPT" => "application/json") }
+          end
+        }
+      end
+      include_examples "no pre-persistence guarantee"
+    end
+  end
+
+  it "preserves the existing absence of a per-record size cap and filters payloads from Rails parameter logs" do
+    payload = "avc: denied " + "x" * 65_536
+    post "/api/v1/events", params: ingest_request(raw_payload: payload).to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+    expect(RawAuditRecord.sole.payload).to eq(payload)
+    filtered = ActiveSupport::ParameterFilter.new(Rails.application.config.filter_parameters).filter({"records" => [{"payload" => Base64.strict_encode64(payload)}]})
+    expect(filtered["records"][0]["payload"]).to eq("[FILTERED]")
   end
 
   it "accepts different hosts with the same ingestion key" do

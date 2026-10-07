@@ -26,7 +26,14 @@ class IngestEvents
   end
 
   def call
-    validate_request!
+    validate!
+    persist_raw_envelope!
+  end
+
+  # The application persistence entry point: validation must complete first.
+  def persist_raw_envelope!
+    raise "envelope must be validated before persistence" unless @validated
+
     @server_received_at = Time.current
     raw_events = []
     ActiveRecord::Base.transaction do
@@ -54,29 +61,38 @@ class IngestEvents
     reconcile_duplicate!
   end
 
-  private
-
-  def validate_request!
+  def validate!
+    @validated = false
     unless @payload.is_a?(Hash)
       raise InvalidRequest, [detail("request", "object_required")]
     end
 
     details = []
-    details << detail("schema_version", "unsupported_schema_version") unless @payload["schema_version"] == 4
-    details << detail("agent.version", "required") if blank?(@payload.dig("agent", "version"))
-    details << detail("host_id", "required") if blank?(@payload["host_id"])
-    details << detail("boot_id", "required") if blank?(@payload["boot_id"])
-    details << detail("host_observed_at", "invalid_timestamp") if present?(@payload["host_observed_at"]) && !timestamp?(@payload["host_observed_at"])
+    if validate_integer(@payload["schema_version"], "schema_version", details) && @payload["schema_version"] != 4
+      details << detail("schema_version", "unsupported_schema_version")
+    end
+    if @payload["agent"].is_a?(Hash)
+      validate_string(@payload["agent"]["version"], "agent.version", details)
+    else
+      details << detail("agent", "object_required")
+    end
+    validate_string(@payload["host_id"], "host_id", details)
+    validate_string(@payload["boot_id"], "boot_id", details)
+    validate_timestamp(@payload["host_observed_at"], "host_observed_at", details) if present?(@payload["host_observed_at"])
     fields = @payload.fetch("checkpoint_invalidated_fields", [])
     unless fields.is_a?(Array) && (fields - RawEvent::CHECKPOINT_FIELDS).empty? && fields.uniq == fields
       details << detail("checkpoint_invalidated_fields", "invalid_checkpoint_fields")
     end
-    details << detail("events", "required") unless @payload["events"].is_a?(Array) && @payload["events"].any?
-    Array(@payload["events"]).each_with_index do |event, index|
-      details.concat(validate_event(event, index))
+    if validate_array(@payload["events"], "events", details)
+      @payload["events"].each_with_index do |event, index|
+        details.concat(validate_event(event, index))
+      end
     end
     raise InvalidRequest, details if details.any?
+    @validated = true
   end
+
+  private
 
   def validate_event(event, index)
     path = "events[#{index}]"
@@ -86,47 +102,58 @@ class IngestEvents
     end
 
     audit_event = event["audit_event"]
-    details << detail("#{path}.category", "unknown_category") unless %w[avc selinux_administrative].include?(event["category"])
-    details << detail("#{path}.audit_event", "object_required") unless audit_event.is_a?(Hash)
-    details << detail("#{path}.audit_event.timestamp", "required") if !audit_event.is_a?(Hash) || blank?(audit_event["timestamp"])
-    details << detail("#{path}.audit_event.timestamp", "invalid_timestamp") if audit_event.is_a?(Hash) && present?(audit_event["timestamp"]) && !timestamp?(audit_event["timestamp"])
-    details << detail("#{path}.audit_event.sequence", "required") if !audit_event.is_a?(Hash) || audit_event["sequence"].nil?
-    details << detail("#{path}.audit_event.sequence", "invalid_integer") if audit_event.is_a?(Hash) && !integer?(audit_event["sequence"])
-    details << detail("#{path}.agent_received_at", "required") if blank?(event["agent_received_at"])
-    details << detail("#{path}.agent_received_at", "invalid_timestamp") if present?(event["agent_received_at"]) && !timestamp?(event["agent_received_at"])
-    details << detail("#{path}.completion_reason", "unknown_completion_reason") unless event.is_a?(Hash) && COMPLETION_REASONS.include?(event["completion_reason"])
-    records = event.is_a?(Hash) ? event["records"] : nil
-    details << detail("#{path}.records", "required") unless records.is_a?(Array) && records.any?
-    Array(records).each_with_index do |record, position|
+    if validate_string(event["category"], "#{path}.category", details) && !%w[avc selinux_administrative].include?(event["category"])
+      details << detail("#{path}.category", "unknown_category")
+    end
+    if audit_event.is_a?(Hash)
+      validate_timestamp(audit_event["timestamp"], "#{path}.audit_event.timestamp", details)
+      validate_integer(audit_event["sequence"], "#{path}.audit_event.sequence", details)
+    else
+      details << detail("#{path}.audit_event", "object_required")
+    end
+    validate_timestamp(event["agent_received_at"], "#{path}.agent_received_at", details)
+    if validate_string(event["completion_reason"], "#{path}.completion_reason", details) && !COMPLETION_REASONS.include?(event["completion_reason"])
+      details << detail("#{path}.completion_reason", "unknown_completion_reason")
+    end
+    records = event["records"]
+    return details unless validate_array(records, "#{path}.records", details)
+
+    records.each_with_index do |record, position|
       record_path = "#{path}.records[#{position}]"
       unless record.is_a?(Hash)
         details << detail(record_path, "object_required")
         next
       end
-      details << detail("#{record_path}.position", "position_mismatch") unless record["position"] == position
+      if validate_integer(record["position"], "#{record_path}.position", details) && record["position"] != position
+        details << detail("#{record_path}.position", "position_mismatch")
+      end
       details << detail("#{record_path}.type", "required") if record["type"].nil?
       details << detail("#{record_path}.type", "invalid_type") if !record["type"].nil? && !valid_type?(record["type"])
-      details << detail("#{record_path}.timestamp", "required") if blank?(record["timestamp"])
-      details << detail("#{record_path}.timestamp", "invalid_timestamp") if present?(record["timestamp"]) && !timestamp?(record["timestamp"])
-      details << detail("#{record_path}.timestamp", "event_identity_mismatch") if present?(record["timestamp"]) && audit_event.is_a?(Hash) && record["timestamp"] != audit_event["timestamp"]
-      details << detail("#{record_path}.sequence", "required") if record["sequence"].nil?
-      details << detail("#{record_path}.sequence", "invalid_integer") if !record["sequence"].nil? && !integer?(record["sequence"])
-      details << detail("#{record_path}.sequence", "event_identity_mismatch") if !record["sequence"].nil? && audit_event.is_a?(Hash) && record["sequence"] != audit_event["sequence"]
-      details << detail("#{record_path}.payload", "required") if blank?(record["payload"])
-      begin
-        Base64.strict_decode64(record.fetch("payload"))
-      rescue ArgumentError, KeyError
-        details << detail("#{record_path}.payload", "invalid_base64")
+      if validate_timestamp(record["timestamp"], "#{record_path}.timestamp", details) && audit_event.is_a?(Hash) && record["timestamp"] != audit_event["timestamp"]
+        details << detail("#{record_path}.timestamp", "event_identity_mismatch")
       end
-      details << detail("#{record_path}.type_name", "required") if blank?(record["type_name"])
+      if validate_integer(record["sequence"], "#{record_path}.sequence", details) && audit_event.is_a?(Hash) && record["sequence"] != audit_event["sequence"]
+        details << detail("#{record_path}.sequence", "event_identity_mismatch")
+      end
+      if validate_string(record["payload"], "#{record_path}.payload", details)
+        begin
+          details << detail("#{record_path}.payload", "required") if Base64.strict_decode64(record["payload"]).blank?
+        rescue ArgumentError
+          details << detail("#{record_path}.payload", "invalid_base64")
+        end
+      end
+      name_valid = validate_string(record["type_name"], "#{record_path}.type_name", details)
       code = type_code(record["type"])
       name_code = record["type_name"].is_a?(String) ? type_code(record["type_name"]) : nil
       # Known identities must agree; leave existing opaque unknown-type handling unchanged.
-      if present?(record["type_name"]) && (TYPE_CODES.value?(code) || TYPE_CODES.value?(name_code)) && code != name_code
+      if name_valid && code && (TYPE_CODES.value?(code) || TYPE_CODES.value?(name_code)) && code != name_code
         details << detail("#{record_path}.type_name", "record_type_name_mismatch")
       end
     end
-    record_types = Array(records).filter_map { |record| type_code(record["type"]) if record.is_a?(Hash) }
+    # Category semantics require well-formed records; do not parse malformed payloads.
+    return details if details.any? { |error| error["path"].start_with?("#{path}.records") }
+
+    record_types = records.filter_map { |record| type_code(record["type"]) }
     if event["category"] == "avc" && (record_types & [ 1400, 1107 ]).empty?
       details << detail("#{path}.category", "avc_record_required")
     elsif event["category"] == "selinux_administrative" && (record_types & [1403, 1404]).empty? && boolean_changes(event).empty? && !port_record?(event) && !file_context_record?(event)
@@ -339,7 +366,7 @@ class IngestEvents
   end
 
   def timestamp?(value)
-    Time.iso8601(value.to_s)
+    Time.iso8601(value)
     true
   rescue ArgumentError
     false
@@ -347,6 +374,47 @@ class IngestEvents
 
   def integer?(value)
     value.is_a?(Integer)
+  end
+
+  def validate_string(value, path, details)
+    if value.nil? || (value.is_a?(String) && value.blank?)
+      details << detail(path, "required")
+    elsif !value.is_a?(String)
+      details << detail(path, "invalid_type")
+    else
+      return true
+    end
+    false
+  end
+
+  def validate_integer(value, path, details)
+    if value.nil?
+      details << detail(path, "required")
+    elsif !integer?(value)
+      details << detail(path, "invalid_integer")
+    else
+      return true
+    end
+    false
+  end
+
+  def validate_timestamp(value, path, details)
+    return false unless validate_string(value, path, details)
+    return true if timestamp?(value)
+
+    details << detail(path, "invalid_timestamp")
+    false
+  end
+
+  def validate_array(value, path, details)
+    if value.nil? || value == []
+      details << detail(path, "required")
+    elsif !value.is_a?(Array)
+      details << detail(path, "array_required")
+    else
+      return true
+    end
+    false
   end
 
   def valid_type?(value)

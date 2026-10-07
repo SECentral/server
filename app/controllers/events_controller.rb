@@ -8,7 +8,14 @@ class EventsController < ApplicationController
   before_action :authenticate_agent!, :resolve_ingestion_organization!
 
   def create
-    raw_events = IngestEvents.new(organization: @ingestion_organization, payload: JSON.parse(request.raw_post)).call
+    ingestion = IngestEvents.new(organization: @ingestion_organization, payload: JSON.parse(request.raw_post))
+    # This rescue covers validation only, never persistence or processing.
+    begin
+      ingestion.validate!
+    rescue IngestEvents::InvalidRequest => error
+      return validation_error(error)
+    end
+    raw_events = ingestion.persist_raw_envelope!
     avc_events = raw_events.select(&:avc?)
     avc_events.each do |raw_event|
       ProcessRawEvent.call(raw_event)
@@ -29,6 +36,15 @@ class EventsController < ApplicationController
 
   def invalid_request(error)
     render json: { error: { code: "invalid_request", message: "Request validation failed", details: error.details } }, status: :unprocessable_content
+  end
+
+  def validation_error(error)
+    body = { code: "invalid_request", message: "Request validation failed", details: error.details }
+    if error.details.any? && error.details.all? { |entry| entry.fetch("path").match?(/\Aevents\[\d+\](?:\.|\z)/) }
+      body[:phase] = "pre_persistence"
+    end
+    Rails.logger.info("ingestion validation failed phase=#{body[:phase] || 'envelope_validation'} details=#{error.details.to_json}")
+    render json: { error: body }, status: :unprocessable_content
   end
 
   def invalid_record(error)

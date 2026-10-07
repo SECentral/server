@@ -4,6 +4,79 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});
 };
 
+export type IngestionEnvelope = {
+    schema_version: 4;
+    agent: {
+        version: string;
+    };
+    host_id: string;
+    /**
+     * Reported historical boot partition; not authenticated against the host's current boot.
+     */
+    boot_id: string;
+    /**
+     * Optional original checkpoint timestamp. Null/omission/empty string means no reference; a nonempty value must be ISO-8601. No later checkpoint backfill.
+     */
+    host_observed_at?: string | null;
+    checkpoint_invalidated_fields?: Array<'policy_identity' | 'booleans' | 'enforcement' | 'ports' | 'file_context_mappings'>;
+    events: Array<{
+        category: 'avc' | 'selinux_administrative';
+        audit_event: {
+            timestamp: string;
+            sequence: number;
+        };
+        agent_received_at: string;
+        completion_reason: 'eoe' | 'timeout' | 'capacity' | 'shutdown';
+        records: Array<{
+            /**
+             * Must equal this element's submitted zero-based array index.
+             */
+            position: number;
+            /**
+             * Authoritative numeric audit code or registered case-insensitive alias. Existing numeric/UNKNOWN[n] opaque supporting-record handling is unchanged; arbitrary textual names are rejected.
+             */
+            type: number | string;
+            /**
+             * Diagnostic name; known identities must agree with type. SELINUX_ERR/selinux_err both resolve to 1401.
+             */
+            type_name: string;
+            /**
+             * Must match the enclosing audit-event timestamp string.
+             */
+            timestamp: string;
+            /**
+             * Must match the enclosing audit-event sequence.
+             */
+            sequence: number;
+            /**
+             * Strict Base64 of nonblank original record bytes, never coerced or normalized. No new per-record size cap is introduced.
+             */
+            payload: string;
+        }>;
+    }>;
+};
+
+export type PrePersistenceEventValidationError = {
+    error: {
+        code: 'invalid_request';
+        /**
+         * Human-readable and non-authoritative.
+         */
+        message: string;
+        /**
+         * Validation failed before the raw persistence entry point was invoked, not merely before commit. Does not itself authorize client subdivision or administrative/unknown cohort isolation.
+         */
+        phase: 'pre_persistence';
+        /**
+         * Deterministic request-array/field order. Uses submitted array indexes, not record.position or persisted order. All paths are event-indexed; shared/mixed errors are unmarked.
+         */
+        details: Array<{
+            path: string;
+            code: 'required' | 'object_required' | 'array_required' | 'invalid_type' | 'invalid_integer' | 'invalid_timestamp' | 'unknown_category' | 'unknown_completion_reason' | 'position_mismatch' | 'event_identity_mismatch' | 'invalid_base64' | 'record_type_name_mismatch' | 'avc_record_required' | 'supported_administrative_record_required';
+        }>;
+    };
+};
+
 export type EvidenceBasis = {
     [key: string]: unknown;
 };
@@ -148,6 +221,10 @@ export type Error = {
         details?: Array<{
             [key: string]: unknown;
         }>;
+        /**
+         * Only emitted by event ingestion for exclusively indexed validation errors before persistence entry. Absent for shared/mixed validation, integrity conflicts, model/processing failures and security failures. HTTP 422 alone does not imply this guarantee.
+         */
+        phase?: 'pre_persistence';
     };
 };
 
@@ -1148,9 +1225,12 @@ export type NormalizedDenialDetail = {
 export type RawAuditRecordDetail = {
     position: number;
     /**
-     * Kernel audit record type code (e.g. 1400 = AVC).
+     * Authoritative kernel audit record type code (e.g. 1400 = AVC, 1401 = SELINUX_ERR).
      */
     record_type: number;
+    /**
+     * Retained diagnostic type name. Known names must resolve case-insensitively to record_type; original payload text is not normalized.
+     */
     type_name: string;
     audit_timestamp: string;
     sequence: number;
@@ -1454,6 +1534,53 @@ export type IssueAnalysisResponse = {
 };
 
 export type IssueId = number;
+
+export type IngestEventsData = {
+    body: IngestionEnvelope;
+    path?: never;
+    query?: never;
+    url: '/api/v1/events';
+};
+
+export type IngestEventsErrors = {
+    /**
+     * Malformed JSON; no pre-persistence event-validation marker.
+     */
+    400: unknown;
+    /**
+     * Invalid ingestion credential; no event-level guarantee or acceptance.
+     */
+    401: unknown;
+    /**
+     * Request rejected. Only error.phase=pre_persistence proves that all
+     * collected errors are event-indexed deterministic validation failures
+     * and the raw-ingestion persistence boundary was never entered. It does
+     * not merely mean no rows ultimately committed. Envelope errors, mixed
+     * envelope/event errors, integrity conflicts, and model/processing
+     * errors have no marker. HTTP 422 alone carries no such guarantee.
+     *
+     */
+    422: PrePersistenceEventValidationError | (Error & {
+        error?: unknown;
+    });
+    /**
+     * Internal failure; persistence may already have begun or committed. No pre-persistence validation guarantee.
+     */
+    500: unknown;
+    /**
+     * Ingestion unavailable; no pre-persistence event-validation marker.
+     */
+    503: unknown;
+};
+
+export type IngestEventsError = IngestEventsErrors[keyof IngestEventsErrors];
+
+export type IngestEventsResponses = {
+    /**
+     * All supplied identities are durably retained or identical duplicates, and normal synchronous AVC processing completed. Empty response; never partial acceptance.
+     */
+    202: unknown;
+};
 
 export type GetIssueResolutionsData = {
     body?: never;

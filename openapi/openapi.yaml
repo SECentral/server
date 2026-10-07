@@ -8,7 +8,7 @@ info:
     Conventions:
 
     - JSON only. All responses use `application/json`.
-    - Errors: every error response is `{ "error": { "code", "message", "details"? } }`.
+    - Errors: every error response is `{ "error": { "code", "message", "details"?, "phase"? } }`.
       Codes: `unauthorized` (401), `not_found` (404),
       `invalid_request` / `invalid_value` / `invalid_csrf_token` (422).
     - Timestamps are ISO-8601 UTC.
@@ -17,10 +17,12 @@ info:
       - stable lists use `page` / `page_size` (capped at 50) with `PageMeta`;
       - time-ordered occurrence streams use opaque cursors (`limit` + `before`)
         with `CursorMeta`.
-    - Authentication is a same-origin session cookie managed by the browser.
+    - Operator authentication is a same-origin session cookie managed by the browser.
       Mutating requests must echo the `X-CSRF-Token` response header in the
       `X-CSRF-Token` request header. The token is transport metadata, not
       application data, and is never present in a response payload.
+      Agent event ingestion uses its own deployment-wide bearer credential,
+      explicitly overriding operator session/CSRF security on that endpoint.
 
 servers:
   - url: /
@@ -30,6 +32,66 @@ security:
     csrf: []
 
 paths:
+  /api/v1/events:
+    post:
+      operationId: ingestEvents
+      summary: Atomically retain an authenticated schema-v4 audit event envelope
+      security:
+        - ingestionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IngestionEnvelope"
+      responses:
+        "202":
+          description: All supplied identities are durably retained or identical duplicates, and normal synchronous AVC processing completed. Empty response; never partial acceptance.
+        "400":
+          description: Malformed JSON; no pre-persistence event-validation marker.
+        "401":
+          description: Invalid ingestion credential; no event-level guarantee or acceptance.
+        "422":
+          description: |
+            Request rejected. Only error.phase=pre_persistence proves that all
+            collected errors are event-indexed deterministic validation failures
+            and the raw-ingestion persistence boundary was never entered. It does
+            not merely mean no rows ultimately committed. Envelope errors, mixed
+            envelope/event errors, integrity conflicts, and model/processing
+            errors have no marker. HTTP 422 alone carries no such guarantee.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/PrePersistenceEventValidationError"
+                  - allOf:
+                      - $ref: "#/components/schemas/Error"
+                      - properties:
+                          error:
+                            not:
+                              required: [phase]
+              examples:
+                malformedEventPayload:
+                  value:
+                    error:
+                      code: invalid_request
+                      message: Request validation failed
+                      phase: pre_persistence
+                      details:
+                        - path: events[1].records[0].payload
+                          code: invalid_type
+                integrityConflict:
+                  value:
+                    error:
+                      code: invalid_request
+                      message: Request validation failed
+                      details:
+                        - path: events
+                          code: conflicting_duplicate
+        "500":
+          description: Internal failure; persistence may already have begun or committed. No pre-persistence validation guarantee.
+        "503":
+          description: Ingestion unavailable; no pre-persistence event-validation marker.
   /api/v1/issues/{id}/resolutions:
     parameters:
       - $ref: "#/components/parameters/IssueId"
@@ -1002,6 +1064,10 @@ components:
       required: true
       schema: {type: integer, minimum: 1}
   securitySchemes:
+    ingestionBearer:
+      type: http
+      scheme: bearer
+      description: Deployment-wide ingestion credential. Authenticates ingestion permission, not a particular host identity; distinct from operator session/CSRF authentication.
     session:
       type: apiKey
       in: cookie
@@ -1039,6 +1105,101 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
   schemas:
+    IngestionEnvelope:
+      type: object
+      required: [schema_version, agent, host_id, boot_id, events]
+      properties:
+        schema_version: {type: integer, const: 4}
+        agent:
+          type: object
+          required: [version]
+          properties:
+            version: {type: string, minLength: 1}
+        host_id: {type: string, minLength: 1}
+        boot_id:
+          type: string
+          minLength: 1
+          description: Reported historical boot partition; not authenticated against the host's current boot.
+        host_observed_at:
+          type: [string, 'null']
+          description: Optional original checkpoint timestamp. Null/omission/empty string means no reference; a nonempty value must be ISO-8601. No later checkpoint backfill.
+        checkpoint_invalidated_fields:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [policy_identity, booleans, enforcement, ports, file_context_mappings]
+        events:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [category, audit_event, agent_received_at, completion_reason, records]
+            properties:
+              category: {type: string, enum: [avc, selinux_administrative]}
+              audit_event:
+                type: object
+                required: [timestamp, sequence]
+                properties:
+                  timestamp: {type: string, format: date-time}
+                  sequence: {type: integer}
+              agent_received_at: {type: string, format: date-time}
+              completion_reason: {type: string, enum: [eoe, timeout, capacity, shutdown]}
+              records:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required: [position, type, type_name, timestamp, sequence, payload]
+                  properties:
+                    position:
+                      type: integer
+                      description: Must equal this element's submitted zero-based array index.
+                    type:
+                      oneOf: [{type: integer}, {type: string}]
+                      description: Authoritative numeric audit code or registered case-insensitive alias. Existing numeric/UNKNOWN[n] opaque supporting-record handling is unchanged; arbitrary textual names are rejected.
+                    type_name:
+                      type: string
+                      minLength: 1
+                      description: Diagnostic name; known identities must agree with type. SELINUX_ERR/selinux_err both resolve to 1401.
+                    timestamp:
+                      type: string
+                      format: date-time
+                      description: Must match the enclosing audit-event timestamp string.
+                    sequence:
+                      type: integer
+                      description: Must match the enclosing audit-event sequence.
+                    payload:
+                      type: string
+                      minLength: 1
+                      contentEncoding: base64
+                      description: Strict Base64 of nonblank original record bytes, never coerced or normalized. No new per-record size cap is introduced.
+    PrePersistenceEventValidationError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, phase, details]
+          properties:
+            code: {type: string, const: invalid_request}
+            message: {type: string, description: Human-readable and non-authoritative.}
+            phase:
+              type: string
+              const: pre_persistence
+              description: Validation failed before the raw persistence entry point was invoked, not merely before commit. Does not itself authorize client subdivision or administrative/unknown cohort isolation.
+            details:
+              type: array
+              minItems: 1
+              description: Deterministic request-array/field order. Uses submitted array indexes, not record.position or persisted order. All paths are event-indexed; shared/mixed errors are unmarked.
+              items:
+                type: object
+                required: [path, code]
+                properties:
+                  path: {type: string, pattern: '^events\[[0-9]+\](\.|$)'}
+                  code:
+                    type: string
+                    enum: [required, object_required, array_required, invalid_type, invalid_integer, invalid_timestamp, unknown_category, unknown_completion_reason, position_mismatch, event_identity_mismatch, invalid_base64, record_type_name_mismatch, avc_record_required, supported_administrative_record_required]
     EvidenceBasis:
       type: object
       additionalProperties: true
@@ -1225,6 +1386,10 @@ components:
               items:
                 type: object
                 additionalProperties: true
+            phase:
+              type: string
+              const: pre_persistence
+              description: Only emitted by event ingestion for exclusively indexed validation errors before persistence entry. Absent for shared/mixed validation, integrity conflicts, model/processing failures and security failures. HTTP 422 alone does not imply this guarantee.
     System:
       type: object
       required:

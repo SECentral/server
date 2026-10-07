@@ -101,4 +101,19 @@ RSpec.describe "OpenAPI document" do
     operation_ids = operations.map { |path, _method, operation| operation["operationId"] }
     expect(operation_ids.uniq.size).to eq(operation_ids.size), "operationIds must be unique"
   end
+
+  it "documents atomic ingestion and an explicit pre-persistence error distinct from other 422 failures" do
+    operation = openapi.dig("paths", "/api/v1/events", "post")
+    expect(operation["security"]).to eq([{"ingestionBearer" => []}])
+    expect(operation.dig("responses", "202", "description")).to include("never partial acceptance")
+    schema = openapi.dig("components", "schemas", "PrePersistenceEventValidationError", "properties", "error")
+    expect(schema["required"]).to include("phase", "details")
+    expect(schema.dig("properties", "phase", "const")).to eq("pre_persistence")
+    details = schema.dig("properties", "details")
+    expect(details["minItems"]).to eq(1)
+    pattern = Regexp.new(details.dig("items", "properties", "path", "pattern"))
+    expect("events[1].records[5].payload").to match(pattern)
+    expect("host_id").not_to match(pattern)
+    expect(operation.dig("responses", "422", "content", "application/json", "schema", "oneOf").size).to eq(2)
+  end
 end
