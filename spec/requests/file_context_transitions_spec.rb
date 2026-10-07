@@ -143,12 +143,12 @@ RSpec.describe "Validated expected-label mapping boundaries", type: :request do
   end
   def send_event(offset, serial, code, fields, boot: "boot-1", observed: nil, mask: [])
     time=(base+offset).iso8601(6)
-    record={ position: 0, type: code, type_name: {2312=>"USER_MAC_CONFIG_CHANGE",1400=>"AVC",1403=>"MAC_POLICY_LOAD",1404=>"MAC_STATUS",1405=>"MAC_CONFIG_CHANGE"}.fetch(code), timestamp: time, sequence: serial, payload: Base64.strict_encode64("audit(#{(base+offset).to_f}:#{serial}): #{fields}") }
+    record={ position: 0, type: code, type_name: { 2312=>"USER_MAC_CONFIG_CHANGE", 1400=>"AVC", 1403=>"MAC_POLICY_LOAD", 1404=>"MAC_STATUS", 1405=>"MAC_CONFIG_CHANGE" }.fetch(code), timestamp: time, sequence: serial, payload: Base64.strict_encode64("audit(#{(base+offset).to_f}:#{serial}): #{fields}") }
     records=[record]
-    records << record.merge(position: 1,type: 1300,type_name: "SYSCALL",payload: Base64.strict_encode64("audit(#{(base+offset).to_f}:#{serial}): syscall=59 success=no exit=-13")) if code==1400
-    post "/api/v1/events", params: {schema_version: 4,agent:{version:"test"},host_id:"mapping-host",boot_id:boot,host_observed_at: observed && (base+observed).iso8601(6),checkpoint_invalidated_fields:mask,
-      events:[{category:code==1400 ? "avc" : "selinux_administrative",audit_event:{timestamp:time,sequence:serial},agent_received_at:time,completion_reason:"timeout",records:records}]}.to_json, headers:headers
+    records << record.merge(position: 1, type: 1300, type_name: "SYSCALL", payload: Base64.strict_encode64("audit(#{(base+offset).to_f}:#{serial}): syscall=59 success=no exit=-13")) if code==1400
+    post "/api/v1/events", params: { schema_version: 4, agent: { version: "test" }, host_id: "mapping-host", boot_id: boot, host_observed_at: observed && (base+observed).iso8601(6), checkpoint_invalidated_fields: mask,
+      events: [{ category: code==1400 ? "avc" : "selinux_administrative", audit_event: { timestamp: time, sequence: serial }, agent_received_at: time, completion_reason: "timeout", records: records }] }.to_json, headers: headers
     expect(response).to have_http_status(:accepted)
-    RawEvent.find_by!(boot_id:boot,audit_sequence:serial)
+    RawEvent.find_by!(boot_id: boot, audit_sequence: serial)
   end
 end

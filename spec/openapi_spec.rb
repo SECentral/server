@@ -104,7 +104,7 @@ RSpec.describe "OpenAPI document" do
 
   it "documents atomic ingestion and an explicit pre-persistence error distinct from other 422 failures" do
     operation = openapi.dig("paths", "/api/v1/events", "post")
-    expect(operation["security"]).to eq([{"ingestionBearer" => []}])
+    expect(operation["security"]).to eq([{ "ingestionBearer" => [] }])
     expect(operation.dig("responses", "202", "description")).to include("never partial acceptance")
     schema = openapi.dig("components", "schemas", "PrePersistenceEventValidationError", "properties", "error")
     expect(schema["required"]).to include("phase", "details")

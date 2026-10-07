@@ -687,7 +687,7 @@ RSpec.describe "Events API", type: :request do
     request["events"] += [poison, ingest_request(sequence: 8125)["events"][0]]
     post "/api/v1/events", params: request.to_json, headers: headers
     expect(response).to have_http_status(:unprocessable_content)
-    expect(JSON.parse(response.body).dig("error", "details")).to eq([{"path" => "events[1].category", "code" => "avc_record_required"}])
+    expect(JSON.parse(response.body).dig("error", "details")).to eq([{ "path" => "events[1].category", "code" => "avc_record_required" }])
     expect([RawEvent.count, Occurrence.count]).to eq([0, 0])
   end
 
@@ -782,7 +782,7 @@ RSpec.describe "Events API", type: :request do
     request["events"][0]["records"][0]["payload"] = 42
     expect_any_instance_of(IngestEvents).not_to receive(:persist_raw_envelope!)
     expect { IngestEvents.new(organization: organization, payload: request).call }.to raise_error(IngestEvents::InvalidRequest) { |error|
-      expect(error.details).to eq([{"path" => "events[0].records[0].payload", "code" => "invalid_type"}])
+      expect(error.details).to eq([{ "path" => "events[0].records[0].payload", "code" => "invalid_type" }])
     }
     expect(RawEvent.count).to eq(0)
   end
@@ -817,7 +817,7 @@ RSpec.describe "Events API", type: :request do
         else
           "invalid_type"
         end
-        [{"path" => "events[1].records[0].payload", "code" => code}]
+        [{ "path" => "events[1].records[0].payload", "code" => code }]
       end
       include_examples "indexed pre-persistence validation"
     end
@@ -840,7 +840,7 @@ RSpec.describe "Events API", type: :request do
   }.each do |name, (path, code, mutate)|
     context name do
       let(:malformed_request) { selinux_error_request.tap { |request| mutate.call(request) } }
-      let(:expected_details) { [{"path" => path, "code" => code}] }
+      let(:expected_details) { [{ "path" => path, "code" => code }] }
       include_examples "indexed pre-persistence validation"
     end
   end
@@ -862,7 +862,7 @@ RSpec.describe "Events API", type: :request do
         request["events"] += ingest_request(sequence: 8125)["events"]
         request
       end
-      let(:expected_details) { [{"path" => "events[0].records[1].position", "code" => "position_mismatch"}, {"path" => "events[0].records[1].payload", "code" => "invalid_type"}] }
+      let(:expected_details) { [{ "path" => "events[0].records[1].position", "code" => "position_mismatch" }, { "path" => "events[0].records[1].payload", "code" => "invalid_type" }] }
       include_examples "indexed pre-persistence validation"
     end
   end
@@ -876,7 +876,7 @@ RSpec.describe "Events API", type: :request do
       request["events"] << second
       request
     end
-    let(:expected_details) { [{"path" => "events[0].records[0].payload", "code" => "invalid_type"}, {"path" => "events[1].records[0].position", "code" => "position_mismatch"}] }
+    let(:expected_details) { [{ "path" => "events[0].records[0].payload", "code" => "invalid_type" }, { "path" => "events[1].records[0].position", "code" => "position_mismatch" }] }
     include_examples "indexed pre-persistence validation"
   end
 
@@ -928,13 +928,13 @@ RSpec.describe "Events API", type: :request do
             post "/api/v1/events", params: request.to_json, headers: headers
             expect(attempts).to eq(2)
             expect(ingestion_state).to eq(before)
-            expect(response.parsed_body.dig("error", "details")).to eq([{"path" => "events", "code" => "conflicting_duplicate"}])
+            expect(response.parsed_body.dig("error", "details")).to eq([{ "path" => "events", "code" => "conflicting_duplicate" }])
           when "processing", "indexed_processing"
             request["events"] += [ingest_request["events"][0], ingest_request(sequence: 8125)["events"][0]]
             allow(ProcessRawEvent).to receive(:call).and_wrap_original do |original, event|
               if event.audit_sequence == 8124
                 if failure == "indexed_processing"
-                  raise IngestEvents::InvalidRequest, [{"path" => "events[1].records[0].payload", "code" => "invalid_type"}]
+                  raise IngestEvents::InvalidRequest, [{ "path" => "events[1].records[0].payload", "code" => "invalid_type" }]
                 end
                 raise ActiveRecord::RecordInvalid.new(Occurrence.new)
               end
@@ -961,7 +961,7 @@ RSpec.describe "Events API", type: :request do
     post "/api/v1/events", params: ingest_request(raw_payload: payload).to_json, headers: headers
     expect(response).to have_http_status(:accepted)
     expect(RawAuditRecord.sole.payload).to eq(payload)
-    filtered = ActiveSupport::ParameterFilter.new(Rails.application.config.filter_parameters).filter({"records" => [{"payload" => Base64.strict_encode64(payload)}]})
+    filtered = ActiveSupport::ParameterFilter.new(Rails.application.config.filter_parameters).filter({ "records" => [{ "payload" => Base64.strict_encode64(payload) }] })
     expect(filtered["records"][0]["payload"]).to eq("[FILTERED]")
   end
 
@@ -1117,12 +1117,12 @@ RSpec.describe "Events API", type: :request do
   it "exposes SHA-bound source membership and derived load comparisons without synthetic events" do
     identities = %w[ordinary permissive].map do |bytes|
       artifact = PolicyArtifact.create!(policy_identity: "sha256:#{Digest::SHA256.hexdigest(bytes)}", artifact: bytes, artifact_size: bytes.bytesize,
-        permissive_domain_analysis: {"status" => "observed", "domains" => bytes == "permissive" ? ["postgresql_t"] : []})
+        permissive_domain_analysis: { "status" => "observed", "domains" => bytes == "permissive" ? ["postgresql_t"] : [] })
       artifact.policy_identity
     end
     checkpoint = heartbeat_request
     checkpoint["host"]["selinux"].merge!("policy_identity" => identities[0], "boolean_status" => "observed", "booleans" => [], "policy" => {
-      "port_inventory" => {"status" => "observed", "mappings" => []}, "file_context_mappings_status" => "observed", "file_contexts" => [], "local_file_context_mappings" => [], "file_context_equivalences" => []
+      "port_inventory" => { "status" => "observed", "mappings" => [] }, "file_context_mappings_status" => "observed", "file_contexts" => [], "local_file_context_mappings" => [], "file_context_equivalences" => []
     })
     post "/api/v1/heartbeat", params: checkpoint.to_json, headers: headers
     post "/api/v1/events", params: policy_load_request.to_json, headers: headers

@@ -20,17 +20,17 @@ RSpec.describe PolicyPermissiveDomains do
   end
 
   def artifact(domains: nil, status: nil, bytes: "test policy")
-    result = status ? {"status" => status, "domains" => domains, "evaluator_version" => "test"} : {}
+    result = status ? { "status" => status, "domains" => domains, "evaluator_version" => "test" } : {}
     PolicyArtifact.create!(policy_identity: "sha256:#{Digest::SHA256.hexdigest(bytes)}", artifact: bytes, artifact_size: bytes.bytesize, permissive_domain_analysis: result)
   end
 
   def occurrence(policy, local: true, mode: "enforcing", source: "postgresql_t", mask: [])
     organization = Organization.first || Organization.create!(name: "exact-permissive")
     host = organization.hosts.create!(external_id: "host-#{Host.count}")
-    snapshot = host.host_snapshots.create!(details: {"boot_id" => "boot", "selinux" => {"policy_identity" => policy.policy_identity, "enforcement" => mode}})
+    snapshot = host.host_snapshots.create!(details: { "boot_id" => "boot", "selinux" => { "policy_identity" => policy.policy_identity, "enforcement" => mode } })
     installation = host.agent_installations.create!(organization: organization, name: host.external_id)
     raw = host.raw_events.create!(organization: organization, agent_installation: installation, host_snapshot: snapshot, schema_version: 4, category: "avc", boot_id: "boot", audit_timestamp: Time.current, audit_sequence: 1, agent_received_at: Time.current, server_received_at: Time.current, completion_reason: "eoe", evidence_digest: "digest", checkpoint_invalidated_fields: mask)
-    denial = raw.normalized_denials.create!(status: "ok", normalization_version: 1, ordinal: 0, source_type: source, details: {"permissive" => local, "enforcement_mode" => local ? "permissive" : "enforcing"})
+    denial = raw.normalized_denials.create!(status: "ok", normalization_version: 1, ordinal: 0, source_type: source, details: { "permissive" => local, "enforcement_mode" => local ? "permissive" : "enforcing" })
     host.occurrences.create!(organization: organization, raw_event: raw, normalized_denial: denial, host_snapshot: snapshot, occurred_at: raw.audit_timestamp)
   end
 
@@ -45,7 +45,7 @@ RSpec.describe PolicyPermissiveDomains do
 
   it "enqueues legacy/new artifacts once and serializes concurrent analysis, then reuses results" do
     policy = artifact
-    allow(PolicyPermissiveDomainAnalyzer).to receive(:call).and_return({"status" => "observed", "domains" => ["postgresql_t"]})
+    allow(PolicyPermissiveDomainAnalyzer).to receive(:call).and_return({ "status" => "observed", "domains" => ["postgresql_t"] })
     expect { 2.times { described_class.lookup(policy.policy_identity) } }.not_to have_enqueued_job(AnalyzePolicyPermissiveDomainsJob)
     2.times.map { Thread.new { AnalyzePolicyPermissiveDomainsJob.perform_now(policy.id) } }.each(&:value)
     expect(PolicyPermissiveDomainAnalyzer).to have_received(:call).once
