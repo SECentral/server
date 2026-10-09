@@ -4,6 +4,79 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});
 };
 
+export type CatalogUploadError = {
+    error: {
+        code: 'invalid_artifact' | 'malformed_json' | 'empty_upload' | 'upload_too_large' | 'invalid_encoding' | 'invalid_upload_media_type' | 'invalid_upload' | 'unsupported_schema' | 'unsupported_collector_semantics' | 'digest_mismatch' | 'invalid_identity' | 'invalid_provenance' | 'invalid_boolean_family' | 'invalid_port_family' | 'invalid_display_name' | 'loaded_policy_conflict' | 'invalid_preview' | 'preview_bytes_changed' | 'invalid_csrf_token';
+        message: string;
+        path?: string | null;
+    };
+};
+
+export type CatalogImportRevision = {
+    id: number;
+    content_digest: string;
+    loaded_policy_digest?: string;
+    display_name: string;
+    lifecycle: 'active' | 'archived';
+};
+
+export type CatalogImportPreviewResponse = {
+    preview: CatalogImportPreview;
+};
+
+export type CatalogImportPreview = {
+    validation_status: 'valid';
+    supported: true;
+    schema_version: number;
+    collector_semantics_version: number;
+    content_digest: string;
+    loaded_policy_digest: string;
+    platform: {
+        distribution: string;
+        major_version: string;
+        architecture: string;
+    };
+    policy_type: string;
+    policy_packages: Array<{
+        [key: string]: string;
+    }>;
+    /**
+     * Submitted acquisition claims only; no review/trust certification.
+     */
+    acquisition: {
+        collected_at: string;
+        collector_version: string;
+    };
+    families: {
+        booleans: CatalogImportFamily;
+        ports: CatalogImportFamily & {
+            protocols: Array<'tcp' | 'udp' | 'sctp' | 'dccp'>;
+        };
+    };
+    display_name: string;
+    outcome: 'create_new_revision' | 'reuse_existing_revision' | 'conflict';
+    reason: string;
+    existing_revision: CatalogImportRevision | null;
+    preview_token: string | null;
+    expires_at: string | null;
+};
+
+export type CatalogImportFamily = {
+    status: 'complete';
+    count: number;
+};
+
+export type CatalogImportConfirmation = {
+    outcome: 'create_new_revision' | 'reuse_existing_revision';
+    catalog: CatalogImportRevision;
+    catalog_import: {
+        id: number;
+        imported_at: string;
+        imported_by: string;
+        source_kind: 'operator_upload';
+    };
+};
+
 export type IngestionEnvelope = {
     schema_version: 4;
     agent: {
@@ -860,6 +933,8 @@ export type HostConfigurationResponse = {
 export type CatalogImport = {
     id: number;
     source_path?: string | null;
+    source_kind?: 'unspecified' | 'administrative_cli' | 'operator_upload';
+    imported_by?: string | null;
     acquisition_metadata: {
         [key: string]: unknown;
     };
@@ -1583,6 +1658,11 @@ export type IssueAnalysisResponse = {
 };
 
 export type IssueId = number;
+
+/**
+ * Exact UTF-8 JSON artifact bytes, 1–2097152 bytes.
+ */
+export type CatalogUpload = Blob | File;
 
 export type IngestEventsData = {
     body: IngestionEnvelope;
@@ -2414,6 +2494,96 @@ export type ListCatalogsResponses = {
 };
 
 export type ListCatalogsResponse = ListCatalogsResponses[keyof ListCatalogsResponses];
+
+export type PreviewCatalogImportData = {
+    body: CatalogUpload;
+    path?: never;
+    query?: {
+        /**
+         * Optional initial name for a new revision; never renames a duplicate. Trimmed, 1–120 characters, no control characters.
+         */
+        display_name?: string;
+    };
+    url: '/api/v1/catalogs/import-preview';
+};
+
+export type PreviewCatalogImportErrors = {
+    /**
+     * Unauthenticated
+     */
+    401: Error;
+    /**
+     * Bounded upload, validation, preview, conflict or CSRF error; messages never include parser snippets or temporary paths
+     */
+    413: CatalogUploadError;
+    /**
+     * Bounded upload, validation, preview, conflict or CSRF error; messages never include parser snippets or temporary paths
+     */
+    415: CatalogUploadError;
+    /**
+     * Bounded upload, validation, preview, conflict or CSRF error; messages never include parser snippets or temporary paths
+     */
+    422: CatalogUploadError;
+};
+
+export type PreviewCatalogImportError = PreviewCatalogImportErrors[keyof PreviewCatalogImportErrors];
+
+export type PreviewCatalogImportResponses = {
+    /**
+     * Valid artifact with create/reuse/conflict preview; conflicts have no confirmation receipt
+     */
+    200: CatalogImportPreviewResponse;
+};
+
+export type PreviewCatalogImportResponse = PreviewCatalogImportResponses[keyof PreviewCatalogImportResponses];
+
+export type ConfirmCatalogImportData = {
+    body: CatalogUpload;
+    headers: {
+        'X-Catalog-Preview': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/catalogs/import-confirm';
+};
+
+export type ConfirmCatalogImportErrors = {
+    /**
+     * Unauthenticated
+     */
+    401: Error;
+    /**
+     * Bounded upload, validation, preview, conflict or CSRF error; messages never include parser snippets or temporary paths
+     */
+    409: CatalogUploadError;
+    /**
+     * Bounded upload, validation, preview, conflict or CSRF error; messages never include parser snippets or temporary paths
+     */
+    413: CatalogUploadError;
+    /**
+     * Bounded upload, validation, preview, conflict or CSRF error; messages never include parser snippets or temporary paths
+     */
+    415: CatalogUploadError;
+    /**
+     * Bounded upload, validation, preview, conflict or CSRF error; messages never include parser snippets or temporary paths
+     */
+    422: CatalogUploadError;
+};
+
+export type ConfirmCatalogImportError = ConfirmCatalogImportErrors[keyof ConfirmCatalogImportErrors];
+
+export type ConfirmCatalogImportResponses = {
+    /**
+     * Reused immutable revision and appended import evidence
+     */
+    200: CatalogImportConfirmation;
+    /**
+     * Created immutable revision and import evidence
+     */
+    201: CatalogImportConfirmation;
+};
+
+export type ConfirmCatalogImportResponse = ConfirmCatalogImportResponses[keyof ConfirmCatalogImportResponses];
 
 export type GetCatalogData = {
     body?: never;

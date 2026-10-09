@@ -46,7 +46,7 @@ function jsonResponse(status: number, body: unknown): Response {
   } as unknown as Response;
 }
 
-function renderCatalogDetail(fetchBody: unknown = detailPayload, status = 200, initialEntry = "/catalogs/7") {
+function renderCatalogDetail(fetchBody: unknown = detailPayload, status = 200, initialEntry: string | { pathname: string; state: { catalogImportOutcome: string } } = "/catalogs/7") {
   const fetchMock = vi.fn();
   fetchMock.mockImplementation(() => Promise.resolve(jsonResponse(status, fetchBody)));
   vi.stubGlobal("fetch", fetchMock);
@@ -147,5 +147,13 @@ describe("CatalogDetail", () => {
     expect(screen.getByText("Invalid display name")).toBeInTheDocument();
     expect(screen.getByText("AlmaLinux 9 SELinux policy")).toBeInTheDocument();
     expect(screen.getByText("Active", { exact: true })).toBeInTheDocument();
+  });
+
+  it("explains reuse after import and displays neutral upload provenance on an archived revision", async () => {
+    const data = { catalog: { ...detailPayload.catalog, lifecycle: "archived", imports: [{ ...detailPayload.catalog.imports[0], source_path: null, source_kind: "operator_upload", imported_by: "operator" }] } };
+    renderCatalogDetail(data, 200, { pathname: "/catalogs/7", state: { catalogImportOutcome: "reuse_existing_revision" } });
+    expect(await screen.findByText("Existing revision reused; import evidence appended")).toBeInTheDocument();
+    expect(screen.getByText(/This revision remains archived. Import did not change/)).toBeInTheDocument();
+    expect(screen.getByText(/Operator upload · Imported by operator/)).toBeInTheDocument();
   });
 });

@@ -41,7 +41,7 @@ namespace :secentral do
 
       result = ImportDistributionCatalog.call(
         artifact: DistributionCatalogArtifact.read(args[:file]),
-        source_path: args[:file]
+        source_path: args[:file], source_kind: "administrative_cli"
       )
       revision = result.revision
       puts "#{result.created ? "Imported" : "Reused"}: #{revision.content_digest} #{revision.loaded_policy_digest} #{revision.distribution} #{revision.major_version} #{revision.policy_type}; booleans=#{revision.distribution_catalog_booleans.count} ports=#{revision.distribution_catalog_ports.count} import=#{result.catalog_import.id}"

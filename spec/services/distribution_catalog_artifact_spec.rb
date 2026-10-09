@@ -35,6 +35,8 @@ RSpec.describe DistributionCatalogArtifact do
 
   {
     "schema" => ->(value) { value["schema_version"] = 2 },
+    "non-integer schema" => ->(value) { value["schema_version"] = 1.0 },
+    "non-integer collector semantics" => ->(value) { value["catalog"]["collector_semantics_version"] = 3.0 },
     "v1 semantics" => ->(value) { value.dig("catalog")["collector_semantics_version"] = 1 },
     "v2 semantics" => ->(value) { value.dig("catalog")["collector_semantics_version"] = 2 },
     "digest" => ->(value) { value["content_digest"] = "sha256:" + "0" * 64 },

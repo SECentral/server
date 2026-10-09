@@ -39,6 +39,8 @@ Rails.application.routes.draw do
       get "hosts/:id/configuration", to: "host_configurations#show"
       get "configuration", to: "configurations#show"
       get "catalogs", to: "catalogs#index"
+      post "catalogs/import-preview", to: "catalog_imports#preview"
+      post "catalogs/import-confirm", to: "catalog_imports#confirm"
       get "catalogs/:id", to: "catalogs#show"
       patch "catalogs/:id/name", to: "catalogs#rename"
       post "catalogs/:id/archive", to: "catalogs#archive"

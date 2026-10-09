@@ -932,6 +932,95 @@ paths:
                 $ref: "#/components/schemas/CatalogListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/v1/catalogs/import-preview:
+    post:
+      operationId: previewCatalogImport
+      summary: Validate uploaded catalog and preview import without persistence
+      description: |
+        Accepts exact UTF-8 JSON artifact bytes as application/octet-stream, never
+        a reconstructed JSON object or multipart upload. Maximum 2 MiB, JSON
+        nesting 32, 20,000 entries per required Boolean/port family, 256 packages.
+        Filename/client MIME cannot establish authority. Shared CLI/import validation
+        applies. Invalid/missing/incomplete families return errors, not zero counts.
+        Validity does not establish vendor/SECentral review or trusted provenance.
+        No revisions, imports, management records or upload blobs are persisted.
+        A session-bound signed receipt expires after 10 minutes; confirmation must
+        re-upload exactly these bytes. Preview never reserves database state.
+      security:
+        - session: []
+      parameters:
+        - name: display_name
+          in: query
+          required: false
+          description: Optional initial name for a new revision; never renames a duplicate. Trimmed, 1–120 characters, no control characters.
+          schema:
+            type: string
+            maxLength: 120
+      requestBody:
+        $ref: "#/components/requestBodies/CatalogUpload"
+      responses:
+        "200":
+          description: Valid artifact with create/reuse/conflict preview; conflicts have no confirmation receipt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogImportPreviewResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/CatalogUploadError"
+        "415":
+          $ref: "#/components/responses/CatalogUploadError"
+        "422":
+          $ref: "#/components/responses/CatalogUploadError"
+  /api/v1/catalogs/import-confirm:
+    post:
+      operationId: confirmCatalogImport
+      summary: Explicitly confirm the exact previewed artifact
+      description: |
+        Re-upload the exact artifact bytes and session-bound preview receipt.
+        Revalidates through the shared validator and transactional importer;
+        database state can change create into reuse or a conflict. New revisions
+        start active with the initial name. Duplicates append exact-byte import
+        evidence only, preserving current name/lifecycle and management audit.
+        Retry/concurrent identical confirmation yields one semantic revision and
+        one import-evidence record per successful attempt. Receipt is reusable
+        within its expiry, not an idempotency key. No server-side preview blob.
+        No query parameters, upload source paths or preference changes accepted.
+      security:
+        - session: []
+      parameters:
+        - name: X-Catalog-Preview
+          in: header
+          required: true
+          schema:
+            type: string
+            maxLength: 2048
+      requestBody:
+        $ref: "#/components/requestBodies/CatalogUpload"
+      responses:
+        "201":
+          description: Created immutable revision and import evidence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogImportConfirmation"
+        "200":
+          description: Reused immutable revision and appended import evidence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogImportConfirmation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/CatalogUploadError"
+        "413":
+          $ref: "#/components/responses/CatalogUploadError"
+        "415":
+          $ref: "#/components/responses/CatalogUploadError"
+        "422":
+          $ref: "#/components/responses/CatalogUploadError"
   /api/v1/catalogs/{id}:
     get:
       operationId: getCatalog
@@ -1161,6 +1250,15 @@ paths:
           $ref: "#/components/responses/UnprocessableEntity"
 
 components:
+  requestBodies:
+    CatalogUpload:
+      required: true
+      content:
+        application/octet-stream:
+          schema:
+            type: string
+            format: binary
+            description: Exact UTF-8 JSON artifact bytes, 1–2097152 bytes.
   parameters:
     IssueId:
       name: id
@@ -1190,6 +1288,12 @@ components:
         it in this request header on mutating requests. Transport metadata,
         not application data.
   responses:
+    CatalogUploadError:
+      description: Bounded upload, validation, preview, conflict or CSRF error; messages never include parser snippets or temporary paths
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/CatalogUploadError"
     Unauthorized:
       description: Unauthenticated
       content:
@@ -1209,6 +1313,154 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
   schemas:
+    CatalogUploadError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [invalid_artifact, malformed_json, empty_upload, upload_too_large, invalid_encoding, invalid_upload_media_type, invalid_upload, unsupported_schema, unsupported_collector_semantics, digest_mismatch, invalid_identity, invalid_provenance, invalid_boolean_family, invalid_port_family, invalid_display_name, loaded_policy_conflict, invalid_preview, preview_bytes_changed, invalid_csrf_token]
+            message:
+              type: string
+            path:
+              type: [string, "null"]
+    CatalogImportRevision:
+      type: object
+      required: [id, content_digest, display_name, lifecycle]
+      properties:
+        id:
+          type: integer
+        content_digest:
+          type: string
+        loaded_policy_digest:
+          type: string
+        display_name:
+          type: string
+        lifecycle:
+          type: string
+          enum: [active, archived]
+    CatalogImportPreviewResponse:
+      type: object
+      required: [preview]
+      properties:
+        preview:
+          $ref: "#/components/schemas/CatalogImportPreview"
+    CatalogImportPreview:
+      type: object
+      required: [validation_status, supported, schema_version, collector_semantics_version, content_digest, loaded_policy_digest, platform, policy_type, policy_packages, acquisition, families, display_name, outcome, reason, existing_revision, preview_token, expires_at]
+      properties:
+        validation_status:
+          type: string
+          const: valid
+        supported:
+          type: boolean
+          const: true
+        schema_version:
+          type: integer
+        collector_semantics_version:
+          type: integer
+        content_digest:
+          type: string
+        loaded_policy_digest:
+          type: string
+        platform:
+          type: object
+          required: [distribution, major_version, architecture]
+          properties:
+            distribution:
+              type: string
+            major_version:
+              type: string
+            architecture:
+              type: string
+        policy_type:
+          type: string
+        policy_packages:
+          type: array
+          items:
+            type: object
+            additionalProperties:
+              type: string
+        acquisition:
+          type: object
+          required: [collected_at, collector_version]
+          description: Submitted acquisition claims only; no review/trust certification.
+          properties:
+            collected_at:
+              type: string
+            collector_version:
+              type: string
+        families:
+          type: object
+          required: [booleans, ports]
+          properties:
+            booleans:
+              $ref: "#/components/schemas/CatalogImportFamily"
+            ports:
+              allOf:
+                - $ref: "#/components/schemas/CatalogImportFamily"
+                - type: object
+                  required: [protocols]
+                  properties:
+                    protocols:
+                      type: array
+                      items:
+                        type: string
+                        enum: [tcp, udp, sctp, dccp]
+        display_name:
+          type: string
+        outcome:
+          type: string
+          enum: [create_new_revision, reuse_existing_revision, conflict]
+        reason:
+          type: string
+        existing_revision:
+          oneOf:
+            - $ref: "#/components/schemas/CatalogImportRevision"
+            - type: "null"
+        preview_token:
+          type: [string, "null"]
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+    CatalogImportFamily:
+      type: object
+      required: [status, count]
+      properties:
+        status:
+          type: string
+          const: complete
+        count:
+          type: integer
+          minimum: 0
+          maximum: 20000
+    CatalogImportConfirmation:
+      type: object
+      required: [outcome, catalog, catalog_import]
+      properties:
+        outcome:
+          type: string
+          enum: [create_new_revision, reuse_existing_revision]
+        catalog:
+          $ref: "#/components/schemas/CatalogImportRevision"
+        catalog_import:
+          type: object
+          required: [id, imported_at, imported_by, source_kind]
+          properties:
+            id:
+              type: integer
+            imported_at:
+              type: string
+              format: date-time
+            imported_by:
+              type: string
+            source_kind:
+              type: string
+              const: operator_upload
     IngestionEnvelope:
       type: object
       required: [schema_version, agent, host_id, boot_id, events]
@@ -2795,6 +3047,11 @@ components:
         id:
           type: integer
         source_path:
+          type: [string, "null"]
+        source_kind:
+          type: string
+          enum: [unspecified, administrative_cli, operator_upload]
+        imported_by:
           type: [string, "null"]
         acquisition_metadata:
           type: object

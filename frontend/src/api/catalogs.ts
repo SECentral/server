@@ -5,6 +5,8 @@ export type Catalog = Types.Catalog;
 export type CatalogDetail = Types.CatalogDetail;
 export type CatalogListResponse = Types.CatalogListResponse;
 export type CatalogDetailResponse = Types.CatalogDetailResponse;
+export type CatalogImportPreviewResponse = Types.CatalogImportPreviewResponse;
+export type CatalogImportConfirmation = Types.CatalogImportConfirmation;
 
 export function fetchCatalogs(): Promise<CatalogListResponse> {
   return apiFetch<CatalogListResponse>("/api/v1/catalogs");
@@ -20,4 +22,13 @@ export function renameCatalog(id: number, displayName: string): Promise<CatalogD
 
 export function setCatalogArchived(id: number, archived: boolean): Promise<CatalogDetailResponse> {
   return apiFetch<CatalogDetailResponse>(`/api/v1/catalogs/${id}/${archived ? "archive" : "unarchive"}`, { method: "POST" });
+}
+
+export function previewCatalogImport(file: File, displayName?: string): Promise<CatalogImportPreviewResponse> {
+  const query = displayName === undefined ? "" : `?display_name=${encodeURIComponent(displayName)}`;
+  return apiFetch<CatalogImportPreviewResponse>(`/api/v1/catalogs/import-preview${query}`, { method: "POST", rawBody: file });
+}
+
+export function confirmCatalogImport(file: File, token: string): Promise<CatalogImportConfirmation> {
+  return apiFetch<CatalogImportConfirmation>("/api/v1/catalogs/import-confirm", { method: "POST", rawBody: file, headers: { "X-Catalog-Preview": token } });
 }

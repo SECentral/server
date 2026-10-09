@@ -138,4 +138,56 @@ RSpec.describe ImportDistributionCatalog do
     expect(DistributionCatalogReference.for_snapshot(event.host_snapshot).boolean_catalog.fetch("content_digest")).to eq(revision.content_digest)
     expect(DistributionCatalogRevision.for_snapshot(unmatched)).to be_nil
   end
+
+  it "shares preview/import classification with CLI artifacts without persistence" do
+    raw = File.binread(Rails.root.join("spec/fixtures/catalogs/v3.json"))
+    before_counts = [DistributionCatalogRevision, DistributionCatalogImport, CatalogManagement].map(&:count)
+    preview = described_class.preview(artifact: DistributionCatalogArtifact.new(raw), display_name: "Initial label")
+    expect(preview.outcome).to eq("create_new_revision")
+    expect([DistributionCatalogRevision, DistributionCatalogImport, CatalogManagement].map(&:count)).to eq(before_counts)
+    result = described_class.call(artifact: DistributionCatalogArtifact.new(raw), display_name: "Initial label")
+    expect(result.revision.content_digest).to eq(preview.artifact.content_digest)
+    expect(result.revision.display_name).to eq(preview.display_name)
+    expect(result.catalog_import.artifact).to eq(raw)
+    expect(described_class.preview(artifact: DistributionCatalogArtifact.new(raw)).outcome).to eq("reuse_existing_revision")
+  end
+
+  it "rolls back if new management initialization fails" do
+    allow_any_instance_of(DistributionCatalogRevision).to receive(:create_catalog_management!).and_raise("management failed")
+    expect { described_class.call(artifact: catalog_artifact) }.to raise_error("management failed")
+    expect([DistributionCatalogRevision, DistributionCatalogBoolean, DistributionCatalogPort, DistributionCatalogImport, CatalogManagement, CatalogManagementChange].map(&:count)).to eq([0, 0, 0, 0, 0, 0])
+  end
+
+  it "rolls back revision, families and management if import evidence cannot persist" do
+    expect { described_class.call(artifact: catalog_artifact, source_kind: "invalid") }.to raise_error(ActiveRecord::RecordInvalid)
+    expect([DistributionCatalogRevision, DistributionCatalogBoolean, DistributionCatalogPort, DistributionCatalogImport, CatalogManagement, CatalogManagementChange].map(&:count)).to eq([0, 0, 0, 0, 0, 0])
+  end
+
+  it "resolves simultaneous identical imports through shared deduplication after a uniqueness race" do
+    ready = Queue.new
+    start = Queue.new
+    allow(DistributionCatalogRevision).to receive(:create!).and_wrap_original do |method, *args|
+      ready << true
+      start.pop
+      method.call(*args)
+    end
+    raw = catalog_artifact.artifact
+    threads = 2.times.map do
+      Thread.new do
+        ActiveRecord::Base.connection_pool.with_connection do
+          described_class.call(artifact: DistributionCatalogArtifact.new(raw), source_kind: "operator_upload", imported_by: "operator")
+        end
+      end
+    end
+    2.times { ready.pop }
+    2.times { start << true }
+    results = threads.map(&:value)
+    expect(results.map(&:created)).to contain_exactly(true, false)
+    expect(results.map { |result| result.revision.id }.uniq.size).to eq(1)
+    expect([DistributionCatalogRevision, CatalogManagement, DistributionCatalogImport].map(&:count)).to eq([1, 1, 2])
+    expect(DistributionCatalogImport.pluck(:artifact)).to eq([raw.b, raw.b])
+  ensure
+    2.times { start << true } if start
+    threads&.each(&:join)
+  end
 end

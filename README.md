@@ -64,7 +64,9 @@ and resolution intent. Policy drafts can be staged and exported for review.
 
 Catalog names and active/archive lifecycle are managed separately from immutable
 revision content. See [Managing catalogs](docs/catalog-lifecycle.md)
-for renaming, archiving, reference selection and API usage.
+for validated upload/preview/confirmation, renaming, archiving, automatic
+reference selection and API usage. CLI and browser imports share validation and
+immutable revision semantics; reimport preserves existing names/archive state.
 
 Human-facing access uses one configured operator account. User management,
 RBAC, OIDC, and tenant authorization are not currently provided.

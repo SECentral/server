@@ -13,7 +13,8 @@ class DistributionCatalogRevision < ApplicationRecord
 
   before_update { raise ActiveRecord::ReadOnlyRecord, self }
   before_destroy { raise ActiveRecord::ReadOnlyRecord, self }
-  after_create { create_catalog_management!(display_name: default_display_name) }
+  attr_accessor :initial_display_name
+  after_create { create_catalog_management!(display_name: initial_display_name || default_display_name) }
 
   def self.for_snapshot(snapshot)
     identity = snapshot&.details&.dig("selinux", "policy_identity")

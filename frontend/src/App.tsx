@@ -3,6 +3,7 @@ import { PageSection, Spinner } from "@patternfly/react-core";
 import { AppShell } from "./components/AppShell";
 import { useSession } from "./hooks/useSession";
 import { CatalogDetail } from "./pages/CatalogDetail";
+import { CatalogImport } from "./pages/CatalogImport";
 import { Catalogs } from "./pages/Catalogs";
 import { Configuration } from "./pages/Configuration";
 import { HostConfiguration } from "./pages/HostConfiguration";
@@ -47,6 +48,7 @@ export function App() {
         <Route path="/issues/:id" element={<IssueDetail />} />
         <Route path="/configuration" element={<Configuration />} />
         <Route path="/catalogs" element={<Catalogs />} />
+        <Route path="/catalogs/import" element={<CatalogImport />} />
         <Route path="/catalogs/:id" element={<CatalogDetail />} />
         <Route path="*" element={<Placeholder />} />
       </Routes>

@@ -25,15 +25,18 @@ function captureCsrfToken(token: string | null): void {
 export interface ApiFetchOptions {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
   body?: unknown;
+  rawBody?: Blob;
+  headers?: Record<string, string>;
 }
 
 export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
   const method = options.method ?? "GET";
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...options.headers };
 
   if (options.body !== undefined) {
     headers["Content-Type"] = "application/json";
   }
+  if (options.rawBody) headers["Content-Type"] = "application/octet-stream";
   if (method !== "GET" && csrfToken !== null) {
     headers["X-CSRF-Token"] = csrfToken;
   }
@@ -41,7 +44,7 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
   const response = await fetch(path, {
     method,
     headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    body: options.rawBody ?? (options.body !== undefined ? JSON.stringify(options.body) : undefined),
     credentials: "same-origin"
   });
 

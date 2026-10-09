@@ -21,6 +21,7 @@ export function Catalogs() {
       <header className="app-resource-header">
         <Title headingLevel="h1" size="2xl" className="pf-v6-u-mt-0">Distribution catalogs</Title>
         <p className="pf-v6-u-color-200">Imported distribution-format references. Import does not establish vendor review. Archived revisions remain inspectable but are excluded from new automatic selection.</p>
+        <Link className="pf-v6-c-button pf-m-primary" to="/catalogs/import">Import catalog</Link>
       </header>
 
       {catalogsQuery.isPending ? (

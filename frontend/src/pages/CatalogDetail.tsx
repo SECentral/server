@@ -18,7 +18,7 @@ import {
 } from "@patternfly/react-core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { fetchCatalog, renameCatalog, setCatalogArchived, type CatalogDetail as CatalogData } from "../api/catalogs";
 
 function CatalogManagement({ catalog }: { catalog: CatalogData }) {
@@ -72,6 +72,7 @@ function utcTimestamp(iso: string): string {
 }
 
 export function CatalogDetail() {
+  const location = useLocation();
   const { id } = useParams();
   const catalogQuery = useQuery({
     queryKey: ["catalog", id],
@@ -104,6 +105,9 @@ export function CatalogDetail() {
             {catalog.display_name} SELinux policy
           </Title>
            <p className="pf-v6-u-color-200">Imported reference knowledge, not observed host state.</p>
+           {location.state?.catalogImportOutcome && <Alert isInline variant="success" title={location.state.catalogImportOutcome === "reuse_existing_revision" ? "Existing revision reused; import evidence appended" : "Catalog revision imported"} className="pf-v6-u-mb-md">
+             {catalog.lifecycle === "archived" ? "This revision remains archived. Import did not change its name or availability." : "The revision is active under existing automatic applicability rules."}
+           </Alert>}
 
            <CatalogManagement key={catalog.id} catalog={catalog} />
            {catalog.lifecycle === "archived" && <Alert isInline variant="info" title="Archived reference" className="pf-v6-u-mb-md">This revision remains inspectable. It is unavailable for new automatic comparisons; archive does not invalidate historical evidence.</Alert>}
@@ -142,7 +146,8 @@ export function CatalogDetail() {
                 ))}
                 {catalog.imports.map((import_) => (
                   <DescriptionListDescription key={import_.id}>
-                    {import_.source_path ?? "No source path recorded"}
+                     {import_.source_kind === "operator_upload" ? "Operator upload" : import_.source_path ?? "No source recorded"}
+                     {import_.imported_by && ` · Imported by ${import_.imported_by}`}
                     {import_.acquisition_metadata && Object.keys(import_.acquisition_metadata).length > 0 && (
                       <> · {JSON.stringify(import_.acquisition_metadata)}</>
                     )}

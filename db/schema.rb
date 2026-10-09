@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_09_000001) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_09_000002) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -66,9 +66,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_09_000001) do
     t.binary "artifact", null: false
     t.datetime "created_at", null: false
     t.bigint "distribution_catalog_revision_id", null: false
+    t.string "imported_by"
+    t.string "source_kind", default: "unspecified", null: false
     t.string "source_path"
     t.datetime "updated_at", null: false
     t.index ["distribution_catalog_revision_id"], name: "idx_on_distribution_catalog_revision_id_fd9fa95ad5"
+    t.check_constraint "source_kind::text = ANY (ARRAY['unspecified'::character varying, 'administrative_cli'::character varying, 'operator_upload'::character varying]::text[])", name: "catalog_import_source_kind"
   end
 
   create_table "distribution_catalog_ports", force: :cascade do |t|
