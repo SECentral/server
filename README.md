@@ -62,6 +62,10 @@ evidence, normalizes and groups occurrences into issues, and exposes operator
 views for issues, hosts, SELinux activity, configuration, catalogs, analysis,
 and resolution intent. Policy drafts can be staged and exported for review.
 
+Catalog names and active/archive lifecycle are managed separately from immutable
+revision content. See [Managing catalogs](docs/catalog-lifecycle.md)
+for renaming, archiving, reference selection and API usage.
+
 Human-facing access uses one configured operator account. User management,
 RBAC, OIDC, and tenant authorization are not currently provided.
 

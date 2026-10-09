@@ -2,18 +2,61 @@ import {
   Alert,
   Breadcrumb,
   BreadcrumbItem,
+  Button,
   Card,
   CardBody,
   CardTitle,
   DescriptionList,
   DescriptionListDescription,
   DescriptionListTerm,
+  Form,
+  FormGroup,
+  Label,
   Spinner,
+  TextInput,
   Title
 } from "@patternfly/react-core";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { fetchCatalog } from "../api/catalogs";
+import { fetchCatalog, renameCatalog, setCatalogArchived, type CatalogDetail as CatalogData } from "../api/catalogs";
+
+function CatalogManagement({ catalog }: { catalog: CatalogData }) {
+  const [name, setName] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: (action: "rename" | "archive" | "unarchive") => action === "rename"
+      ? renameCatalog(catalog.id, name ?? catalog.display_name)
+      : setCatalogArchived(catalog.id, action === "archive"),
+    onSuccess: async (result) => {
+      queryClient.setQueryData(["catalog", String(catalog.id)], result);
+      setName(null);
+      await Promise.all(["catalogs", "configuration", "host-configuration"].map((key) => queryClient.invalidateQueries({ queryKey: [key] })));
+    }
+  });
+
+  return (
+    <Card className="pf-v6-u-mb-md">
+      <CardTitle>Catalog management <Label color={catalog.lifecycle === "archived" ? "grey" : "green"}>{catalog.lifecycle === "archived" ? "Archived" : "Active"}</Label></CardTitle>
+      <CardBody>
+        <p>Names are presentation labels, not evidence of vendor origin. Archiving retains this revision and its evidence but excludes it from new automatic selection.</p>
+        {mutation.isError && <Alert isInline variant="danger" title="Could not update catalog">{mutation.error.message}</Alert>}
+        {mutation.isSuccess && <Alert isInline variant="success" title="Catalog management updated" />}
+        <Form onSubmit={(event) => { event.preventDefault(); mutation.mutate("rename"); }} className="pf-v6-u-mt-md">
+          <FormGroup label="Display name" fieldId="catalog-display-name" isRequired>
+            <TextInput id="catalog-display-name" value={name ?? catalog.display_name} onChange={(_event, value) => setName(value)} maxLength={120} isRequired isDisabled={mutation.isPending} />
+          </FormGroup>
+          <div>
+            <Button type="submit" isDisabled={mutation.isPending || name === null || !name.trim()} className="pf-v6-u-mr-sm">Save name</Button>
+            <Button variant="secondary" isDisabled={mutation.isPending} onClick={() => mutation.mutate(catalog.lifecycle === "archived" ? "unarchive" : "archive")}>
+              {catalog.lifecycle === "archived" ? "Unarchive" : "Archive"}
+            </Button>
+          </div>
+        </Form>
+      </CardBody>
+    </Card>
+  );
+}
 
 function policyPackageLabel(packages: { [key: string]: unknown }[]): string {
   const package_ = packages[0] as Record<string, unknown> | undefined;
@@ -60,12 +103,20 @@ export function CatalogDetail() {
           <Title headingLevel="h1" size="2xl" className="pf-v6-u-mt-0">
             {catalog.display_name} SELinux policy
           </Title>
-          <p className="pf-v6-u-color-200">Imported reference knowledge, not observed host state.</p>
+           <p className="pf-v6-u-color-200">Imported reference knowledge, not observed host state.</p>
+
+           <CatalogManagement key={catalog.id} catalog={catalog} />
+           {catalog.lifecycle === "archived" && <Alert isInline variant="info" title="Archived reference" className="pf-v6-u-mb-md">This revision remains inspectable. It is unavailable for new automatic comparisons; archive does not invalidate historical evidence.</Alert>}
 
           <Card className="pf-v6-u-mb-md">
-            <CardTitle>Identity and provenance</CardTitle>
-            <CardBody>
-              <DescriptionList>
+             <CardTitle>Identity and provenance</CardTitle>
+             <CardBody>
+               <p>Acquisition metadata is submitted evidence. Import and a valid digest do not establish review, trusted publisher identity or certified vendor origin.</p>
+               <DescriptionList>
+                 <DescriptionListTerm>Immutable revision ID</DescriptionListTerm>
+                 <DescriptionListDescription>{catalog.id}</DescriptionListDescription>
+                 <DescriptionListTerm>Distribution provenance</DescriptionListTerm>
+                 <DescriptionListDescription>{catalog.distribution} {catalog.major_version} (schema 1/V3 distribution format; review not established by import)</DescriptionListDescription>
                 <DescriptionListTerm>Policy</DescriptionListTerm>
                 <DescriptionListDescription>
                   {catalog.policy_type} / {catalog.architecture} · kernel policy {catalog.kernel_policy_version}
@@ -102,7 +153,7 @@ export function CatalogDetail() {
             </CardBody>
           </Card>
 
-          <div style={{ display: "flex", gap: "var(--pf-v6-global--spacer--sm)" }} className="pf-v6-u-mb-md">
+           {catalog.lifecycle === "active" && <div style={{ display: "flex", gap: "var(--pf-v6-global--spacer--sm)" }} className="pf-v6-u-mb-md">
             <Link
               className="pf-v6-c-button pf-m-secondary"
               to={`/configuration?family=booleans&policy_identity=${encodeURIComponent(catalog.loaded_policy_digest)}`}
@@ -115,7 +166,7 @@ export function CatalogDetail() {
             >
               Compare ports in configuration
             </Link>
-          </div>
+           </div>}
 
           <Card className="pf-v6-u-mb-md">
             <CardTitle>Booleans ({catalog.booleans.length})</CardTitle>

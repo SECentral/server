@@ -50,6 +50,7 @@ RSpec.describe "Catalogs API", type: :request do
     expect(entry).to include(
       "id" => revision.id,
       "display_name" => "AlmaLinux 9",
+      "lifecycle" => "active",
       "distribution" => "almalinux",
       "major_version" => "9",
       "architecture" => "x86_64",
@@ -96,5 +97,91 @@ RSpec.describe "Catalogs API", type: :request do
     get "/api/v1/catalogs/999999"
 
     expect(response).to have_http_status(:not_found)
+  end
+
+  it "authenticates management operations and enforces CSRF protection" do
+    sign_out_operator
+    revision = catalog
+    patch "/api/v1/catalogs/#{revision.id}/name", params: { display_name: "Name" }, as: :json
+    expect(response).to have_http_status(:unauthorized)
+    post "/api/v1/catalogs/#{revision.id}/archive"
+    expect(response).to have_http_status(:unauthorized)
+    post "/api/v1/catalogs/#{revision.id}/unarchive"
+    expect(response).to have_http_status(:unauthorized)
+
+    original = Api::V1::BaseController.config.allow_forgery_protection
+    Api::V1::BaseController.config.allow_forgery_protection = true
+    get "/api/v1/sessions"
+    token = response.headers["X-CSRF-Token"]
+    post "/api/v1/sessions", params: { username: "test-admin", password: "test-password" }, headers: { "X-CSRF-Token" => token }, as: :json
+    token = response.headers["X-CSRF-Token"]
+    post "/api/v1/catalogs/#{revision.id}/archive"
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(JSON.parse(response.body).dig("error", "code")).to eq("invalid_csrf_token")
+    post "/api/v1/catalogs/#{revision.id}/archive", headers: { "X-CSRF-Token" => token }
+    expect(response).to have_http_status(:ok)
+  ensure
+    Api::V1::BaseController.config.allow_forgery_protection = original unless original.nil?
+    sign_out_operator
+  end
+
+  it "renames, archives and unarchives without touching immutable content or import evidence" do
+    sign_in_operator
+    result = ImportDistributionCatalog.call(artifact: DistributionCatalogArtifact.read(Rails.root.join("spec/fixtures/catalogs/v3.json")))
+    revision = result.revision
+    original = revision.attributes
+    import = result.catalog_import.attributes
+
+    patch "/api/v1/catalogs/#{revision.id}/name", params: { display_name: "  Organizational-looking name  " }, as: :json
+    expect(response).to have_http_status(:ok)
+    expect(JSON.parse(response.body)["catalog"]).to include("display_name" => "Organizational-looking name", "lifecycle" => "active", "content_digest" => original["content_digest"])
+    get "/api/v1/catalogs"
+    expect(JSON.parse(response.body)["catalogs"].first["display_name"]).to eq("Organizational-looking name")
+
+    2.times { post "/api/v1/catalogs/#{revision.id}/archive" }
+    expect(JSON.parse(response.body)["catalog"]).to include("lifecycle" => "archived", "content_digest" => original["content_digest"])
+    get "/api/v1/catalogs/#{revision.id}"
+    expect(response).to have_http_status(:ok)
+    expect(JSON.parse(response.body).dig("catalog", "imports").size).to eq(1)
+    expect(DistributionCatalogRevision.active).to be_empty
+    get "/api/v1/catalogs"
+    expect(JSON.parse(response.body)["catalogs"].first["lifecycle"]).to eq("archived")
+
+    2.times { post "/api/v1/catalogs/#{revision.id}/unarchive" }
+    expect(JSON.parse(response.body)["catalog"]["lifecycle"]).to eq("active")
+    expect(revision.reload.attributes).to eq(original)
+    expect(result.catalog_import.reload.attributes).to eq(import)
+    expect(revision.catalog_management.catalog_management_changes.count).to eq(3)
+  end
+
+  it "rejects invalid names and all extra/immutable inputs, without offering delete" do
+    sign_in_operator
+    revision = catalog
+    [nil, 42, {}, " ", "a" * 121, "line\nname"].each do |name|
+      patch "/api/v1/catalogs/#{revision.id}/name", params: { display_name: name }, as: :json
+      expect(response).to have_http_status(:unprocessable_content)
+    end
+    %w[content_digest loaded_policy_digest catalog platform families id reference_class lifecycle].each do |key|
+      patch "/api/v1/catalogs/#{revision.id}/name", params: { display_name: "Name", key => "mutated" }, as: :json
+      expect(response).to have_http_status(:unprocessable_content), key
+    end
+    post "/api/v1/catalogs/#{revision.id}/archive", params: { content_digest: "mutated" }, as: :json
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(revision.catalog_management.reload).to have_attributes(display_name: "AlmaLinux 9", lifecycle: "active")
+    expect(Rails.application.routes.routes.none? { |route| route.verb == "DELETE" && route.defaults[:controller] == "api/v1/catalogs" }).to be(true)
+  end
+
+  it "does not introduce per-revision management queries in the list" do
+    sign_in_operator
+    3.times { |i| catalog(content_digest: "sha256:#{i.to_s * 64}", loaded_policy_digest: "sha256:#{(i + 1).to_s * 64}") }
+    queries = []
+    subscriber = ActiveSupport::Notifications.subscribe("sql.active_record") do |*, payload|
+      queries << payload[:sql] if payload[:sql].start_with?("SELECT") && payload[:sql].include?("catalog_managements")
+    end
+    get "/api/v1/catalogs"
+    expect(response).to have_http_status(:ok)
+    expect(queries.size).to eq(1)
+  ensure
+    ActiveSupport::Notifications.unsubscribe(subscriber) if subscriber
   end
 end

@@ -5,11 +5,15 @@ class DistributionCatalogRevision < ApplicationRecord
   has_many :distribution_catalog_booleans, -> { order(:name) }, dependent: :restrict_with_exception
   has_many :distribution_catalog_ports, -> { order(:protocol, :start_port, :end_port, :selinux_type) }, dependent: :restrict_with_exception
   has_many :distribution_catalog_imports, dependent: :restrict_with_exception
+  has_one :catalog_management, dependent: :restrict_with_exception
+
+  scope :active, -> { joins(:catalog_management).where(catalog_managements: { lifecycle: "active" }) }
 
   validates :content_digest, :loaded_policy_digest, presence: true
 
   before_update { raise ActiveRecord::ReadOnlyRecord, self }
   before_destroy { raise ActiveRecord::ReadOnlyRecord, self }
+  after_create { create_catalog_management!(display_name: default_display_name) }
 
   def self.for_snapshot(snapshot)
     identity = snapshot&.details&.dig("selinux", "policy_identity")
@@ -19,7 +23,8 @@ class DistributionCatalogRevision < ApplicationRecord
   end
 
   def self.reference_for_snapshot(snapshot)
-    exact = for_snapshot(snapshot)
+    identity = snapshot&.details&.dig("selinux", "policy_identity")
+    exact = active.find_by(loaded_policy_digest: identity) if identity.to_s.match?(/\Asha256:[0-9a-f]{64}\z/)
     return ReferenceSelection.new(exact, "exact") if exact
 
     details = snapshot&.details || {}
@@ -31,7 +36,7 @@ class DistributionCatalogRevision < ApplicationRecord
     policy_type = selinux["configured_policy_type"].to_s.downcase
     return if [distribution, major_version, architecture, policy_type].any?(&:blank?)
 
-    candidates = where(distribution: distribution, major_version: major_version, policy_type: policy_type).order(:id).includes(:distribution_catalog_booleans, :distribution_catalog_ports).select { |revision| normalize_architecture(revision.architecture) == architecture && revision.booleans_complete? && revision.ports_complete? }
+    candidates = active.where(distribution: distribution, major_version: major_version, policy_type: policy_type).order(:id).includes(:catalog_management, :distribution_catalog_booleans, :distribution_catalog_ports).select { |revision| normalize_architecture(revision.architecture) == architecture && revision.booleans_complete? && revision.ports_complete? }
     families = candidates.group_by(&:reference_family_digest)
     return unless families.one?
 
@@ -47,6 +52,10 @@ class DistributionCatalogRevision < ApplicationRecord
   end
 
   def display_name
+    catalog_management.display_name
+  end
+
+  def default_display_name
     display = { "almalinux" => "AlmaLinux", "rhel" => "RHEL" }.fetch(distribution, distribution.titleize)
     [display, major_version].compact.join(" ")
   end

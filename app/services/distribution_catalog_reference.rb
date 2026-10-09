@@ -7,7 +7,7 @@ class DistributionCatalogReference
   def self.for_policy_identity(policy_identity)
     return unless policy_identity.to_s.match?(/\Asha256:[0-9a-f]{64}\z/)
 
-    from_revision(DistributionCatalogRevision.find_by(loaded_policy_digest: policy_identity))
+    from_revision(DistributionCatalogRevision.active.find_by(loaded_policy_digest: policy_identity))
   end
 
   def self.from_revision(revision, applicability: "exact")

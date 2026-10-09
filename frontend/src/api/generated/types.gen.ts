@@ -869,9 +869,13 @@ export type CatalogImport = {
 export type Catalog = {
     id: number;
     /**
-     * Derived from the structured distribution and major version.
+     * Mutable operator label, initially derived from distribution/major version. Not a unique identity or vendor-origin claim.
      */
     display_name: string;
+    /**
+     * Administrative eligibility for new automatic selection, not content validity or review status.
+     */
+    lifecycle: 'active' | 'archived';
     distribution: string;
     major_version: string;
     architecture: string;
@@ -2441,6 +2445,113 @@ export type GetCatalogResponses = {
 };
 
 export type GetCatalogResponse = GetCatalogResponses[keyof GetCatalogResponses];
+
+export type RenameCatalogData = {
+    body: {
+        display_name: string;
+    };
+    path: {
+        id: number;
+    };
+    query?: never;
+    url: '/api/v1/catalogs/{id}/name';
+};
+
+export type RenameCatalogErrors = {
+    /**
+     * Unauthenticated
+     */
+    401: Error;
+    /**
+     * Not found
+     */
+    404: Error;
+    /**
+     * Validation or forgery-protection failure
+     */
+    422: Error;
+};
+
+export type RenameCatalogError = RenameCatalogErrors[keyof RenameCatalogErrors];
+
+export type RenameCatalogResponses = {
+    /**
+     * Current management state and immutable catalog detail
+     */
+    200: CatalogDetailResponse;
+};
+
+export type RenameCatalogResponse = RenameCatalogResponses[keyof RenameCatalogResponses];
+
+export type ArchiveCatalogData = {
+    body?: never;
+    path: {
+        id: number;
+    };
+    query?: never;
+    url: '/api/v1/catalogs/{id}/archive';
+};
+
+export type ArchiveCatalogErrors = {
+    /**
+     * Unauthenticated
+     */
+    401: Error;
+    /**
+     * Not found
+     */
+    404: Error;
+    /**
+     * Validation or forgery-protection failure
+     */
+    422: Error;
+};
+
+export type ArchiveCatalogError = ArchiveCatalogErrors[keyof ArchiveCatalogErrors];
+
+export type ArchiveCatalogResponses = {
+    /**
+     * Current management state and immutable catalog detail
+     */
+    200: CatalogDetailResponse;
+};
+
+export type ArchiveCatalogResponse = ArchiveCatalogResponses[keyof ArchiveCatalogResponses];
+
+export type UnarchiveCatalogData = {
+    body?: never;
+    path: {
+        id: number;
+    };
+    query?: never;
+    url: '/api/v1/catalogs/{id}/unarchive';
+};
+
+export type UnarchiveCatalogErrors = {
+    /**
+     * Unauthenticated
+     */
+    401: Error;
+    /**
+     * Not found
+     */
+    404: Error;
+    /**
+     * Validation or forgery-protection failure
+     */
+    422: Error;
+};
+
+export type UnarchiveCatalogError = UnarchiveCatalogErrors[keyof UnarchiveCatalogErrors];
+
+export type UnarchiveCatalogResponses = {
+    /**
+     * Current management state and immutable catalog detail
+     */
+    200: CatalogDetailResponse;
+};
+
+export type UnarchiveCatalogResponse = UnarchiveCatalogResponses[keyof UnarchiveCatalogResponses];
 
 export type GetOverviewData = {
     body?: never;

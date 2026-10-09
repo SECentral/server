@@ -66,6 +66,69 @@ RSpec.describe DistributionCatalogReference do
     expect(described_class.for_snapshot(snapshot)).to be_nil
   end
 
+  it "excludes archived exact identities from all new automatic lookup paths but retains pinned revision access" do
+    catalog = revision(identity: identity, digest: "sha256:" + "8" * 64)
+    snapshot = HostSnapshot.new(details: { "selinux" => { "policy_identity" => identity } })
+    retained = described_class.for_snapshot(snapshot).boolean_catalog.deep_dup
+    catalog.catalog_management.change!(display_name: "Renamed", changed_by: "operator")
+    catalog.catalog_management.change!(lifecycle: "archived", changed_by: "operator")
+
+    expect(described_class.for_snapshot(snapshot)).to be_nil
+    expect(described_class.for_policy_identity(identity)).to be_nil
+    expect(BooleanCatalog.for(identity)).to be_nil
+    expect(PortCatalog.for(identity)).to be_nil
+    expect(DistributionCatalogRevision.for_snapshot(snapshot)).to eq(catalog)
+    expect(described_class.from_revision(DistributionCatalogRevision.find(catalog.id)).boolean_catalog).to eq(retained)
+    expect(retained.fetch("content_digest")).to eq(catalog.content_digest)
+
+    catalog.catalog_management.change!(lifecycle: "active", changed_by: "operator")
+    expect(described_class.for_snapshot(snapshot).revision).to eq(catalog)
+  end
+
+  it "removes archived fallback candidates from ambiguity and restores ambiguity on unarchive" do
+    first = revision(identity: identity, digest: "sha256:" + "9" * 64, distribution: "almalinux")
+    second = revision(identity: other_identity, digest: "sha256:" + "0" * 64, distribution: "almalinux", boolean_default: true)
+    snapshot = HostSnapshot.new(details: { "platform" => { "os_id" => "almalinux", "os_version" => "9.3", "architecture" => "x86_64" }, "selinux" => { "policy_identity" => "sha256:" + "c" * 64, "configured_policy_type" => "targeted" } })
+    expect(described_class.for_snapshot(snapshot)).to be_nil
+
+    second.catalog_management.change!(lifecycle: "archived", changed_by: "operator")
+    expect(described_class.for_snapshot(snapshot)).to have_attributes(revision: first, applicability: "major_release")
+    # An archived exact match can still use an eligible active ADR 0010 fallback.
+    snapshot.details["selinux"]["policy_identity"] = other_identity
+    expect(described_class.for_snapshot(snapshot)).to have_attributes(revision: first, applicability: "major_release")
+
+    first.catalog_management.change!(lifecycle: "archived", changed_by: "operator")
+    expect(described_class.for_snapshot(snapshot)).to be_nil
+    first.catalog_management.change!(lifecycle: "active", changed_by: "operator")
+    expect(described_class.for_snapshot(snapshot).revision).to eq(first)
+    snapshot.details["selinux"]["policy_identity"] = "sha256:" + "c" * 64
+    second.catalog_management.change!(lifecycle: "active", changed_by: "operator")
+    expect(described_class.for_snapshot(snapshot)).to be_nil
+  end
+
+  it "reads committed lifecycle state during a concurrent archive" do
+    catalog = revision(identity: identity, digest: "sha256:" + "d" * 64)
+    ready = Queue.new
+    commit = Queue.new
+    thread = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do
+        CatalogManagement.transaction do
+          CatalogManagement.find(catalog.catalog_management.id).change!(lifecycle: "archived", changed_by: "operator")
+          ready << true
+          commit.pop
+        end
+      end
+    end
+    ready.pop
+    expect(described_class.for_policy_identity(identity).revision).to eq(catalog)
+    commit << true
+    thread.value
+    expect(described_class.for_policy_identity(identity)).to be_nil
+  ensure
+    commit << true if commit
+    thread&.join
+  end
+
   it "only returns imported catalog references" do
     expect(BooleanCatalog.for(identity)).to be_nil
     expect(PortCatalog.for(identity)).to be_nil

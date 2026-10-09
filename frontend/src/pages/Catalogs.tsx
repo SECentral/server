@@ -20,7 +20,7 @@ export function Catalogs() {
     <div className="app-resource-page">
       <header className="app-resource-header">
         <Title headingLevel="h1" size="2xl" className="pf-v6-u-mt-0">Distribution catalogs</Title>
-        <p className="pf-v6-u-color-200">Imported distribution references used for policy comparison.</p>
+        <p className="pf-v6-u-color-200">Imported distribution-format references. Import does not establish vendor review. Archived revisions remain inspectable but are excluded from new automatic selection.</p>
       </header>
 
       {catalogsQuery.isPending ? (
@@ -54,8 +54,9 @@ export function Catalogs() {
                 <Tr key={catalog.id}>
                   <Td width={25} dataLabel="Distribution and policy" modifier="wrap">
                     <Link className="catalog-primary-link" to={`/catalogs/${catalog.id}`}>
-                      {catalog.display_name}
-                    </Link>
+                       {catalog.display_name}
+                     </Link>
+                     <div><Label color={catalog.lifecycle === "archived" ? "grey" : "green"} isCompact>{catalog.lifecycle === "archived" ? "Archived" : "Active"}</Label></div>
                     <div className="pf-v6-u-color-200">
                       {catalog.policy_type} · {catalog.architecture} · policy {catalog.kernel_policy_version}
                     </div>
@@ -105,7 +106,7 @@ export function Catalogs() {
                   <Td width={15} dataLabel="Imported">{importedDate(catalog.created_at)}</Td>
                   <Td width={15} dataLabel="Actions" hasAction>
                     <div className="catalog-action">
-                    <Button
+                     {catalog.lifecycle === "active" ? <Button
                       component="a"
                       href={`/configuration?family=booleans&policy_identity=${encodeURIComponent(catalog.loaded_policy_digest)}`}
                       variant="secondary"
@@ -113,7 +114,7 @@ export function Catalogs() {
                       aria-label="Compare in configuration"
                     >
                       Compare
-                    </Button>
+                     </Button> : <Link to={`/catalogs/${catalog.id}`}>View archived reference</Link>}
                     </div>
                   </Td>
                 </Tr>

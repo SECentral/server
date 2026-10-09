@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -11,6 +12,7 @@ const detailPayload: CatalogDetailResponse = {
   catalog: {
     id: 7,
     display_name: "AlmaLinux 9",
+    lifecycle: "active",
     distribution: "almalinux",
     major_version: "9",
     architecture: "x86_64",
@@ -95,5 +97,55 @@ describe("CatalogDetail", () => {
 
     expect(await screen.findByText("Could not load the catalog")).toBeInTheDocument();
     expect(screen.getByText("Resource not found")).toBeInTheDocument();
+  });
+
+  it("renames, archives and unarchives while preserving identity/provenance", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = renderCatalogDetail();
+    await screen.findByText("AlmaLinux 9 SELinux policy");
+    let current = structuredClone(detailPayload);
+    fetchMock.mockImplementation(async (path: string, options: RequestInit) => {
+      if (path.endsWith("/name")) {
+        current = { catalog: { ...current.catalog, display_name: JSON.parse(options.body as string).display_name } };
+      } else if (path.endsWith("/archive")) {
+        current = { catalog: { ...current.catalog, lifecycle: "archived" } };
+      } else if (path.endsWith("/unarchive")) {
+        current = { catalog: { ...current.catalog, lifecycle: "active" } };
+      }
+      return jsonResponse(200, current);
+    });
+    await user.clear(screen.getByRole("textbox", { name: "Display name" }));
+    await user.type(screen.getByRole("textbox", { name: "Display name" }), "Oracle reference");
+    await user.click(screen.getByRole("button", { name: "Save name" }));
+    expect(await screen.findByText("Oracle reference SELinux policy")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/catalogs/7/name", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ display_name: "Oracle reference" }) }));
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+    expect(await screen.findByText("Archived reference")).toBeInTheDocument();
+    expect(screen.getByText("Archived", { exact: true })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Compare booleans in configuration" })).not.toBeInTheDocument();
+    expect(screen.getByText(detailPayload.catalog.content_digest, { selector: "code" })).toBeInTheDocument();
+    expect(screen.getByText(/"source":"distribution-release"/)).toBeInTheDocument();
+    expect(screen.getByText(/Import and a valid digest do not establish review/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Unarchive" }));
+    await waitFor(() => expect(screen.queryByText("Archived reference")).not.toBeInTheDocument());
+    expect(screen.getByText("Active", { exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Compare booleans in configuration" })).toBeInTheDocument();
+  });
+
+  it("shows failed management validation without changing name or lifecycle", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = renderCatalogDetail();
+    await screen.findByText("AlmaLinux 9 SELinux policy");
+    const input = screen.getByRole("textbox", { name: "Display name" });
+    expect(input).toHaveAttribute("maxlength", "120");
+    await user.clear(input);
+    expect(screen.getByRole("button", { name: "Save name" })).toBeDisabled();
+    await user.type(input, "Proposed name");
+    fetchMock.mockResolvedValue(jsonResponse(422, { error: { code: "invalid_catalog_management", message: "Invalid display name" } }));
+    await user.click(screen.getByRole("button", { name: "Save name" }));
+    expect(await screen.findByText("Could not update catalog")).toBeInTheDocument();
+    expect(screen.getByText("Invalid display name")).toBeInTheDocument();
+    expect(screen.getByText("AlmaLinux 9 SELinux policy")).toBeInTheDocument();
+    expect(screen.getByText("Active", { exact: true })).toBeInTheDocument();
   });
 });

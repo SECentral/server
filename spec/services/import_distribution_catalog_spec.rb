@@ -62,6 +62,12 @@ RSpec.describe ImportDistributionCatalog do
     expect(second.revision).to eq(first.revision)
     expect(DistributionCatalogRevision.count).to eq(1)
     expect(first.revision.distribution_catalog_imports.count).to eq(2)
+
+    first.revision.catalog_management.change!(display_name: "Operator label", lifecycle: "archived", changed_by: "operator")
+    third = described_class.call(artifact: catalog_artifact, source_path: "third.json")
+    expect(third.revision.catalog_management).to have_attributes(display_name: "Operator label", lifecycle: "archived")
+    expect(third.revision).to eq(first.revision)
+    expect(third.revision.distribution_catalog_imports.count).to eq(3)
   end
 
   it "rejects invalid input without persisting anything" do

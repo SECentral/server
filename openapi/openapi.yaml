@@ -918,6 +918,8 @@ paths:
         catalog is immutable reference knowledge: identity digests,
         distribution/major-release/architecture/policy-type, schema and
         collector semantics versions, family completeness, and counts.
+        Names/lifecycle are separate mutable management metadata. Active and
+        archived revisions are listed; import does not establish vendor review.
         The full boolean and port inventories are on the detail endpoint.
       security:
         - session: []
@@ -936,8 +938,8 @@ paths:
       summary: Distribution catalog detail
       description: |
         Catalog identity, acquisition metadata, and the full structured
-        boolean and port mapping inventory. Catalogs are immutable: they
-        cannot be updated or deleted.
+        boolean and port mapping inventory. Semantic revisions/import evidence
+        cannot be updated or deleted. Archived revisions remain inspectable.
       security:
         - session: []
       parameters:
@@ -957,6 +959,108 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+  /api/v1/catalogs/{id}/name:
+    patch:
+      operationId: renameCatalog
+      summary: Rename catalog presentation metadata
+      description: |
+        Changes only the management name, never semantic identity or import
+        evidence. Names are trimmed, 1–120 characters with no control characters;
+        duplicates are allowed. Only display_name is accepted. Concurrent writes
+        serialize per management row; last serialized rename wins. No optimistic
+        version/precondition is currently provided.
+      security:
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [display_name]
+              properties:
+                display_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+      responses:
+        "200":
+          description: Current management state and immutable catalog detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogDetailResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+  /api/v1/catalogs/{id}/archive:
+    post:
+      operationId: archiveCatalog
+      summary: Archive a catalog for new automatic selection
+      description: |
+        Idempotently archives management state. Accepts only an empty body.
+        Retains the revision, families, raw imports and historical identities;
+        archive is availability, not invalidation or review/trust status.
+      security:
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Current management state and immutable catalog detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogDetailResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+  /api/v1/catalogs/{id}/unarchive:
+    post:
+      operationId: unarchiveCatalog
+      summary: Restore a catalog to active eligibility
+      description: |
+        Idempotently restores active management state, subject to existing ADR
+        0010 automatic applicability. Accepts only an empty body. Does not certify
+        provenance or alter immutable identity. Serialized with rename/archive.
+      security:
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Current management state and immutable catalog detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogDetailResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
   /api/v1/overview:
     get:
       operationId: getOverview
@@ -2703,6 +2807,7 @@ components:
       required:
         - id
         - display_name
+        - lifecycle
         - distribution
         - major_version
         - architecture
@@ -2722,7 +2827,11 @@ components:
           type: integer
         display_name:
           type: string
-          description: Derived from the structured distribution and major version.
+          description: Mutable operator label, initially derived from distribution/major version. Not a unique identity or vendor-origin claim.
+        lifecycle:
+          type: string
+          enum: [active, archived]
+          description: Administrative eligibility for new automatic selection, not content validity or review status.
         distribution:
           type: string
           example: almalinux

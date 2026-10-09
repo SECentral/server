@@ -40,6 +40,9 @@ Rails.application.routes.draw do
       get "configuration", to: "configurations#show"
       get "catalogs", to: "catalogs#index"
       get "catalogs/:id", to: "catalogs#show"
+      patch "catalogs/:id/name", to: "catalogs#rename"
+      post "catalogs/:id/archive", to: "catalogs#archive"
+      post "catalogs/:id/unarchive", to: "catalogs#unarchive"
       get "overview", to: "overview#show"
     end
   end

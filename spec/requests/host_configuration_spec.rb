@@ -111,6 +111,21 @@ RSpec.describe "Host SELinux configuration API", type: :request do
       "ports" => { "compared" => 2, "match" => 1, "differ" => 1, "not_observed" => 0 }
     })
     expect(payload.fetch("view")).to eq("differences")
+
+    snapshot_details = record.current_snapshot.details.deep_dup
+    patch "/api/v1/catalogs/#{catalog.id}/name", params: { display_name: "Operator reference label" }, as: :json
+    expect(response).to have_http_status(:ok)
+    get "/api/v1/hosts/#{record.id}/configuration"
+    expect(JSON.parse(response.body).dig("reference", "catalog_revision", "display_name")).to eq("Operator reference label")
+    post "/api/v1/catalogs/#{catalog.id}/archive"
+    get "/api/v1/hosts/#{record.id}/configuration"
+    expect(JSON.parse(response.body).fetch("reference")).to eq("kind" => "none")
+    expect(JSON.parse(response.body).dig("comparison", "available")).to be(false)
+    expect(record.current_snapshot.details).to eq(snapshot_details)
+    post "/api/v1/catalogs/#{catalog.id}/unarchive"
+    get "/api/v1/hosts/#{record.id}/configuration"
+    expect(JSON.parse(response.body).dig("reference", "catalog_revision", "id")).to eq(catalog.id)
+    expect(JSON.parse(response.body).dig("comparison", "available")).to be(true)
   end
 
   it "defaults to a differences view with structured findings" do

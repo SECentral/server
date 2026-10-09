@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_07_000001) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_09_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -25,6 +25,29 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_000001) do
     t.index ["bound_host_id"], name: "index_agent_installations_on_bound_host_id"
     t.index ["last_seen_at"], name: "index_agent_installations_on_last_seen_at"
     t.index ["organization_id"], name: "index_agent_installations_on_organization_id"
+  end
+
+  create_table "catalog_management_changes", force: :cascade do |t|
+    t.bigint "catalog_management_id", null: false
+    t.string "changed_by", null: false
+    t.string "previous_display_name", null: false
+    t.string "display_name", null: false
+    t.string "previous_lifecycle", null: false
+    t.string "lifecycle", null: false
+    t.datetime "created_at", null: false
+    t.index ["catalog_management_id"], name: "index_catalog_management_changes_on_catalog_management_id"
+  end
+
+  create_table "catalog_managements", force: :cascade do |t|
+    t.bigint "distribution_catalog_revision_id", null: false
+    t.string "display_name", limit: 120, null: false
+    t.string "lifecycle", default: "active", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["distribution_catalog_revision_id"], name: "index_catalog_managements_on_distribution_catalog_revision_id", unique: true
+    t.index ["lifecycle", "distribution_catalog_revision_id"], name: "idx_on_lifecycle_distribution_catalog_revision_id_f680ee211a"
+    t.check_constraint "char_length(TRIM(BOTH FROM display_name)) >= 1 AND char_length(TRIM(BOTH FROM display_name)) <= 120", name: "catalog_management_name"
+    t.check_constraint "lifecycle::text = ANY (ARRAY['active'::character varying, 'archived'::character varying]::text[])", name: "catalog_management_lifecycle"
   end
 
   create_table "distribution_catalog_booleans", force: :cascade do |t|
@@ -330,6 +353,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_000001) do
 
   add_foreign_key "agent_installations", "hosts", column: "bound_host_id"
   add_foreign_key "agent_installations", "organizations"
+  add_foreign_key "catalog_management_changes", "catalog_managements", on_delete: :cascade
+  add_foreign_key "catalog_managements", "distribution_catalog_revisions", on_delete: :cascade
   add_foreign_key "distribution_catalog_booleans", "distribution_catalog_revisions"
   add_foreign_key "distribution_catalog_imports", "distribution_catalog_revisions"
   add_foreign_key "distribution_catalog_ports", "distribution_catalog_revisions"

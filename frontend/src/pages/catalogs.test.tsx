@@ -13,6 +13,7 @@ const listPayload: CatalogListResponse = {
     {
       id: 7,
       display_name: "AlmaLinux 9",
+      lifecycle: "active",
       distribution: "almalinux",
       major_version: "9",
       architecture: "x86_64",
@@ -83,5 +84,14 @@ describe("Catalogs", () => {
     renderCatalogs({ catalogs: [] });
 
     expect(await screen.findByText("No imported distribution catalogs")).toBeInTheDocument();
+  });
+
+  it("keeps archived references inspectable, with no new comparison action", async () => {
+    renderCatalogs({ catalogs: [{ ...listPayload.catalogs[0], lifecycle: "archived" }] });
+    expect(await screen.findByText("Archived", { exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View archived reference" })).toHaveAttribute("href", "/catalogs/7");
+    expect(screen.queryByRole("link", { name: "Compare in configuration" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy catalog digest for AlmaLinux 9" })).toBeInTheDocument();
+    expect(screen.getByText(/excluded from new automatic selection/)).toBeInTheDocument();
   });
 });
