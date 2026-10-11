@@ -29,4 +29,16 @@ RSpec.describe "SECentral catalog tasks" do
     expect(DistributionCatalogRevision.count).to eq(1)
     expect(DistributionCatalogImport.count).to eq(1)
   end
+
+  it "fails repository source CI when there are zero reviewed catalog artifacts" do
+    allow(CatalogDistributionSource).to receive(:verify).with(Rails.root.join("catalogs")).and_return(CatalogDistributionSource::Result.new(0))
+    expect do
+      expect { Rake::Task["secentral:catalog:verify_distribution"].execute }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output(/at least one reviewed artifact/).to_stderr
+  end
+
+  it "accepts a repository catalog count greater than one" do
+    allow(CatalogDistributionSource).to receive(:verify).with(Rails.root.join("catalogs")).and_return(CatalogDistributionSource::Result.new(3))
+    expect { Rake::Task["secentral:catalog:verify_distribution"].execute }.to output(/supported=3/).to_stdout
+  end
 end

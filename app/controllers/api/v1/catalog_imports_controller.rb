@@ -63,7 +63,7 @@ class Api::V1::CatalogImportsController < Api::V1::BaseController
     render json: {
       outcome: result.created ? "create_new_revision" : "reuse_existing_revision",
       catalog: { id: revision.id, content_digest: revision.content_digest, loaded_policy_digest: revision.loaded_policy_digest, display_name: revision.display_name, lifecycle: revision.catalog_management.lifecycle },
-      catalog_import: { id: result.catalog_import.id, imported_at: result.catalog_import.created_at, imported_by: result.catalog_import.imported_by, source_kind: result.catalog_import.source_kind }
+      catalog_import: { id: result.catalog_import.id, imported_at: result.catalog_import.created_at, imported_by: result.catalog_import.imported_by, source_kind: result.catalog_import.source_kind, comparison_report: result.catalog_import.comparison_report }
     }, status: result.created ? :created : :ok
   end
 

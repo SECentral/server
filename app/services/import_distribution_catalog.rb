@@ -46,7 +46,8 @@ class ImportDistributionCatalog
           revision = DistributionCatalogRevision.create!(revision_attributes.merge(initial_display_name: name))
           create_children(revision)
         end
-        catalog_import = revision.distribution_catalog_imports.create!(artifact: @artifact.artifact, acquisition_metadata: @artifact.metadata, source_path: @source_path, imported_by: @imported_by, source_kind: @source_kind)
+        comparison_report = CatalogImportComparison.call(revision, created: created)
+        catalog_import = revision.distribution_catalog_imports.create!(artifact: @artifact.artifact, acquisition_metadata: @artifact.metadata, source_path: @source_path, imported_by: @imported_by, source_kind: @source_kind, comparison_report: comparison_report)
         Result.new(revision, catalog_import, created)
       end
     rescue ActiveRecord::RecordNotUnique

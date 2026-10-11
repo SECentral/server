@@ -65,4 +65,9 @@ RSpec.describe DistributionCatalogArtifact do
 
     expect(artifact(value).validate!).to be_a(described_class)
   end
+
+  it "rejects duplicate JSON object keys instead of silently replacing evidence" do
+    raw = JSON.generate(document).sub('"schema_version":1', '"schema_version":1,"schema_version":1')
+    expect { described_class.new(raw).validate! }.to raise_error(described_class::Invalid) { |error| expect(error.code).to eq("malformed_json") }
+  end
 end

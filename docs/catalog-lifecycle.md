@@ -46,6 +46,66 @@ bundle exec rake 'secentral:catalog:validate[/path/to/catalog.json]'
 bundle exec rake 'secentral:catalog:import[/path/to/catalog.json]'
 ```
 
+## Obtain and update references
+
+The version-controlled [catalog source directory](../catalogs/README.md) contains
+SECentral-reviewed distribution references, licensed under **GPL-2.0-or-later
+unless otherwise noted**. The catalog JSON records observed reference facts; each
+adjacent record states its digest, review date/scope and interpretation limits.
+Review is not vendor certification; the catalog license
+does not relicense SECentral's MIT application.
+
+Obtain the approved digest-named JSON, adjacent
+review record, catalog README and license from a trusted SECentral repository at a
+pinned Git commit. Verify three separate things: canonical content integrity,
+acquisition/review information, and why you trust that repository revision. A
+matching SHA-256 alone does not authenticate the publisher. Offline environments
+can copy these files manually; the server does not download them.
+
+Import a new complete artifact explicitly to add another immutable revision.
+Existing revisions, raw imports and archive choices remain unchanged. Review the
+recorded comparison and the host's new selection result before choosing any
+separate archive action. Server startup, image upgrades and database preparation
+do not import, replace or activate reference catalogs.
+
+### Review recorded changes
+
+CLI import prints a bounded **Comparison** report. Browser confirmation returns
+the same recorded report, and catalog detail shows it under **Recorded import
+comparison**. Preview remains non-mutating and does not forecast a semantic diff.
+
+The basis is exactly one existing complete revision with matching distribution,
+major release, architecture aliases, policy type, schema and collector semantics.
+Archived revisions are included: lifecycle is eligibility for new selection, not
+semantic lineage. Multiple compatible identities yield **Ambiguous**, even if
+their families agree. With none, there is no comparison. Neither package version
+nor import time chooses a predecessor.
+
+Reports show both immutable identities, Boolean additions/removals/default and
+description changes, and port additions/removals/type changes over identical
+protocol intervals. Changed interval bounds appear as removed/added mappings.
+Categories can overlap—for example a type change is also an added/removed mapping.
+Counts are complete; samples and nested type sets are capped at ten.
+
+Direction means **existing reference → imported reference**, not a vendor upgrade
+or downgrade, security impact or recommendation. Reports are atomically stored
+with append-only import evidence so later imports/renames/archive actions do not
+recompute their basis. Older imports with no recorded report remain unknown;
+reimport appends evidence without redefining earlier reports.
+
+### Portable copies
+
+The portable unit is a supported schema envelope with unchanged semantic
+`catalog`/`content_digest`, not a database or catalog-detail dump. Required
+metadata is collection timestamp/tool version. Public-safe reviewed bytes may be
+copied unchanged with their sidecar/notices. Any portable copy prepared from
+private import evidence must retain validator-compatible reviewed acquisition
+metadata while excluding IDs, import actors/sessions, local paths/private notes,
+display name and lifecycle. Validate the resulting envelope; metadata filtering
+cannot safely remove sensitive content inside the hashed semantic catalog. Keep
+such artifacts internal rather than silently rewriting them. Browser download
+is not part of this workflow.
+
 ## Rename a catalog
 
 Open **Catalogs**, select a catalog, edit **Display name**, then select **Save

@@ -20,6 +20,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { fetchCatalog, renameCatalog, setCatalogArchived, type CatalogDetail as CatalogData } from "../api/catalogs";
+import { CatalogImportComparison } from "../components/CatalogImportComparison";
 
 function CatalogManagement({ catalog }: { catalog: CatalogData }) {
   const [name, setName] = useState<string | null>(null);
@@ -54,7 +55,8 @@ function CatalogManagement({ catalog }: { catalog: CatalogData }) {
           </div>
         </Form>
       </CardBody>
-    </Card>
+           </Card>
+
   );
 }
 
@@ -157,6 +159,8 @@ export function CatalogDetail() {
               </DescriptionList>
             </CardBody>
           </Card>
+
+           {catalog.imports.filter((record) => record.comparison_report && record.comparison_report.status !== "not_applicable").map((record) => <CatalogImportComparison key={record.id} report={record.comparison_report} />)}
 
            {catalog.lifecycle === "active" && <div style={{ display: "flex", gap: "var(--pf-v6-global--spacer--sm)" }} className="pf-v6-u-mb-md">
             <Link

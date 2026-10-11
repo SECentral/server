@@ -1472,6 +1472,8 @@ components:
             source_kind:
               type: string
               const: operator_upload
+            comparison_report:
+              $ref: "#/components/schemas/CatalogImportComparison"
     IngestionEnvelope:
       type: object
       required: [schema_version, agent, host_id, boot_id, events]
@@ -3194,12 +3196,121 @@ components:
           enum: [unspecified, administrative_cli, operator_upload]
         imported_by:
           type: [string, "null"]
+        comparison_report:
+          oneOf:
+            - $ref: "#/components/schemas/CatalogImportComparison"
+            - type: "null"
+          description: Immutable post-import report recorded with this evidence; null for older imports without a report. Not a vendor upgrade/security-impact claim.
         acquisition_metadata:
           type: object
           additionalProperties: true
         imported_at:
           type: string
           format: date-time
+    CatalogImportComparison:
+      type: object
+      required: [status, reason, basis, direction, from_revision, to_revision, candidate_count, candidates, candidates_truncated, changes]
+      description: |
+        Post-import only, atomically recorded. Unique existing complete same
+        distribution/major-release/architecture-alias/policy-type/schema/semantics
+        revision is the basis, including archived records. Multiple identities
+        are ambiguous even if family facts agree. Import time/package versions
+        never choose a predecessor. No review/support status is inferred.
+      properties:
+        status:
+          type: string
+          enum: [compared, none, ambiguous, unavailable, not_applicable]
+        reason:
+          type: [string, "null"]
+        basis:
+          type: string
+          const: unique_existing_same_context_revision
+        direction:
+          type: string
+          const: existing_to_imported
+        from_revision:
+          oneOf:
+            - $ref: "#/components/schemas/CatalogComparisonIdentity"
+            - type: "null"
+        to_revision:
+          $ref: "#/components/schemas/CatalogComparisonIdentity"
+        candidate_count:
+          type: integer
+        candidates:
+          type: array
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/CatalogComparisonIdentity"
+        candidates_truncated:
+          type: boolean
+        changes:
+          oneOf:
+            - $ref: "#/components/schemas/CatalogComparisonChanges"
+            - type: "null"
+    CatalogComparisonIdentity:
+      type: object
+      required: [id, content_digest, loaded_policy_digest, distribution, major_version, architecture, policy_type]
+      properties:
+        id:
+          type: integer
+        content_digest:
+          type: string
+        loaded_policy_digest:
+          type: string
+        distribution:
+          type: string
+        major_version:
+          type: string
+        architecture:
+          type: string
+        policy_type:
+          type: string
+    CatalogComparisonChange:
+      type: object
+      required: [count, samples, truncated]
+      properties:
+        count:
+          type: integer
+        samples:
+          type: array
+          maxItems: 10
+          items: {}
+        truncated:
+          type: boolean
+    CatalogComparisonChanges:
+      type: object
+      required: [policy, booleans, ports]
+      properties:
+        policy:
+          type: object
+          required: [loaded_policy_digest_changed, packages_changed]
+          properties:
+            loaded_policy_digest_changed:
+              type: boolean
+            packages_changed:
+              type: boolean
+        booleans:
+          type: object
+          required: [added, removed, default_changed, description_changed]
+          properties:
+            added:
+              $ref: "#/components/schemas/CatalogComparisonChange"
+            removed:
+              $ref: "#/components/schemas/CatalogComparisonChange"
+            default_changed:
+              $ref: "#/components/schemas/CatalogComparisonChange"
+            description_changed:
+              $ref: "#/components/schemas/CatalogComparisonChange"
+        ports:
+          type: object
+          required: [added, removed, changed]
+          properties:
+            added:
+              $ref: "#/components/schemas/CatalogComparisonChange"
+            removed:
+              $ref: "#/components/schemas/CatalogComparisonChange"
+            changed:
+              $ref: "#/components/schemas/CatalogComparisonChange"
     Catalog:
       type: object
       required:

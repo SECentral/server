@@ -25,6 +25,14 @@ DEMO_HOST_PERSONAS = [
 
 namespace :secentral do
   namespace :catalog do
+    task verify_distribution: :environment do
+      result = CatalogDistributionSource.verify(Rails.root.join("catalogs"))
+      abort "Catalog distribution source must contain at least one reviewed artifact" if result.supported_count.zero?
+      puts "Catalog source checked: supported=#{result.supported_count}. Validation is not approval or recollection."
+    rescue CatalogDistributionSource::Invalid => error
+      abort error.message
+    end
+
     task :validate, [:file] => :environment do |_, args|
       abort "secentral:catalog:validate requires FILE" unless args[:file]
 
@@ -45,6 +53,7 @@ namespace :secentral do
       )
       revision = result.revision
       puts "#{result.created ? "Imported" : "Reused"}: #{revision.content_digest} #{revision.loaded_policy_digest} #{revision.distribution} #{revision.major_version} #{revision.policy_type}; booleans=#{revision.distribution_catalog_booleans.count} ports=#{revision.distribution_catalog_ports.count} import=#{result.catalog_import.id}"
+      puts "Comparison: #{JSON.generate(result.catalog_import.comparison_report)}"
     rescue DistributionCatalogArtifact::Invalid, ImportDistributionCatalog::Conflict => error
       abort "Catalog import failed: #{error.message}"
     end

@@ -92,5 +92,8 @@ jobs:
       - name: Prepare test database
         run: bundle exec rails db:prepare
 
+      - name: Validate catalog distribution records and approved artifacts
+        run: bundle exec rake secentral:catalog:verify_distribution
+
       - name: Run RSpec
         run: bundle exec rspec

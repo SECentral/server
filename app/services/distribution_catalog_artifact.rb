@@ -7,6 +7,14 @@ class DistributionCatalogArtifact
   MAX_PACKAGES = 256
   MAX_NESTING = 32
 
+  class UniqueObject < Hash
+    def []=(key, value)
+      raise Invalid.new("Duplicate JSON object key", code: "malformed_json") if key?(key)
+
+      super
+    end
+  end
+
   class Invalid < StandardError
     attr_reader :code, :path
 
@@ -38,7 +46,7 @@ class DistributionCatalogArtifact
     json = @artifact.dup.force_encoding(Encoding::UTF_8)
     raise Invalid.new("Catalog must be valid UTF-8", code: "invalid_encoding") unless json.valid_encoding?
 
-    document = JSON.parse(json, max_nesting: MAX_NESTING)
+    document = JSON.parse(json, max_nesting: MAX_NESTING, object_class: UniqueObject)
     require_keys(document, %w[schema_version content_digest catalog metadata], "artifact")
     @schema_version = document["schema_version"]
     raise Invalid.new("Unsupported schema version", code: "unsupported_schema", path: "schema_version") unless @schema_version.is_a?(Integer) && @schema_version == SCHEMA_VERSION

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_09_000002) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_11_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -64,6 +64,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_09_000002) do
   create_table "distribution_catalog_imports", force: :cascade do |t|
     t.jsonb "acquisition_metadata", default: {}, null: false
     t.binary "artifact", null: false
+    t.jsonb "comparison_report"
     t.datetime "created_at", null: false
     t.bigint "distribution_catalog_revision_id", null: false
     t.string "imported_by"

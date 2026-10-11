@@ -69,6 +69,12 @@ temporary explicit reference selection and API usage. CLI and browser imports
 share validation and immutable revision semantics; reimport preserves existing
 names/archive state.
 
+The [catalog source contract](catalogs/README.md) supports manual, pinned artifact
+acquisition and immutable updates for separately licensed, SECentral-reviewed
+distribution references; no catalog is automatically imported.
+Successful imports record bounded semantic comparison reports when a unique
+same-context basis exists.
+
 Human-facing access uses one configured operator account. User management,
 RBAC, OIDC, and tenant authorization are not currently provided.
 
@@ -91,3 +97,11 @@ ingestion endpoints, not operator or read APIs. The deployment has exactly one
 organization; ingestion fails clearly if that invariant is absent. Provision
 that organization explicitly before agents start; ingestion never creates or
 selects an organization.
+
+## Licensing
+
+SECentral application/source code is licensed under [MIT](LICENSE).
+Distributed SELinux catalog artifacts under `catalogs/` are **GPL-2.0-or-later
+unless otherwise noted**; this does not relicense the MIT application. See the
+[catalog contract and attribution](catalogs/README.md) and shared
+[license text](catalogs/LICENSES/GPL-2.0-or-later.txt).

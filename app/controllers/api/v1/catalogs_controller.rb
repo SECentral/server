@@ -52,7 +52,7 @@ class Api::V1::CatalogsController < Api::V1::BaseController
     identity_payload(revision).merge(
       policy_packages: revision.policy_packages,
       imports: revision.distribution_catalog_imports.map do |import|
-        { id: import.id, source_path: import.source_path, source_kind: import.source_kind, imported_by: import.imported_by, acquisition_metadata: import.acquisition_metadata, imported_at: import.created_at }
+        { id: import.id, source_path: import.source_path, source_kind: import.source_kind, imported_by: import.imported_by, acquisition_metadata: import.acquisition_metadata, imported_at: import.created_at, comparison_report: import.comparison_report }
       end,
       booleans: revision.distribution_catalog_booleans.map do |entry|
         { name: entry.name, default_value: entry.default_value, description: entry.description }

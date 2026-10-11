@@ -1,0 +1,13 @@
+{
+  "review_record_version": 1,
+  "content_digest": "sha256:f463bc7ace7608df93d9626567bfc3db315dcf9d09765ca7ff25d8fa76473713",
+  "review": {
+    "date": "2026-10-11",
+    "scope": ["booleans", "ports"]
+  },
+  "known_limitations": [
+    "Collector cleanliness checks cover local Boolean, port and file-context configuration but do not prove absence of custom policy modules.",
+    "Authoritative catalog families are Booleans and ports only, not a complete SELinux representation.",
+    "Loaded-policy SHA is exact observed identity, not claimed to be a universally reproducible distribution build identifier."
+  ]
+}

@@ -49,6 +49,7 @@ RSpec.describe "Catalog product import", type: :request do
     expect(revision.distribution_catalog_imports.first).to have_attributes(artifact: bytes, imported_by: "test-admin", source_kind: "operator_upload", source_path: nil)
     expect(CatalogManagementChange.count).to eq(0)
     expect(body["catalog"]["content_digest"]).to eq(result["content_digest"])
+    expect(body.dig("catalog_import", "comparison_report")).to include("status" => "none", "reason" => "no_comparable_revision")
   end
 
   it "uses the derived default and keeps renamed archived duplicates unchanged, including retries" do

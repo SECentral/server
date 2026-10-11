@@ -74,6 +74,7 @@ export type CatalogImportConfirmation = {
         imported_at: string;
         imported_by: string;
         source_kind: 'operator_upload';
+        comparison_report?: CatalogImportComparison;
     };
 };
 
@@ -1022,10 +1023,69 @@ export type CatalogImport = {
     source_path?: string | null;
     source_kind?: 'unspecified' | 'administrative_cli' | 'operator_upload';
     imported_by?: string | null;
+    /**
+     * Immutable post-import report recorded with this evidence; null for older imports without a report. Not a vendor upgrade/security-impact claim.
+     */
+    comparison_report?: CatalogImportComparison | null;
     acquisition_metadata: {
         [key: string]: unknown;
     };
     imported_at: string;
+};
+
+/**
+ * Post-import only, atomically recorded. Unique existing complete same
+ * distribution/major-release/architecture-alias/policy-type/schema/semantics
+ * revision is the basis, including archived records. Multiple identities
+ * are ambiguous even if family facts agree. Import time/package versions
+ * never choose a predecessor. No review/support status is inferred.
+ *
+ */
+export type CatalogImportComparison = {
+    status: 'compared' | 'none' | 'ambiguous' | 'unavailable' | 'not_applicable';
+    reason: string | null;
+    basis: 'unique_existing_same_context_revision';
+    direction: 'existing_to_imported';
+    from_revision: CatalogComparisonIdentity | null;
+    to_revision: CatalogComparisonIdentity;
+    candidate_count: number;
+    candidates: Array<CatalogComparisonIdentity>;
+    candidates_truncated: boolean;
+    changes: CatalogComparisonChanges | null;
+};
+
+export type CatalogComparisonIdentity = {
+    id: number;
+    content_digest: string;
+    loaded_policy_digest: string;
+    distribution: string;
+    major_version: string;
+    architecture: string;
+    policy_type: string;
+};
+
+export type CatalogComparisonChange = {
+    count: number;
+    samples: Array<unknown>;
+    truncated: boolean;
+};
+
+export type CatalogComparisonChanges = {
+    policy: {
+        loaded_policy_digest_changed: boolean;
+        packages_changed: boolean;
+    };
+    booleans: {
+        added: CatalogComparisonChange;
+        removed: CatalogComparisonChange;
+        default_changed: CatalogComparisonChange;
+        description_changed: CatalogComparisonChange;
+    };
+    ports: {
+        added: CatalogComparisonChange;
+        removed: CatalogComparisonChange;
+        changed: CatalogComparisonChange;
+    };
 };
 
 export type Catalog = {
