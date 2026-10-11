@@ -112,6 +112,13 @@ reference selection and archive behavior.
 
 ## Updates and automatic updates
 
+An optional exact compiled-policy companion is attached separately through
+[local administrative tooling](../docs/catalog-policy-companions.md). It does not
+change JSON/content identity or the review sidecar. JSON-only catalogs remain valid;
+missing companion means unavailable future effective-policy facts, not empty facts.
+Binaries are operator-supplied offline and stored in the existing database, not
+added to this Git source tree or fetched automatically.
+
 An update is a new reviewed, complete immutable artifact, imported explicitly.
 Old revisions/raw import evidence remain; archive choices are separate actions.
 New automatic reference selection can change or become ambiguous; explicit

@@ -5,6 +5,22 @@ class DistributionCatalogRevision < ApplicationRecord
   has_many :distribution_catalog_ports, -> { order(:protocol, :start_port, :end_port, :selinux_type) }, dependent: :restrict_with_exception
   has_many :distribution_catalog_imports, dependent: :restrict_with_exception
   has_one :catalog_management, dependent: :restrict_with_exception
+  has_one :catalog_policy_artifact, dependent: :restrict_with_exception
+
+  def reference_policy_artifact
+    identity = { catalog_revision_id: id, content_digest: content_digest, expected_policy_digest: loaded_policy_digest }
+    companion = catalog_policy_artifact
+    return identity.merge(status: "unavailable", reason: "reference_policy_artifact_unavailable") unless companion
+
+    artifact = companion.policy_artifact.verify_bytes!
+    return identity.merge(status: "unavailable", reason: "reference_policy_artifact_invalid") unless artifact.policy_identity == loaded_policy_digest
+
+    identity.merge(status: "available", reason: nil, policy_artifact_id: artifact.id, policy_artifact_digest: artifact.policy_identity,
+      source_kind: companion.source_kind, acquisition_basis: companion.acquisition_basis,
+      attached_by: companion.attached_by, attached_at: companion.created_at)
+  rescue PolicyArtifact::InvalidBytes
+    identity.merge(status: "unavailable", reason: "reference_policy_artifact_invalid")
+  end
 
   scope :active, -> { joins(:catalog_management).where(catalog_managements: { lifecycle: "active" }) }
 

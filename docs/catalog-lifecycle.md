@@ -48,6 +48,12 @@ bundle exec rake 'secentral:catalog:import[/path/to/catalog.json]'
 
 ## Obtain and update references
 
+For optional exact compiled-policy companions, see
+[catalog policy companion operations](catalog-policy-companions.md). This is a
+separate local administrative authority; browser JSON import does not attach binary
+policy or authorize effective-policy reference facts. JSON-only catalogs retain
+their existing Boolean/port behavior.
+
 The version-controlled [catalog source directory](../catalogs/README.md) contains
 SECentral-reviewed distribution references, licensed under **GPL-2.0-or-later
 unless otherwise noted**. The catalog JSON records observed reference facts; each

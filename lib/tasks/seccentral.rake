@@ -25,6 +25,17 @@ DEMO_HOST_PERSONAS = [
 
 namespace :secentral do
   namespace :catalog do
+    task :attach_policy, [:revision_id, :file, :acquisition_basis] => :environment do |_, args|
+      abort "attach_policy requires REVISION_ID,FILE,ACQUISITION_BASIS" unless args[:revision_id].to_s.match?(/\A[1-9][0-9]*\z/) && args[:file] && args[:acquisition_basis].present?
+
+      revision = DistributionCatalogRevision.find(args[:revision_id])
+      companion = AttachCatalogPolicy.call(revision: revision, bytes: AttachCatalogPolicy.read_file(args[:file]),
+        acquisition_basis: args[:acquisition_basis], attached_by: ENV["USER"].presence)
+      puts "Reference policy attached: revision=#{revision.id} content=#{revision.content_digest} expected=#{revision.loaded_policy_digest} actual=#{companion.policy_artifact.policy_identity} source=#{companion.source_kind}"
+    rescue PolicyArtifact::InvalidBytes, ActiveRecord::RecordInvalid, ActiveRecord::RecordNotFound, SystemCallError => error
+      abort "Reference policy rejected: #{error.message}"
+    end
+
     task verify_distribution: :environment do
       result = CatalogDistributionSource.verify(Rails.root.join("catalogs"))
       abort "Catalog distribution source must contain at least one reviewed artifact" if result.supported_count.zero?
