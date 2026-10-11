@@ -1,13 +1,12 @@
 class DistributionCatalogReference
   def self.for_snapshot(snapshot)
     selection = DistributionCatalogRevision.reference_for_snapshot(snapshot)
-    from_revision(selection&.revision, applicability: selection&.applicability)
+    from_revision(selection.revision, applicability: selection.applicability)
   end
 
   def self.for_policy_identity(policy_identity)
-    return unless policy_identity.to_s.match?(/\Asha256:[0-9a-f]{64}\z/)
-
-    from_revision(DistributionCatalogRevision.active.find_by(loaded_policy_digest: policy_identity))
+    selection = CatalogReferenceSelection.for_policy_identity(policy_identity)
+    from_revision(selection.revision, applicability: selection.applicability)
   end
 
   def self.from_revision(revision, applicability: "exact")

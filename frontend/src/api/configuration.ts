@@ -16,9 +16,10 @@ export function fetchConfiguration(family: ConfigurationFamily, policyIdentity?:
 
 export function fetchHostConfiguration(
   id: number,
-  params: { view?: string; q?: string; page?: number } = {}
+  params: { view?: string; q?: string; page?: number; referenceRevisionId?: string } = {}
 ): Promise<HostConfigurationResponse> {
   const query = new URLSearchParams();
+  if (params.referenceRevisionId !== undefined) query.set("reference_revision_id", params.referenceRevisionId);
   if (params.view) {
     query.set("view", params.view);
   }

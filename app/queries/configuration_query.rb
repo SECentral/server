@@ -50,6 +50,7 @@ class ConfigurationQuery
       inventory: boolean_inventory,
       policy_cohorts: policy_cohorts,
       selected_policy_identity: identity,
+      selection: CatalogReferenceSelection.for_policy_identity(identity).as_json,
       catalog: overlay && overlay.dig(:catalog),
       catalog_overlay: overlay
     }
@@ -62,6 +63,7 @@ class ConfigurationQuery
       coverage: @hosts.map { |host| port_inventory_state(host) }.tally.merge(observed: 0, partial: 0, unavailable: 0, unknown: 0, stale: 0, no_heartbeat: 0) { |_key, counted, _zero| counted },
       policy_cohorts: policy_cohorts,
       selected_policy_identity: identity,
+      selection: CatalogReferenceSelection.for_policy_identity(identity).as_json,
       catalog: overlay && overlay.dig(:catalog),
       catalog_overlay: overlay
     }

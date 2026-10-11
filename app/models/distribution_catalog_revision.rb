@@ -1,6 +1,5 @@
 class DistributionCatalogRevision < ApplicationRecord
   PORT_PROTOCOLS = %w[tcp udp sctp dccp].freeze
-  ReferenceSelection = Data.define(:revision, :applicability)
 
   has_many :distribution_catalog_booleans, -> { order(:name) }, dependent: :restrict_with_exception
   has_many :distribution_catalog_ports, -> { order(:protocol, :start_port, :end_port, :selinux_type) }, dependent: :restrict_with_exception
@@ -24,24 +23,7 @@ class DistributionCatalogRevision < ApplicationRecord
   end
 
   def self.reference_for_snapshot(snapshot)
-    identity = snapshot&.details&.dig("selinux", "policy_identity")
-    exact = active.find_by(loaded_policy_digest: identity) if identity.to_s.match?(/\Asha256:[0-9a-f]{64}\z/)
-    return ReferenceSelection.new(exact, "exact") if exact
-
-    details = snapshot&.details || {}
-    platform = details.fetch("platform", {})
-    selinux = details.fetch("selinux", {})
-    distribution = platform["os_id"].to_s.downcase
-    major_version = platform["os_version"].to_s.split(".").first
-    architecture = normalize_architecture(platform["architecture"])
-    policy_type = selinux["configured_policy_type"].to_s.downcase
-    return if [distribution, major_version, architecture, policy_type].any?(&:blank?)
-
-    candidates = active.where(distribution: distribution, major_version: major_version, policy_type: policy_type).order(:id).includes(:catalog_management, :distribution_catalog_booleans, :distribution_catalog_ports).select { |revision| normalize_architecture(revision.architecture) == architecture && revision.booleans_complete? && revision.ports_complete? }
-    families = candidates.group_by(&:reference_family_digest)
-    return unless families.one?
-
-    ReferenceSelection.new(families.values.first.first, "major_release")
+    CatalogReferenceSelection.call(snapshot: snapshot)
   end
 
   def self.normalize_architecture(value)

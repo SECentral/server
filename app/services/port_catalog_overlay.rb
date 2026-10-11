@@ -1,12 +1,12 @@
 class PortCatalogOverlay
-  def self.call(hosts:, policy_identity:, catalog: nil)
+  def self.call(hosts:, policy_identity:, catalog: :automatic)
     new(hosts, policy_identity, catalog).call
   end
 
   def initialize(hosts, policy_identity, catalog)
     @hosts = hosts
     @policy_identity = policy_identity
-    @catalog = catalog || PortCatalog.for(policy_identity)
+    @catalog = catalog == :automatic ? PortCatalog.for(policy_identity) : catalog
   end
 
   def call

@@ -70,13 +70,15 @@ function DescriptionFacts({ fields }: { fields: [string, React.ReactNode][] }) {
 
 function comparisonStatus(data: HostConfigurationResponse): { label: string; color: "green" | "orange" | "grey" } {
   if (data.comparison.paused || data.observation?.status === "stale") return { label: "Comparison paused", color: "orange" };
+  if (data.selection.status === "ambiguous") return { label: "Ambiguous reference", color: "orange" };
+  if (data.selection.status === "unavailable") return { label: "Reference unavailable", color: "orange" };
   if (data.reference.kind === "none") return { label: "No reference available", color: "grey" };
   if (!data.comparison.available) return { label: "Comparison unavailable", color: "orange" };
   const { booleans, ports } = data.comparison.summary;
-  const differences = data.differences?.total ?? booleans.differ + booleans.host_only + ports.differ;
+  const differences = data.differences?.total ?? (booleans?.differ ?? 0) + (booleans?.host_only ?? 0) + (ports?.differ ?? 0);
   if (differences > 0) return { label: `${differences} Differences found`, color: "orange" };
-  if (booleans.compared + ports.compared === 0) return { label: "No comparable settings", color: "grey" };
-  if (booleans.not_observed + booleans.unavailable + ports.not_observed > 0) return { label: "Partially compared", color: "orange" };
+  if ((booleans?.compared ?? 0) + (ports?.compared ?? 0) === 0) return { label: "No comparable settings", color: "grey" };
+  if (Object.values(data.selection.families).some((family) => family.status !== "comparable") || (booleans?.not_observed ?? 0) + (booleans?.unavailable ?? 0) + (ports?.not_observed ?? 0) > 0) return { label: "Partially compared", color: "orange" };
   return { label: "Matches reference", color: "green" };
 }
 
@@ -106,7 +108,7 @@ export function HostDetail() {
     enabled: validId
   });
   const configurationQuery = useQuery({
-    queryKey: ["host-configuration", hostId, "differences", "", 1],
+    queryKey: ["host-configuration", hostId, "differences", "", 1, null],
     queryFn: () => fetchHostConfiguration(hostId, { view: "differences" }),
     enabled: validId
   });

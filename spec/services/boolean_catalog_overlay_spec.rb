@@ -43,6 +43,11 @@ RSpec.describe BooleanCatalogOverlay do
     expect(row(result).dig(:counts, "off")).to eq(0)
   end
 
+  it "does not upgrade an unrecognized collection status from retained observed entries" do
+    result = described_class.call(hosts: [host(details(identity: identity, boolean_status: "unsupported", booleans: [{ "name" => "httpd_can_network_connect", "current" => false, "status" => "observed" }]))], policy_identity: identity)
+    expect(row(result).dig(:counts).slice("unknown", "off", "reference_match")).to eq("unknown" => 1, "off" => 0, "reference_match" => 0)
+  end
+
   it "C: keeps stale last-observed On out of current On coverage" do
     result = described_class.call(hosts: [host(details(identity: identity, booleans: [{ "name" => "httpd_can_network_connect", "current" => true, "status" => "observed" }]), stale: true)], policy_identity: identity)
     expect(row(result).dig(:counts).slice("on", "stale")).to eq("on" => 0, "stale" => 1)

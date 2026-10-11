@@ -641,6 +641,10 @@ export type ConfigurationBooleanOverlay = {
 };
 
 export type ConfigurationBooleanFamily = {
+    /**
+     * Shared exact-only cohort reference selection. Host-family usability is not_evaluated here; the overlay preserves per-host evidence states.
+     */
+    selection?: CatalogReferenceSelection;
     coverage: {
         observed: number;
         unavailable: number;
@@ -734,6 +738,10 @@ export type ConfigurationPortOverlay = {
 };
 
 export type ConfigurationPortFamily = {
+    /**
+     * Shared exact-only cohort reference selection. Host-family usability is not_evaluated here; the overlay preserves per-host evidence states.
+     */
+    selection?: CatalogReferenceSelection;
     coverage: {
         observed: number;
         partial: number;
@@ -862,6 +870,14 @@ export type HostConfigurationPortPage = {
 };
 
 export type HostConfigurationResponse = {
+    selection: CatalogReferenceSelection;
+    reference_options: {
+        /**
+         * Active identities only; host distribution/architecture/policy-type relevance first, never an equivalence claim. No family inventories or import bytes.
+         */
+        revisions: Array<CatalogReferenceIdentity>;
+        truncated: boolean;
+    };
     host: {
         id: number;
         hostname: string | null;
@@ -898,13 +914,18 @@ export type HostConfigurationResponse = {
             policy_type: string | null;
             architecture: string | null;
             loaded_policy_digest: string | null;
+            content_digest: string;
+            lifecycle: 'active' | 'archived';
             /**
-             * exact for a loaded-policy digest match, major_release for the distribution fallback.
+             * exact for automatic loaded-policy identity, major_release for Boolean/port-only agreement, explicit for an operator target without equivalence assertion.
              */
-            applicability: 'exact' | 'major_release';
+            applicability: 'exact' | 'major_release' | 'explicit';
         } | null;
     };
     comparison: {
+        /**
+         * Reference overlays can be displayed under the existing trusted identity gate; individual comparison usability is in selection.families, and stale results are paused.
+         */
         available: boolean;
         /**
          * True when the observation is stale and comparison is paused.
@@ -928,6 +949,72 @@ export type HostConfigurationResponse = {
      * Present when `view` is `ports`.
      */
     ports?: HostConfigurationPortPage;
+};
+
+export type CatalogReferenceIdentity = {
+    id: number;
+    /**
+     * Presentation only; duplicate names are allowed.
+     */
+    display_name: string;
+    content_digest: string;
+    loaded_policy_digest: string;
+    lifecycle: 'active' | 'archived';
+    distribution: string;
+    major_version: string;
+    architecture: string;
+    policy_type: string;
+};
+
+export type CatalogFamilyApplicability = {
+    status: 'comparable' | 'incomplete' | 'unavailable' | 'unknown' | 'stale' | 'unsupported';
+    reference_status: 'complete' | 'incomplete' | 'unavailable' | 'unsupported';
+    host_status: string;
+    /**
+     * Partial host data permits only observed comparisons, not missing-state claims.
+     */
+    comparison_allowed: boolean;
+    reason: string | null;
+};
+
+/**
+ * One domain selection contract. Selected revision is separate from family
+ * usability. Automatic exact/ADR0010 and explicit request basis never fill
+ * missing host evidence. ADR0010 grants only Boolean/port reference agreement,
+ * not applicability for future exact-policy facts. Fresh evaluation uses
+ * current active eligibility; there is no persisted historical selection pin.
+ *
+ */
+export type CatalogReferenceSelection = {
+    mode: 'automatic' | 'explicit';
+    status: 'selected' | 'absent' | 'ambiguous' | 'unavailable';
+    basis: 'exact_policy_identity' | 'adr0010_major_release_family_agreement' | 'explicit_revision' | null;
+    reason: string | null;
+    selected_revision: CatalogReferenceIdentity | null;
+    candidates: Array<CatalogReferenceIdentity>;
+    candidate_count: number;
+    candidates_truncated: boolean;
+    context: {
+        distribution: string;
+        major_version: string;
+        architecture: string;
+        policy_type: string;
+    };
+    /**
+     * Trusted host/reference raw SHA equality only; explicit selection does not assert equivalence regardless of equality.
+     */
+    policy_identity_match: boolean | null;
+    /**
+     * True only for automatic exact raw-policy identity, not a statement that all reference families are available.
+     */
+    equivalence_asserted: boolean;
+    /**
+     * These are the only supported families; future consumers must not inherit ADR0010 eligibility.
+     */
+    families: {
+        booleans: CatalogFamilyApplicability;
+        ports: CatalogFamilyApplicability;
+    };
 };
 
 export type CatalogImport = {
@@ -2438,6 +2525,10 @@ export type GetHostConfigurationData = {
         id: number;
     };
     query?: {
+        /**
+         * Temporary immutable active revision target for this request. Never saves a host preference or establishes policy equivalence. Omit for automatic selection; archived targets return normal unavailable selection without substitution.
+         */
+        reference_revision_id?: number;
         view?: 'differences' | 'booleans' | 'ports';
         /**
          * Search within the booleans or ports view.
@@ -2457,6 +2548,10 @@ export type GetHostConfigurationErrors = {
      * Not found
      */
     404: Error;
+    /**
+     * Validation or forgery-protection failure
+     */
+    422: Error;
 };
 
 export type GetHostConfigurationError = GetHostConfigurationErrors[keyof GetHostConfigurationErrors];

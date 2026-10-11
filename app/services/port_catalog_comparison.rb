@@ -11,7 +11,7 @@ class PortCatalogComparison
   end
 
   def call
-    return [] if %w[unavailable unknown].include?(@inventory_status)
+    return [] unless %w[observed partial].include?(@inventory_status)
 
     (@catalog_mappings + @observed_mappings).map { |mapping| mapping[:protocol] }.uniq.flat_map do |protocol|
       compare_protocol(protocol)

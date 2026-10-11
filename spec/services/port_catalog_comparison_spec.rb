@@ -28,12 +28,12 @@ RSpec.describe PortCatalogComparison do
   end
 
   it "does not make absence claims for unavailable or unknown inventories" do
-    ["unavailable", "unknown"].each do |status|
+    ["unavailable", "unknown", nil, "unsupported"].each do |status|
       result = described_class.call(
         catalog_mappings: [mapping("http_port_t", 80)],
         catalog_completeness: { "tcp" => "complete" },
         inventory_status: status,
-        observed_mappings: []
+        observed_mappings: [mapping("http_port_t", 80)]
       )
 
       expect(result).to be_empty

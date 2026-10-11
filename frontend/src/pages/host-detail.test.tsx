@@ -47,7 +47,18 @@ const matchingConfiguration: HostConfigurationResponse = {
   host: { id: 10, hostname: "web-1", external_id: "web-1" },
   observation: { status: "current", last_observed_at: "2026-09-25T10:00:00Z", last_received_at: "2026-09-25T10:00:00Z" },
   selinux: { enforcement: "enforcing", configured_policy_type: "targeted", boolean_status: "observed", policy_identity: "sha256:abc" },
-  reference: { kind: "distribution_catalog", catalog_revision: { id: 3, display_name: "AlmaLinux 9", policy_type: "targeted", architecture: "x86_64", loaded_policy_digest: "sha256:abc", applicability: "exact" } },
+  reference: { kind: "distribution_catalog", catalog_revision: { id: 3, display_name: "AlmaLinux 9", policy_type: "targeted", architecture: "x86_64", loaded_policy_digest: "sha256:abc", content_digest: "sha256:def", lifecycle: "active", applicability: "exact" } },
+  selection: {
+    mode: "automatic", status: "selected", basis: "exact_policy_identity", reason: null,
+    selected_revision: { id: 3, display_name: "AlmaLinux 9", content_digest: "sha256:def", loaded_policy_digest: "sha256:abc", lifecycle: "active", distribution: "almalinux", major_version: "9", architecture: "x86_64", policy_type: "targeted" },
+    candidates: [], candidate_count: 1, candidates_truncated: false,
+    context: { distribution: "almalinux", major_version: "9", architecture: "x86_64", policy_type: "targeted" }, policy_identity_match: true, equivalence_asserted: true,
+    families: {
+      booleans: { status: "comparable", reference_status: "complete", host_status: "observed", comparison_allowed: true, reason: null },
+      ports: { status: "comparable", reference_status: "complete", host_status: "observed", comparison_allowed: true, reason: null }
+    }
+  },
+  reference_options: { revisions: [], truncated: false },
   comparison: {
     available: true,
     paused: false,

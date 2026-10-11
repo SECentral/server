@@ -5,7 +5,10 @@ class Api::V1::HostConfigurationsController < Api::V1::BaseController
       host,
       view: params[:view].to_s,
       q: params[:q],
-      page: params[:page]
+      page: params[:page],
+      reference_revision_id: params[:reference_revision_id]
     )
+  rescue CatalogReferenceSelection::InvalidRevision => error
+    render json: { error: { code: "invalid_reference_revision", message: error.message } }, status: :unprocessable_content
   end
 end

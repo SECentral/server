@@ -1,12 +1,12 @@
 class BooleanCatalogOverlay
-  def self.call(hosts:, policy_identity:, catalog: nil)
+  def self.call(hosts:, policy_identity:, catalog: :automatic)
     new(hosts, policy_identity, catalog).call
   end
 
   def initialize(hosts, policy_identity, catalog)
     @hosts = hosts
     @policy_identity = policy_identity
-    @catalog = catalog || BooleanCatalog.for(policy_identity)
+    @catalog = catalog == :automatic ? BooleanCatalog.for(policy_identity) : catalog
   end
 
   def call
@@ -74,6 +74,7 @@ class BooleanCatalogOverlay
   def boolean_state(host, name)
     selinux = selinux_state(host)
     return :unavailable if selinux["boolean_status"] == "unavailable"
+    return :unknown unless selinux["boolean_status"].nil? || %w[observed partial].include?(selinux["boolean_status"])
 
     boolean = Array(selinux["booleans"]).find { |entry| entry["name"] == name }
     return :unknown unless boolean && boolean["status"] == "observed" && boolean["current"].in?([true, false])

@@ -868,7 +868,9 @@ paths:
       summary: SELinux configuration comparison for a host
       description: |
         Host heartbeat-confirmed configuration compared against the
-        distribution reference selected by its observed policy identity.
+        selected reference. Default automatic selection is active exact identity,
+        then ADR0010 Boolean/port agreement; explicit targets apply only to this
+        request. Selection/absence/ambiguity is distinct from family usability.
         `view` selects the payload block: `differences` (findings and
         limitations), `booleans` (full comparison, search + pagination),
         `ports` (full comparison, search + pagination). Unknown view values
@@ -877,6 +879,13 @@ paths:
       security:
         - session: []
       parameters:
+        - name: reference_revision_id
+          in: query
+          required: false
+          description: Temporary immutable active revision target for this request. Never saves a host preference or establishes policy equivalence. Omit for automatic selection; archived targets return normal unavailable selection without substitution.
+          schema:
+            type: integer
+            minimum: 1
         - name: id
           in: path
           required: true
@@ -909,6 +918,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
   /api/v1/catalogs:
     get:
       operationId: listCatalogs
@@ -2407,6 +2418,9 @@ components:
         - catalog
         - catalog_overlay
       properties:
+        selection:
+          description: Shared exact-only cohort reference selection. Host-family usability is not_evaluated here; the overlay preserves per-host evidence states.
+          $ref: "#/components/schemas/CatalogReferenceSelection"
         coverage:
           type: object
           required: [observed, unavailable, stale, unknown]
@@ -2596,6 +2610,9 @@ components:
         - catalog
         - catalog_overlay
       properties:
+        selection:
+          description: Shared exact-only cohort reference selection. Host-family usability is not_evaluated here; the overlay preserves per-host evidence states.
+          $ref: "#/components/schemas/CatalogReferenceSelection"
         coverage:
           type: object
           required: [observed, partial, unavailable, unknown, stale, no_heartbeat]
@@ -2910,9 +2927,25 @@ components:
         - observation
         - selinux
         - reference
+        - selection
+        - reference_options
         - comparison
         - view
       properties:
+        selection:
+          $ref: "#/components/schemas/CatalogReferenceSelection"
+        reference_options:
+          type: object
+          required: [revisions, truncated]
+          properties:
+            revisions:
+              type: array
+              maxItems: 50
+              description: Active identities only; host distribution/architecture/policy-type relevance first, never an equivalence claim. No family inventories or import bytes.
+              items:
+                $ref: "#/components/schemas/CatalogReferenceIdentity"
+            truncated:
+              type: boolean
         host:
           type: object
           required: [id, hostname, external_id]
@@ -2983,7 +3016,7 @@ components:
               type:
                 - object
                 - "null"
-              required: [id, display_name, policy_type, architecture, loaded_policy_digest, applicability]
+              required: [id, display_name, policy_type, architecture, loaded_policy_digest, content_digest, lifecycle, applicability]
               properties:
                 id:
                   type: integer
@@ -3001,10 +3034,15 @@ components:
                   type:
                     - string
                     - "null"
-                applicability:
-                  description: 'exact for a loaded-policy digest match, major_release for the distribution fallback.'
+                content_digest:
                   type: string
-                  enum: [exact, major_release]
+                lifecycle:
+                  type: string
+                  enum: [active, archived]
+                applicability:
+                  description: 'exact for automatic loaded-policy identity, major_release for Boolean/port-only agreement, explicit for an operator target without equivalence assertion.'
+                  type: string
+                  enum: [exact, major_release, explicit]
         comparison:
           type: object
           required:
@@ -3014,6 +3052,7 @@ components:
           properties:
             available:
               type: boolean
+              description: Reference overlays can be displayed under the existing trusted identity gate; individual comparison usability is in selection.families, and stale results are paused.
             paused:
               description: True when the observation is stale and comparison is paused.
               type: boolean
@@ -3037,6 +3076,108 @@ components:
         ports:
           description: Present when `view` is `ports`.
           $ref: "#/components/schemas/HostConfigurationPortPage"
+    CatalogReferenceIdentity:
+      type: object
+      required: [id, display_name, content_digest, loaded_policy_digest, lifecycle, distribution, major_version, architecture, policy_type]
+      properties:
+        id:
+          type: integer
+        display_name:
+          type: string
+          description: Presentation only; duplicate names are allowed.
+        content_digest:
+          type: string
+        loaded_policy_digest:
+          type: string
+        lifecycle:
+          type: string
+          enum: [active, archived]
+        distribution:
+          type: string
+        major_version:
+          type: string
+        architecture:
+          type: string
+        policy_type:
+          type: string
+    CatalogFamilyApplicability:
+      type: object
+      required: [status, reference_status, host_status, comparison_allowed, reason]
+      properties:
+        status:
+          type: string
+          enum: [comparable, incomplete, unavailable, unknown, stale, unsupported]
+        reference_status:
+          type: string
+          enum: [complete, incomplete, unavailable, unsupported]
+        host_status:
+          type: string
+        comparison_allowed:
+          type: boolean
+          description: Partial host data permits only observed comparisons, not missing-state claims.
+        reason:
+          type: [string, "null"]
+    CatalogReferenceSelection:
+      type: object
+      required: [mode, status, basis, reason, selected_revision, candidates, candidate_count, candidates_truncated, context, policy_identity_match, equivalence_asserted, families]
+      description: |
+        One domain selection contract. Selected revision is separate from family
+        usability. Automatic exact/ADR0010 and explicit request basis never fill
+        missing host evidence. ADR0010 grants only Boolean/port reference agreement,
+        not applicability for future exact-policy facts. Fresh evaluation uses
+        current active eligibility; there is no persisted historical selection pin.
+      properties:
+        mode:
+          type: string
+          enum: [automatic, explicit]
+        status:
+          type: string
+          enum: [selected, absent, ambiguous, unavailable]
+        basis:
+          type: [string, "null"]
+          enum: [exact_policy_identity, adr0010_major_release_family_agreement, explicit_revision, null]
+        reason:
+          type: [string, "null"]
+        selected_revision:
+          oneOf:
+            - $ref: "#/components/schemas/CatalogReferenceIdentity"
+            - type: "null"
+        candidates:
+          type: array
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/CatalogReferenceIdentity"
+        candidate_count:
+          type: integer
+        candidates_truncated:
+          type: boolean
+        context:
+          type: object
+          required: [distribution, major_version, architecture, policy_type]
+          properties:
+            distribution:
+              type: string
+            major_version:
+              type: string
+            architecture:
+              type: string
+            policy_type:
+              type: string
+        policy_identity_match:
+          type: [boolean, "null"]
+          description: Trusted host/reference raw SHA equality only; explicit selection does not assert equivalence regardless of equality.
+        equivalence_asserted:
+          type: boolean
+          description: True only for automatic exact raw-policy identity, not a statement that all reference families are available.
+        families:
+          type: object
+          required: [booleans, ports]
+          description: These are the only supported families; future consumers must not inherit ADR0010 eligibility.
+          properties:
+            booleans:
+              $ref: "#/components/schemas/CatalogFamilyApplicability"
+            ports:
+              $ref: "#/components/schemas/CatalogFamilyApplicability"
     CatalogImport:
       type: object
       required:

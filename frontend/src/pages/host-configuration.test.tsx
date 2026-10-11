@@ -24,9 +24,22 @@ const base: HostConfigurationResponse = {
       policy_type: "targeted",
       architecture: "x86_64",
       loaded_policy_digest: identity,
+      content_digest: "sha256:" + "1".repeat(64),
+      lifecycle: "active",
       applicability: "major_release"
     }
   },
+  selection: {
+    mode: "automatic", status: "selected", basis: "adr0010_major_release_family_agreement", reason: null,
+    selected_revision: { id: 3, display_name: "AlmaLinux 9", content_digest: "sha256:" + "1".repeat(64), loaded_policy_digest: identity, lifecycle: "active", distribution: "almalinux", major_version: "9", architecture: "x86_64", policy_type: "targeted" },
+    candidates: [], candidate_count: 1, candidates_truncated: false,
+    context: { distribution: "almalinux", major_version: "9", architecture: "x86_64", policy_type: "targeted" }, policy_identity_match: false, equivalence_asserted: false,
+    families: {
+      booleans: { status: "comparable", reference_status: "complete", host_status: "observed", comparison_allowed: true, reason: null },
+      ports: { status: "comparable", reference_status: "complete", host_status: "observed", comparison_allowed: true, reason: null }
+    }
+  },
+  reference_options: { revisions: [], truncated: false },
   comparison: {
     available: true,
     paused: false,
@@ -61,8 +74,6 @@ const booleansPage: HostConfigurationResponse["booleans"] = {
   pages: 2
 };
 
-const booleansView: HostConfigurationResponse = { ...base, view: "booleans", booleans: booleansPage, differences: undefined };
-
 const portsView: HostConfigurationResponse = {
   ...base,
   view: "ports",
@@ -82,8 +93,19 @@ const portsView: HostConfigurationResponse = {
 const noReference: HostConfigurationResponse = {
   ...base,
   reference: { kind: "none" },
+  selection: { ...base.selection, status: "absent", basis: null, reason: "no_matching_candidates", selected_revision: null },
   comparison: { available: false, paused: false, summary: { booleans: base.comparison.summary.booleans, ports: base.comparison.summary.ports } },
   differences: undefined
+};
+
+const alternateIdentity: NonNullable<HostConfigurationResponse["selection"]["selected_revision"]> = {
+  ...base.selection.selected_revision!, id: 4, content_digest: "sha256:" + "2".repeat(64), loaded_policy_digest: "sha256:" + "b".repeat(64)
+};
+const selectable: HostConfigurationResponse = { ...base, reference_options: { revisions: [base.selection.selected_revision!, alternateIdentity], truncated: false } };
+const explicit: HostConfigurationResponse = {
+  ...selectable,
+  reference: { kind: "distribution_catalog", catalog_revision: { ...base.reference.catalog_revision!, id: 4, content_digest: alternateIdentity.content_digest, applicability: "explicit" } },
+  selection: { ...base.selection, mode: "explicit", basis: "explicit_revision", selected_revision: alternateIdentity, equivalence_asserted: false, policy_identity_match: false }
 };
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -96,7 +118,7 @@ function jsonResponse(status: number, body: unknown): Response {
   } as unknown as Response;
 }
 
-function renderHostConfiguration(payload: HostConfigurationResponse, initialEntry = "/hosts/10/configuration") {
+function renderHostConfiguration(payload: HostConfigurationResponse, initialEntry = "/hosts/10/configuration", explicitResponse?: HostConfigurationResponse) {
   const fetchMock = vi.fn();
   fetchMock.mockImplementation((url: string) => {
     if (url === "/api/v1/hosts/10") {
@@ -112,11 +134,11 @@ function renderHostConfiguration(payload: HostConfigurationResponse, initialEntr
     }
     if (url.startsWith("/api/v1/hosts/10/configuration")) {
       const search = new URL(url, "http://localhost").searchParams;
-      let body = payload;
+      let body = search.has("reference_revision_id") && explicitResponse ? explicitResponse : payload;
       if (search.get("view") === "booleans") {
-        body = booleansView;
+        body = { ...body, view: "booleans", booleans: booleansPage, differences: undefined };
       } else if (search.get("view") === "ports") {
-        body = portsView;
+        body = { ...body, view: "ports", ports: portsView.ports, differences: undefined };
       }
       const query = search.get("q")?.toLowerCase();
       const requestedPage = Number(search.get("page") ?? "1");
@@ -148,6 +170,72 @@ function renderHostConfiguration(payload: HostConfigurationResponse, initialEntr
 }
 
 describe("HostConfiguration", () => {
+  it("presents automatic exact and ADR0010 fallback bases without inferring them from names", async () => {
+    const exact = { ...selectable, selection: { ...base.selection, basis: "exact_policy_identity" as const, policy_identity_match: true, equivalence_asserted: true } };
+    const { unmount } = renderHostConfiguration(exact);
+    expect(await screen.findByRole("heading", { name: /Exact policy reference/ })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Comparison reference" })).toHaveValue("automatic");
+    unmount();
+    renderHostConfiguration(selectable);
+    expect(await screen.findByRole("heading", { name: /Boolean\/port agreement/ })).toBeInTheDocument();
+    expect(screen.getByText(/not exact binary-policy equivalence/)).toBeInTheDocument();
+    expect(screen.getByText("Loaded policy identity differs from selected reference.")).toBeInTheDocument();
+  });
+
+  it("chooses a temporary explicit URL revision, disambiguates duplicate names and returns to automatic", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = renderHostConfiguration(selectable, "/hosts/10/configuration", explicit);
+    await screen.findByRole("combobox", { name: "Comparison reference" });
+    expect(screen.getByRole("option", { name: /AlmaLinux 9 · revision 3/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /AlmaLinux 9 · revision 4/ })).toBeInTheDocument();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Comparison reference" }), "4");
+    expect(await screen.findByRole("heading", { name: /Explicit reference/ })).toBeInTheDocument();
+    expect(screen.getByText(/does not save a host preference/)).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("reference_revision_id=4"))).toBe(true);
+    await user.click(screen.getByRole("tab", { name: "Booleans (2)" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).includes("reference_revision_id=4") && String(url).includes("view=booleans"))).toBe(true));
+    await user.click(screen.getByRole("button", { name: "Return to automatic" }));
+    expect(await screen.findByRole("heading", { name: /Boolean\/port agreement/ })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Comparison reference" })).toHaveValue("automatic");
+    expect(fetchMock.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
+  });
+
+  it("restores only the viewed explicit selection from a shared URL", async () => {
+    const { fetchMock } = renderHostConfiguration(selectable, "/hosts/10/configuration?reference_revision_id=4", explicit);
+    expect(await screen.findByRole("heading", { name: /Explicit reference/ })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Comparison reference" })).toHaveValue("4");
+    expect(fetchMock.mock.calls[0][0]).toContain("reference_revision_id=4");
+  });
+
+  it("makes ambiguity and archived target unavailability explicit without selectable archived revisions", async () => {
+    const ambiguous = { ...noReference, reference_options: selectable.reference_options, selection: { ...noReference.selection, status: "ambiguous" as const, reason: "incompatible_candidate_families", candidates: selectable.reference_options.revisions, candidate_count: 2 } };
+    const { unmount } = renderHostConfiguration(ambiguous);
+    expect(await screen.findByRole("heading", { name: /Ambiguous reference/ })).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Reference candidates" })).toBeInTheDocument();
+    unmount();
+    const archived = { ...noReference, selection: { ...noReference.selection, mode: "explicit" as const, status: "unavailable" as const, reason: "archived_reference", candidates: [{ ...alternateIdentity, lifecycle: "archived" as const }] } };
+    renderHostConfiguration(archived, "/hosts/10/configuration?reference_revision_id=4");
+    expect(await screen.findByText(/No other reference has been substituted/)).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Requested revision 4 — unavailable/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Return to automatic" })).toBeInTheDocument();
+  });
+
+  it("does not present unavailable host families as a zero-difference match", async () => {
+    const unknown = {
+      ...explicit,
+      selection: { ...explicit.selection, families: {
+        booleans: { ...explicit.selection.families.booleans, status: "unknown" as const, host_status: "unknown", comparison_allowed: false, reason: "host_inventory_unknown" },
+        ports: { ...explicit.selection.families.ports, status: "unavailable" as const, host_status: "unavailable", comparison_allowed: false, reason: "host_inventory_unavailable" }
+      } },
+      differences: { ...base.differences!, total: 0, booleans: [], ports: [] }
+    };
+    renderHostConfiguration(unknown, "/hosts/10/configuration?reference_revision_id=4");
+    expect(await screen.findByRole("heading", { name: /Booleans: unknown/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Ports: unavailable/ })).toBeInTheDocument();
+    expect(screen.queryByText("Matches reference")).not.toBeInTheDocument();
+    expect(screen.getByText("No observed differences — comparison limited")).toBeInTheDocument();
+  });
+
   it("shows facts, reference, summary, and differences", async () => {
     const { container } = renderHostConfiguration(base);
 
@@ -156,8 +244,9 @@ describe("HostConfiguration", () => {
     expect(screen.getAllByRole("link", { name: "alma-01" })).toHaveLength(1);
     expect(screen.queryByRole("heading", { name: "alma-01" })).not.toBeInTheDocument();
     expect(screen.queryByText("Configuration", { selector: ".pf-v6-c-breadcrumb__item" })).not.toBeInTheDocument();
-    expect(screen.getByText("AlmaLinux 9")).toBeInTheDocument();
-    expect(await screen.findByText((_, element) => Boolean(element?.classList.contains("configuration-reference-line")))).toHaveTextContent("Compared with AlmaLinux 9 · targeted · x86_64 · policy 33");
+    expect(screen.getByRole("link", { name: "AlmaLinux 9" })).toBeInTheDocument();
+    expect(await screen.findByText((_, element) => Boolean(element?.classList.contains("configuration-reference-line")))).toHaveTextContent("Compared with AlmaLinux 9 · targeted · x86_64");
+    expect(screen.getByText("Host policy format 33")).toBeInTheDocument();
     expect(screen.getByText(/^Observed .* ago$/)).toBeInTheDocument();
     expect(container.querySelector(".configuration-observed-at small")).toHaveTextContent("Sep 25, 10:00 UTC");
     expect(screen.getByText("SELinux enforcing")).toBeInTheDocument();
@@ -259,10 +348,10 @@ describe("HostConfiguration", () => {
 
     await screen.findByRole("heading", { name: /No reference available/ });
     expect(
-      screen.getByText((content) => content.includes("No distribution reference is available for this host's policy"))
+      screen.getByText("No active distribution reference matched this host.")
     ).toBeInTheDocument();
     expect(screen.queryByText("Differences (3)")).not.toBeInTheDocument();
-    expect(screen.getByText(/Compared with/)).toHaveTextContent("No reference available");
+    expect(screen.getByText((_, element) => Boolean(element?.classList.contains("configuration-reference-line")))).toHaveTextContent("Reference No active reference");
   });
 
   it("uses a compact empty state when there are no differences", async () => {

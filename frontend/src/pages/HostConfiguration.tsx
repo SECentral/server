@@ -2,6 +2,7 @@ import {
   Alert,
   Breadcrumb,
   BreadcrumbItem,
+  Button,
   Card,
   CardBody,
   ClipboardCopy,
@@ -25,6 +26,12 @@ import { fetchHostConfiguration } from "../api/configuration";
 import type { HostConfigurationResponse } from "../api/configuration";
 import { fetchHost, type HostDetailResponse } from "../api/hosts";
 import { EffectivePermissiveDomains } from "../components/EffectivePermissiveDomains";
+import { CatalogReferenceSelection } from "../components/CatalogReferenceSelection";
+
+function comparisonLimited(data: HostConfigurationResponse): boolean {
+  return Object.values(data.selection.families).some((family) => family.status !== "comparable") ||
+    (data.comparison.summary.booleans?.not_observed ?? 0) + (data.comparison.summary.booleans?.unavailable ?? 0) + (data.comparison.summary.ports?.not_observed ?? 0) > 0;
+}
 
 const VIEWS = [
   { value: "differences", label: "Differences" },
@@ -97,19 +104,20 @@ function ComparisonHeader({ data, host }: { data: HostConfigurationResponse; hos
   const reference = data.reference.catalog_revision;
   const referenceName = data.reference.kind === "distribution_catalog"
     ? reference?.display_name ?? "Distribution catalog"
-    : "No reference available";
+    : data.selection.status === "ambiguous" ? "Ambiguous reference" : data.selection.status === "unavailable" ? "Reference unavailable" : "No active reference";
   const kernelPolicyVersion = host?.snapshot?.selinux.kernel_policy_version ?? host?.selinux.kernel_policy_version;
-  const referenceDetails = reference ? [reference.policy_type, reference.architecture, kernelPolicyVersion != null ? `policy ${kernelPolicyVersion}` : null]
+  const referenceDetails = reference ? [reference.policy_type, reference.architecture]
     .filter(Boolean).join(" · ") : "";
   const stale = data.observation?.status === "stale" || data.comparison.paused;
   const differenceCount = data.differences?.total
-    ?? data.comparison.summary.booleans.differ + data.comparison.summary.booleans.host_only + data.comparison.summary.ports.differ;
+    ?? (data.comparison.summary.booleans?.differ ?? 0) + (data.comparison.summary.booleans?.host_only ?? 0) + (data.comparison.summary.ports?.differ ?? 0);
+  const limited = comparisonLimited(data);
 
   return (
     <div className="configuration-comparison-header">
       <div>
         <p className="configuration-reference-line">
-          Compared with <strong>{referenceName}</strong>{referenceDetails && ` · ${referenceDetails}`}
+          {data.comparison.available ? "Compared with" : "Reference"} <strong>{referenceName}</strong>{referenceDetails && ` · ${referenceDetails}`}
         </p>
         <div className="configuration-header-metadata">
           {data.observation ? (
@@ -121,7 +129,8 @@ function ComparisonHeader({ data, host }: { data: HostConfigurationResponse; hos
             </span>
           ) : <span>No current observation</span>}
           <span>SELinux {data.selinux.enforcement ?? "unknown"}</span>
-          <span>Policy {data.selinux.configured_policy_type ?? "unknown"}</span>
+           <span>Policy {data.selinux.configured_policy_type ?? "unknown"}</span>
+           {kernelPolicyVersion != null && <span>Host policy format {kernelPolicyVersion}</span>}
         </div>
       </div>
       <div className="configuration-header-status" aria-label="Comparison status">
@@ -129,8 +138,8 @@ function ComparisonHeader({ data, host }: { data: HostConfigurationResponse; hos
           {stale ? "Stale observation" : data.observation ? "Current observation" : "No observation"}
         </Label>
         {data.comparison.available && (
-          <Label color={differenceCount > 0 ? "orange" : "green"} aria-label={differenceCount > 0 ? `Differences found: ${differenceCount}` : "Matches reference"}>
-            {differenceCount > 0 ? plural(differenceCount, "difference") : "Matches reference"}
+          <Label color={differenceCount > 0 || limited ? "orange" : "green"} aria-label={differenceCount > 0 ? `Differences found: ${differenceCount}` : limited ? "Comparison limited" : "Matches reference"}>
+            {differenceCount > 0 ? plural(differenceCount, "difference") : limited ? "Comparison limited" : "Matches reference"}
           </Label>
         )}
       </div>
@@ -148,6 +157,8 @@ function TechnicalDetails({ data, host }: { data: HostConfigurationResponse; hos
         {data.observation && <div><dt>Observed at</dt><dd>{formatUtc(data.observation.last_observed_at)}</dd></div>}
         {data.selinux.policy_identity && <div><dt>Host policy identity</dt><dd><ClipboardCopy variant="inline-compact" isReadOnly isCode copyAriaLabel="Copy host policy identity" textAriaLabel="Host policy identity">{data.selinux.policy_identity}</ClipboardCopy></dd></div>}
         {reference?.loaded_policy_digest && <div><dt>Reference policy digest</dt><dd><ClipboardCopy variant="inline-compact" isReadOnly isCode copyAriaLabel="Copy reference policy digest" textAriaLabel="Reference policy digest">{reference.loaded_policy_digest}</ClipboardCopy></dd></div>}
+        {reference?.content_digest && <div><dt>Catalog content digest</dt><dd><code>{reference.content_digest}</code></dd></div>}
+        <div><dt>Selection basis</dt><dd>{data.selection.basis ?? data.selection.reason ?? data.selection.status}</dd></div>
         {host?.agent.agent_version && <div><dt>Agent version</dt><dd>{host.agent.agent_version}</dd></div>}
       </dl>
     </details>
@@ -172,7 +183,7 @@ function ComparisonSummary({ data }: { data: HostConfigurationResponse }) {
   if (!booleans && !ports) return null;
   return (
     <div className="configuration-summary-grid" aria-label="Comparison summary">
-      {booleans && (
+      {booleans && data.selection.families.booleans.comparison_allowed && (
         <Card isCompact className="configuration-summary-card">
           <CardBody>
             <Title headingLevel="h3" size="md">Booleans</Title>
@@ -189,7 +200,7 @@ function ComparisonSummary({ data }: { data: HostConfigurationResponse }) {
           </CardBody>
         </Card>
       )}
-      {ports && (
+      {ports && data.selection.families.ports.comparison_allowed && (
         <Card isCompact className="configuration-summary-card">
           <CardBody>
             <Title headingLevel="h3" size="md">Ports</Title>
@@ -220,7 +231,7 @@ function Differences({ data }: { data: HostConfigurationResponse }) {
   return (
     <section aria-label="Differences">
       {differences.total === 0 ? (
-        <p className="configuration-no-differences"><Label color="green">Matches reference</Label> No boolean or port differences were observed.</p>
+         <p className="configuration-no-differences"><Label color={comparisonLimited(data) ? "orange" : "green"}>{comparisonLimited(data) ? "No observed differences — comparison limited" : "Matches reference"}</Label> No boolean or port differences were observed.</p>
       ) : (
         <div className="pf-v6-c-table__responsive-wrapper">
           <table className="pf-v6-c-table pf-m-compact pf-m-grid-md configuration-differences-table" aria-label="Configuration differences">
@@ -451,12 +462,13 @@ export function HostConfiguration() {
   const view: View = VIEWS.some((entry) => entry.value === requestedView) ? (requestedView as View) : "differences";
   const q = searchParams.get("q") ?? "";
   const page = Number(searchParams.get("page") ?? "1");
+  const referenceRevisionId = searchParams.get("reference_revision_id");
 
   const configQuery = useQuery({
-    queryKey: ["host-configuration", Number(id), view, q, page],
-    queryFn: () => fetchHostConfiguration(Number(id), { view, q: q || undefined, page }),
+    queryKey: ["host-configuration", Number(id), view, q, page, referenceRevisionId],
+    queryFn: () => fetchHostConfiguration(Number(id), { view, q: q || undefined, page, referenceRevisionId: referenceRevisionId ?? undefined }),
     refetchInterval: (query) => query.state.data?.selinux.effective_permissive_domains?.status === "pending" ? 2000 : false,
-    placeholderData: (previousData) => previousData
+    placeholderData: (previousData, previousQuery) => previousQuery?.queryKey[1] === Number(id) && previousQuery.queryKey[5] === referenceRevisionId ? previousData : undefined
   });
   const hostQuery = useQuery({
     queryKey: ["host", Number(id)],
@@ -494,6 +506,15 @@ export function HostConfiguration() {
     setSearchParams(next);
   };
 
+  const setReference = (revision: string | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (revision === null) next.delete("reference_revision_id");
+    else next.set("reference_revision_id", revision);
+    next.delete("page");
+    next.delete("q");
+    setSearchParams(next);
+  };
+
   const data = configQuery.data;
   const comparisonAvailable = data?.comparison.available ?? false;
 
@@ -512,13 +533,15 @@ export function HostConfiguration() {
           <Spinner size="xl" />
         </div>
       ) : configQuery.isError ? (
-        <Alert variant="danger" title="Could not load host configuration">
-          {configQuery.error instanceof Error ? configQuery.error.message : "Unknown error"}
+         <Alert variant="danger" title="Could not load host configuration">
+           {configQuery.error instanceof Error ? configQuery.error.message : "Unknown error"}
+           {referenceRevisionId !== null && <Button variant="link" onClick={() => setReference(null)}>Return to automatic</Button>}
         </Alert>
       ) : (
         <>
           {data && <ComparisonHeader data={data} host={hostQuery.data?.host} />}
           {data && <TechnicalDetails data={data} host={hostQuery.data?.host} />}
+          {data && <CatalogReferenceSelection data={data} requestedRevision={referenceRevisionId} onSelect={setReference} />}
           <EffectivePermissiveDomains key={data?.selinux.effective_permissive_domains?.policy_identity} state={data?.selinux.effective_permissive_domains} />
           {comparisonAvailable ? (
             <>
@@ -558,9 +581,8 @@ export function HostConfiguration() {
               )}
             </>
           ) : data ? (
-            <Alert variant="info" isInline title="No reference available">
-              No distribution reference is available for this host's policy. Observed facts remain available in the host
-              details.
+            <Alert variant="info" isInline title={data.selection.status === "selected" ? "Comparison unavailable" : "No reference available"}>
+              Host observations and selected reference facts cannot currently support this comparison. Observed facts remain available in host details.
             </Alert>
           ) : null}
         </>

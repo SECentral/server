@@ -2,13 +2,13 @@ class HostConfigurationQuery
   PAGE_SIZE = 50
   VIEWS = %w[differences booleans ports].freeze
 
-  def self.call(host, view: "differences", q: nil, page: 1)
-    new(host, view: view, q: q, page: page).call
+  def self.call(host, view: "differences", q: nil, page: 1, reference_revision_id: nil)
+    new(host, view: view, q: q, page: page, reference_revision_id: reference_revision_id).call
   end
 
-  def initialize(host, view:, q: nil, page: 1)
+  def initialize(host, view:, q: nil, page: 1, reference_revision_id: nil)
     @host = host
-    @comparison = HostConfigurationComparison.call(host)
+    @comparison = HostConfigurationComparison.call(host, reference_revision_id: reference_revision_id)
     @view = VIEWS.include?(view) ? view : "differences"
     @query = q.to_s.strip.downcase
     @page = [page.to_i, 1].max
@@ -20,6 +20,8 @@ class HostConfigurationQuery
       observation: observation_payload,
       selinux: selinux_payload,
       reference: reference_payload,
+      selection: @comparison.selection.as_json,
+      reference_options: CatalogReferenceSelection.options(snapshot: @comparison.snapshot, selinux: @comparison.selinux),
       comparison: comparison_payload,
       view: @view
     }
@@ -67,6 +69,8 @@ class HostConfigurationQuery
           policy_type: revision.policy_type,
           architecture: revision.architecture,
           loaded_policy_digest: revision.loaded_policy_digest,
+          content_digest: revision.content_digest,
+          lifecycle: revision.catalog_management.lifecycle,
           applicability: reference.applicability
         }
       }
@@ -169,6 +173,8 @@ class HostConfigurationQuery
       status = "stale"
     elsif @comparison.selinux["boolean_status"] == "unavailable"
       status = "unavailable"
+    elsif !@comparison.selinux["boolean_status"].nil? && !%w[observed partial].include?(@comparison.selinux["boolean_status"])
+      status = "unknown"
     elsif entry.nil?
       status = "not_observed"
     elsif entry["status"] == "unavailable"
@@ -196,6 +202,8 @@ class HostConfigurationQuery
       status = "stale"
     elsif @comparison.selinux["boolean_status"] == "unavailable"
       status = "unavailable"
+    elsif !@comparison.selinux["boolean_status"].nil? && !%w[observed partial].include?(@comparison.selinux["boolean_status"])
+      status = "unknown"
     elsif entry["status"] == "unavailable"
       status = "unavailable"
     elsif entry["status"] == "observed" && entry["current"].in?([true, false])

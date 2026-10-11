@@ -1,13 +1,15 @@
 class HostConfigurationComparison
-  def self.call(host)
-    new(host).call
+  def self.call(host, reference_revision_id: nil)
+    new(host, reference_revision_id).call
   end
 
-  def initialize(host)
+  def initialize(host, reference_revision_id = nil)
     @host = host
+    @reference_revision_id = reference_revision_id
   end
 
   attr_reader :observation, :snapshot, :stale, :selinux, :policy_identity, :reference, :catalog_revision
+  attr_reader :selection
   attr_reader :boolean_overlay, :port_overlay
   attr_reader :boolean_rows, :boolean_differences, :boolean_matches, :boolean_host_only_rows
   attr_reader :boolean_reference_only_rows, :boolean_unavailable_rows, :boolean_reference_entries
@@ -18,9 +20,10 @@ class HostConfigurationComparison
     @snapshot = @observation&.host_snapshot
     @selinux = @host.selinux_state_for(@observation)
     @policy_identity = @selinux["policy_identity"]
-    @reference = DistributionCatalogReference.for_snapshot(@snapshot) if @policy_identity
-    @catalog_revision = @reference&.revision
     @stale = @observation&.stale?
+    @selection = CatalogReferenceSelection.call(snapshot: @snapshot, selinux: @selinux, revision_id: @reference_revision_id, stale: !!@stale)
+    @reference = DistributionCatalogReference.from_revision(@selection.revision, applicability: @selection.applicability)
+    @catalog_revision = @reference&.revision
     return self unless policy_identity_matches?
 
     run_comparison
@@ -73,17 +76,17 @@ class HostConfigurationComparison
   end
 
   def run_comparison
-    boolean_catalog = @reference&.boolean_catalog || BooleanCatalog.for(@policy_identity)
+    boolean_catalog = @reference&.boolean_catalog unless @selection.family("booleans")[:reason] == "incompatible_policy_context"
     @boolean_overlay = BooleanCatalogOverlay.call(hosts: [@host], policy_identity: @policy_identity, catalog: boolean_catalog)
 
-    port_catalog = @reference&.port_catalog || PortCatalog.for(@policy_identity)
+    port_catalog = @reference&.port_catalog unless @selection.family("ports")[:reason] == "incompatible_policy_context"
     @port_overlay = PortCatalogOverlay.call(hosts: [@host], policy_identity: @policy_identity, catalog: port_catalog)
 
     observed_boolean_names = Array(@selinux["booleans"]).filter_map { |b| b["name"] }
     @boolean_rows = @boolean_overlay.dig(:observed, :rows) || []
     @boolean_differences = @boolean_rows.select { |row| row.dig(:counts, "reference_difference").positive? }
     @boolean_matches = @boolean_rows.select { |row| row.dig(:counts, "reference_match").positive? }
-    @boolean_host_only_rows = @boolean_rows.reject { |row| row[:catalog] }.select { |row| (row.dig(:counts, "on") + row.dig(:counts, "off")).positive? }
+    @boolean_host_only_rows = boolean_reference_available? ? @boolean_rows.reject { |row| row[:catalog] }.select { |row| (row.dig(:counts, "on") + row.dig(:counts, "off")).positive? } : []
     @boolean_reference_only_rows = @boolean_rows.select { |row| row[:catalog] && row.dig(:counts, "unknown").positive? && row.dig(:counts, "unavailable").zero? && row.dig(:counts, "stale").zero? && !observed_boolean_names.include?(row[:name]) }
     @boolean_unavailable_rows = @boolean_rows.select { |row| row.dig(:counts, "unavailable").positive? }
     @boolean_reference_entries = @boolean_rows.count { |row| row[:catalog] }

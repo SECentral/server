@@ -104,7 +104,7 @@ RSpec.describe "Host SELinux configuration API", type: :request do
     expect(payload.fetch("selinux").except("effective_permissive_domains")).to eq("enforcement" => nil, "configured_policy_type" => "targeted", "boolean_status" => "observed", "port_inventory_status" => "observed", "file_context_mappings_status" => "unknown", "policy_identity" => "sha256:" + "b" * 64)
     expect(payload.dig("selinux", "effective_permissive_domains")).to include("status" => "unavailable", "domains" => nil, "policy_identity" => "sha256:" + "b" * 64)
     expect(payload.fetch("reference")).to eq("kind" => "distribution_catalog", "catalog_revision" => {
-      "id" => catalog.id, "display_name" => "AlmaLinux 9", "policy_type" => "targeted", "architecture" => "x86_64", "loaded_policy_digest" => identity, "applicability" => "major_release"
+      "id" => catalog.id, "display_name" => "AlmaLinux 9", "policy_type" => "targeted", "architecture" => "x86_64", "loaded_policy_digest" => identity, "content_digest" => catalog.content_digest, "lifecycle" => "active", "applicability" => "major_release"
     })
     expect(payload.fetch("comparison")).to eq("available" => true, "paused" => false, "summary" => {
       "booleans" => { "reference_entries" => 2, "compared" => 2, "match" => 1, "differ" => 1, "host_only" => 1, "not_observed" => 0, "unavailable" => 0 },
@@ -313,5 +313,87 @@ RSpec.describe "Host SELinux configuration API", type: :request do
     payload = JSON.parse(response.body)
     expect(payload.fetch("reference")).to eq("kind" => "none")
     expect(payload.dig("comparison", "available")).to be false
+  end
+
+  it "reports automatic basis and temporarily uses a different active revision without writing host preferences" do
+    automatic = revision
+    chosen = DistributionCatalogRevision.create!(automatic.attributes.except("id", "created_at", "updated_at").merge(content_digest: "sha256:" + "2" * 64, loaded_policy_digest: "sha256:" + "d" * 64, distribution: "rhel"))
+    chosen.distribution_catalog_booleans.create!(name: "httpd_can_network_connect", default_value: true, description: "Alternate expected value")
+    chosen.distribution_catalog_ports.create!(protocol: "tcp", start_port: 8080, end_port: 8080, selinux_type: "http_port_t")
+    record = demo_host
+    original_host = record.attributes
+    original_snapshot = record.current_snapshot.attributes
+    get "/api/v1/hosts/#{record.id}/configuration"
+    expect(JSON.parse(response.body)["selection"]).to include("mode" => "automatic", "status" => "selected", "basis" => "adr0010_major_release_family_agreement", "equivalence_asserted" => false)
+
+    get "/api/v1/hosts/#{record.id}/configuration", params: { view: "booleans", reference_revision_id: chosen.id }
+    expect(response).to have_http_status(:ok)
+    payload = JSON.parse(response.body)
+    expect(payload["selection"]).to include("mode" => "explicit", "basis" => "explicit_revision", "policy_identity_match" => false, "equivalence_asserted" => false)
+    expect(payload.dig("reference", "catalog_revision", "id")).to eq(chosen.id)
+    expect(payload.dig("reference", "catalog_revision", "content_digest")).to eq(chosen.content_digest)
+    expect(payload["booleans"]["rows"].find { |row| row["name"] == "httpd_can_network_connect" }["reference_default"]).to be(true)
+    expect(record.reload.attributes).to eq(original_host)
+    expect(record.current_snapshot.attributes).to eq(original_snapshot)
+
+    get "/api/v1/hosts/#{record.id}/configuration"
+    expect(JSON.parse(response.body).dig("reference", "catalog_revision", "id")).to eq(automatic.id)
+  end
+
+  it "does not replace an incomplete explicit family with the host's automatic exact reference" do
+    automatic = revision
+    chosen = DistributionCatalogRevision.create!(automatic.attributes.except("id", "created_at", "updated_at").merge(content_digest: "sha256:" + "3" * 64, loaded_policy_digest: "sha256:" + "d" * 64, booleans_complete: false))
+    record = host({ "selinux" => { "policy_identity" => identity, "boolean_status" => "observed", "booleans" => [{ "name" => "httpd_can_network_connect", "current" => true, "status" => "observed" }], "policy" => { "port_inventory" => { "status" => "unknown", "mappings" => [] } } } })
+    get "/api/v1/hosts/#{record.id}/configuration", params: { view: "booleans", reference_revision_id: chosen.id }
+    payload = JSON.parse(response.body)
+    expect(payload.dig("selection", "families", "booleans")).to include("status" => "incomplete", "comparison_allowed" => false)
+    expect(payload.dig("booleans", "rows", 0)).to include("reference_default" => nil, "catalog_status" => "unavailable")
+    expect(payload.dig("comparison", "summary", "booleans", "host_only")).to eq(0)
+  end
+
+  it "preserves unknown/partial evidence despite an explicit complete reference" do
+    catalog = revision
+    record = host({ "selinux" => { "policy_identity" => identity, "boolean_status" => "unknown", "booleans" => [{ "name" => "httpd_can_network_connect", "current" => true, "status" => "observed" }], "policy" => { "port_inventory" => { "status" => "partial", "mappings" => [] } } } })
+    get "/api/v1/hosts/#{record.id}/configuration", params: { view: "booleans", reference_revision_id: catalog.id }
+    payload = JSON.parse(response.body)
+    expect(payload.dig("selection", "families", "booleans")).to include("status" => "unknown", "comparison_allowed" => false)
+    expect(payload.dig("selection", "families", "ports")).to include("status" => "incomplete", "comparison_allowed" => true)
+    expect(payload["booleans"]["rows"].map { |row| row["current"] }).to all(be_nil)
+    expect(payload.dig("comparison", "summary", "booleans", "match")).to eq(0)
+    expect(payload.dig("comparison", "summary", "ports", "not_observed")).to eq(1)
+    get "/api/v1/hosts/#{record.id}/configuration", params: { reference_revision_id: catalog.id, view: "ports" }
+    expect(JSON.parse(response.body).dig("ports", "segments", 0, "relation")).to eq("comparison_unknown")
+  end
+
+  it "returns normal unavailable archived targets, with no silent substitution, and request errors only for invalid IDs" do
+    catalog = revision
+    record = demo_host
+    catalog.catalog_management.change!(lifecycle: "archived", changed_by: "operator")
+    get "/api/v1/hosts/#{record.id}/configuration", params: { reference_revision_id: catalog.id }
+    expect(response).to have_http_status(:ok)
+    payload = JSON.parse(response.body)
+    expect(payload["selection"]).to include("mode" => "explicit", "status" => "unavailable", "reason" => "archived_reference", "selected_revision" => nil)
+    expect(payload["reference_options"]["revisions"]).to be_empty
+    expect(payload["reference"]).to eq("kind" => "none")
+    get "/api/v1/hosts/#{record.id}/configuration", params: { reference_revision_id: "bogus" }
+    expect(response).to have_http_status(:unprocessable_content)
+    get "/api/v1/hosts/#{record.id}/configuration", params: { reference_revision_id: 99_999_999 }
+    expect(response).to have_http_status(:not_found)
+    catalog.catalog_management.change!(lifecycle: "active", changed_by: "operator")
+    get "/api/v1/hosts/#{record.id}/configuration", params: { reference_revision_id: catalog.id }
+    expect(JSON.parse(response.body).dig("selection", "status")).to eq("selected")
+  end
+
+  it "exposes ambiguity as a normal domain result instead of an empty catalog or HTTP error" do
+    first = revision
+    other = DistributionCatalogRevision.create!(first.attributes.except("id", "created_at", "updated_at").merge(content_digest: "sha256:" + "4" * 64, loaded_policy_digest: "sha256:" + "d" * 64))
+    other.distribution_catalog_booleans.create!(name: "different_boolean", default_value: false, description: "Different family")
+    record = demo_host
+    get "/api/v1/hosts/#{record.id}/configuration"
+    expect(response).to have_http_status(:ok)
+    payload = JSON.parse(response.body)
+    expect(payload["selection"]).to include("status" => "ambiguous", "reason" => "incompatible_candidate_families", "candidate_count" => 2)
+    expect(payload["selection"]["candidates"].map { |candidate| candidate["id"] }).to eq([first.id, other.id])
+    expect(payload.dig("comparison", "available")).to be(false)
   end
 end

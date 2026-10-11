@@ -71,6 +71,39 @@ contents became invalid.
 
 ## Understand reference selection
 
+Open a host's **SELinux configuration** page and use **Comparison reference**.
+The default is **Automatic**. The page explains whether automatic selection used
+the exact observed policy digest or major-release Boolean/port agreement.
+
+To examine another reference, choose a specific active revision. This is an
+**Explicit reference** for the viewed comparison, not proof that the reference
+matches the host's loaded policy or is its distribution default. The page shows
+the revision/content digest and warns when loaded-policy identities differ.
+Known incompatible architecture or policy type makes family comparison unavailable.
+
+The choice is encoded in `reference_revision_id` in the page URL, so reload/share
+retains that view. It does not save a host/user/fleet preference. Select **Return
+to automatic** to remove it. Revisions are listed with relevant platform context
+first; relevance is not equivalence. Duplicate names are distinguished by revision
+ID and content digest. Archived revisions are not ordinary selectable targets.
+
+Selection outcomes are distinct:
+
+| Outcome | Meaning |
+| --- | --- |
+| Automatic exact | Active revision selected by the trusted observed loaded-policy digest |
+| Automatic agreement | Active major-release candidates agree on complete Boolean/port facts; this does not establish binary equivalence |
+| Explicit | An operator chose this immutable active comparison target |
+| Absent | No active applicable automatic reference exists, including archived-only matches |
+| Ambiguous | Eligible candidates have incompatible Boolean/port facts; none is chosen |
+| Unavailable | Missing trusted identity/context, incomplete reference facts, or an archived explicit target prevents selection/use |
+
+Selecting a revision is separate from family usability. Boolean/port comparison
+can remain Unknown, Unavailable, Partial or Stale. Missing host observations are
+never filled from reference defaults. Partial port evidence cannot prove a missing
+mapping; stale observations pause current comparison. These limits apply equally
+to automatic and explicit selection. No other catalog families are compared.
+
 Automatic comparisons consider active catalogs only. SECentral prefers a
 reference with the host's exact loaded-policy digest. Otherwise, Boolean/port
 comparison can use references for the same distribution, major release,
@@ -88,6 +121,10 @@ reference.
 Catalog contents and import evidence are retained after rename or archive.
 A newly requested comparison uses current active references, even when its host
 snapshot is older; it should not be treated as a saved historical comparison.
+The host configuration page uses the current heartbeat observation. Event-linked
+snapshots and old revisions are retained separately, but there is no general
+stored reference-selection pin/result. A fresh evaluation of an older snapshot
+is today's comparison, not evidence of which catalog was used at event time.
 
 ## Check identity and provenance
 
@@ -109,6 +146,19 @@ browser/server temporary paths are not recorded as upload provenance.
 
 Management requests require an operator session and the `X-CSRF-Token` header
 obtained from a session/API response.
+
+Host comparison uses authenticated `GET /api/v1/hosts/:id/configuration`. Omit
+`reference_revision_id` for automatic selection, or supply an immutable revision
+ID for a temporary explicit target. The response adds `selection` with mode,
+status, basis, selected identity, bounded candidate context and per-family
+applicability, plus summary-only active `reference_options`.
+
+Absent/ambiguous/family-unavailable outcomes are ordinary successful responses.
+An archived explicit target returns `selection.status: unavailable` with reason
+`archived_reference`, never a substituted reference. Malformed IDs return 422;
+nonexistent revisions return 404. For row interpretation use `selection.families`:
+the legacy `comparison.available` flag indicates displayable reference overlays,
+not that every host family or row is comparable.
 
 | Method and path | Input |
 | --- | --- |
