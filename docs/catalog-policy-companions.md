@@ -91,12 +91,14 @@ a verified reference input; major-release family-agreement fallback supplies
 Boolean/port authority only.
 An active explicit nonidentical revision can supply a chosen, non-equivalent target;
 new explicit archived selection remains unavailable. Future effective-policy families
-remain unsupported until their comparison and applicability rules are implemented.
+require their own comparison and applicability rules; only effective permissive
+membership is currently added alongside Boolean/port comparisons.
 
 Availability is not extraction status or applicability. Existing host analysis caches
 are exact-SHA-only and reusable; catalog-only creation defers automatic analysis.
-Extraction uses bounded execution and versioned results; host/reference comparison
-and presentation are not yet available.
+Extraction uses bounded execution and versioned results. The host's SELinux
+configuration page compares effective permissive membership under exact or explicit
+reference authority, independently of Boolean/port comparison availability.
 Retained results must pin host policy/checkpoint authority, catalog revision/content
 digest, reference SHA and extractor/evaluator semantics; no historical result store
 is added here.
@@ -131,8 +133,32 @@ are exposed; detected corruption invalidates certainty without repairing identit
 Archive retains both companion and cache. Extracted facts are derived policy-state
 evidence, not administrative intent/actor/time, global mode or AVC-local behavior.
 Extraction alone grants no selection applicability: major-release family-agreement fallback remains
-ineligible and effective-policy comparison remains unsupported. Extraction does not
-add comparison UI or another V3 JSON family.
+ineligible. Effective permissive comparison additionally requires trusted current
+host identity, compatible observed extraction on both sides and exact or compatible
+explicit selection. It adds no V3 JSON family.
+
+### Compare effective permissive membership
+
+The configuration page shows **Matches reference**, **Unexpected on host**,
+**Missing from host** or **Unknown**. Its API exposes all three sorted unique sets
+and counts under `comparison.effective_permissive_domains`; Unknown has null sets
+and counts with a stable side-specific reason. Successful empty sets on both sides
+are a valid match. Tool versions may differ when both use current extraction semantics.
+
+Automatic use requires exact host/reference policy identity. An active explicit
+target with compatible architecture/policy type can compare nonidentical policies,
+without binary-equivalence assertion. Boolean/port family agreement never grants
+effective-policy authority. Missing/masked or stale host evidence, absent/ambiguous/
+archived selection, missing/invalid companions and pending/failed analysis remain
+Unknown. Pending analysis refreshes asynchronously; terminal failures are not reset
+by page reads and parser diagnostics are not exposed as product reasons.
+
+Counts and differences are prominent; matching membership and SHA/evaluator details
+are secondary expandable information. Each domain list displays 20 rows per page.
+The host-only effective membership view remains separate. The comparison identifies
+host snapshot/observation, exact SHAs, reference revision/content digest, selection
+basis and evaluator semantics/tool versions. This is current-state comparison, not
+a persisted historical result or evidence of who changed policy and why.
 
 ## Licensing and distribution
 

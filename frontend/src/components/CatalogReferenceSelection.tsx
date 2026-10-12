@@ -61,7 +61,7 @@ export function CatalogReferenceSelection({ data, requestedRevision, onSelect }:
           {selection.candidates_truncated && <p>Showing {selection.candidates.length} of {selection.candidate_count} candidates.</p>}
         </Alert>
       )}
-      {selected && Object.entries(selection.families).map(([name, family]) => family.status !== "comparable" && <Alert key={name} isInline variant="warning" title={`${name === "booleans" ? "Booleans" : "Ports"}: ${family.status}`} className="pf-v6-u-mt-sm">
+      {selected && Object.entries(selection.families).filter(([name]) => name !== "effective_permissive_domains").map(([name, family]) => family.status !== "comparable" && <Alert key={name} isInline variant="warning" title={`${name === "booleans" ? "Booleans" : "Ports"}: ${family.status}`} className="pf-v6-u-mt-sm">
         {family.reason ? REASONS[family.reason] ?? family.reason.replaceAll("_", " ") : "Comparison is limited."} Reference: {family.reference_status}; host: {family.host_status}.
       </Alert>)}
     </section>

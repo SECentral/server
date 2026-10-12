@@ -14,6 +14,7 @@ class HostConfigurationComparison
   attr_reader :boolean_rows, :boolean_differences, :boolean_matches, :boolean_host_only_rows
   attr_reader :boolean_reference_only_rows, :boolean_unavailable_rows, :boolean_reference_entries
   attr_reader :port_segments, :port_difference_segments, :port_limitation_segments
+  attr_reader :host_permissive_state, :effective_permissive_domains
 
   def call
     @observation = @host.current_state_observation
@@ -24,6 +25,7 @@ class HostConfigurationComparison
     @selection = CatalogReferenceSelection.call(snapshot: @snapshot, selinux: @selinux, revision_id: @reference_revision_id, stale: !!@stale)
     @reference = DistributionCatalogReference.from_revision(@selection.revision, applicability: @selection.applicability)
     @catalog_revision = @reference&.revision
+    compare_effective_permissive_domains
     return self unless policy_identity_matches?
 
     run_comparison
@@ -70,6 +72,39 @@ class HostConfigurationComparison
   end
 
   private
+
+  def compare_effective_permissive_domains
+    @host_permissive_state = PolicyPermissiveDomains.lookup(@policy_identity)
+    reference_state = if @catalog_revision && @selection.family(CatalogReferenceSelection::EFFECTIVE_FAMILY)[:reason].nil?
+      @catalog_revision.reference_permissive_domains
+    else
+      { status: "unavailable", domains: nil }
+    end
+    @selection = @selection.with_effective_permissive_states(host_state: @host_permissive_state, reference_state: reference_state)
+    family = @selection.family(CatalogReferenceSelection::EFFECTIVE_FAMILY)
+    observed = family[:comparison_allowed]
+    host_set = @host_permissive_state[:domains]
+    reference_set = reference_state[:domains]
+    sets = observed ? {
+      matching: (host_set & reference_set).uniq.sort,
+      unexpected_on_host: (host_set - reference_set).uniq.sort,
+      missing_from_host: (reference_set - host_set).uniq.sort
+    } : { matching: nil, unexpected_on_host: nil, missing_from_host: nil }
+    @effective_permissive_domains = sets.merge(status: observed ? "observed" : "unknown", reason: family[:reason],
+      counts: observed ? sets.transform_values(&:size) : nil,
+      host: permissive_evidence(@host_permissive_state).merge(snapshot_id: @snapshot&.id, observation_id: @observation&.id,
+        evidence_basis: policy_identity_matches? && !@stale ? "trusted_current_checkpoint" : nil),
+      reference: @catalog_revision && permissive_evidence(reference_state).merge(revision_id: @catalog_revision.id,
+        content_digest: @catalog_revision.content_digest, policy_identity: @catalog_revision.loaded_policy_digest),
+      selection: { mode: @selection.mode, basis: @selection.basis, policy_identity_match: @selection.policy_identity_match,
+        equivalence_asserted: @selection.mode == "automatic" && @selection.basis == "exact_policy_identity" })
+  end
+
+  def permissive_evidence(state)
+    { status: state[:status], policy_identity: state[:policy_identity],
+      semantics_version: state[:status] == "observed" ? state[:semantics_version] : nil,
+      evaluator_version: state[:evaluator_version], evaluated_at: state[:evaluated_at] }
+  end
 
   def policy_identity_matches?
     @policy_identity.to_s.match?(/\Asha256:[0-9a-f]{64}\z/)

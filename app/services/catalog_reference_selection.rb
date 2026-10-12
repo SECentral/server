@@ -1,7 +1,9 @@
 class CatalogReferenceSelection
   CANDIDATE_LIMIT = 5
   OPTION_LIMIT = 50
-  FAMILIES = %w[booleans ports].freeze
+  INVENTORY_FAMILIES = %w[booleans ports].freeze
+  EFFECTIVE_FAMILY = "effective_permissive_domains"
+  FAMILIES = (INVENTORY_FAMILIES + [EFFECTIVE_FAMILY]).freeze
   Result = Data.define(:mode, :status, :revision, :basis, :reason, :candidates, :candidate_count, :context, :policy_identity_match, :families) do
     def applicability
       { "exact_policy_identity" => "exact", "major_release_family_agreement" => "major_release", "explicit_revision" => "explicit" }[basis]
@@ -9,6 +11,25 @@ class CatalogReferenceSelection
 
     def family(name)
       families.fetch(name.to_s, { status: "unsupported", reference_status: "unsupported", host_status: "not_evaluated", comparison_allowed: false, reason: "unsupported_reference_family" })
+    end
+
+    def with_effective_permissive_states(host_state:, reference_state:)
+      entry = family(EFFECTIVE_FAMILY)
+      reason = entry[:reason]
+      if reason.nil?
+        reason = if host_state[:status] != "observed"
+          host_state[:reason] == PolicyPermissiveDomains::ARTIFACT_UNAVAILABLE_REASON ? "host_policy_artifact_unavailable" : "host_permissive_analysis_#{host_state[:status]}"
+        elsif host_state[:semantics_version] != PolicyPermissiveDomainAnalyzer::SEMANTICS_VERSION
+          "host_permissive_analysis_unavailable"
+        elsif reference_state[:status] != "observed"
+          %w[reference_policy_artifact_unavailable reference_policy_artifact_invalid].include?(reference_state[:reason]) ? reference_state[:reason] : "reference_permissive_analysis_#{reference_state[:status]}"
+        elsif reference_state[:semantics_version] != PolicyPermissiveDomainAnalyzer::SEMANTICS_VERSION
+          "reference_permissive_analysis_unavailable"
+        end
+      end
+      resolved = entry.merge(status: reason ? "unknown" : "comparable", reason: reason,
+        host_status: host_state[:status], reference_status: reference_state[:status], comparison_allowed: reason.nil?)
+      with(families: families.merge(EFFECTIVE_FAMILY => resolved))
     end
 
     def as_json(*)
@@ -119,7 +140,19 @@ class CatalogReferenceSelection
   end
 
   def result(status, revision: nil, basis: nil, reason: nil, candidates: [], count: nil)
-    applicability = FAMILIES.index_with { |family| family_status(family, revision, basis) }
+    applicability = INVENTORY_FAMILIES.index_with { |family| family_status(family, revision, basis) }
+    effective_reason = if !valid_identity?
+      "host_policy_identity_unavailable"
+    elsif @stale
+      "stale_host_observation"
+    elsif !revision
+      %w[archived_reference archived_only].include?(reason) ? "reference_archived" : "reference_#{status == 'selected' ? 'unavailable' : status}"
+    elsif basis == "major_release_family_agreement"
+      "effective_policy_requires_exact_reference"
+    elsif basis == "explicit_revision" && incompatible_context?(revision)
+      "incompatible_policy_context"
+    end
+    applicability[EFFECTIVE_FAMILY] = { status: "unknown", reference_status: "not_evaluated", host_status: "not_evaluated", comparison_allowed: false, reason: effective_reason }
     Result.new(@mode, status, revision, basis, reason,
       candidates.first(CANDIDATE_LIMIT).map { |candidate| self.class.identity(candidate) }, count || candidates.size,
       @context, revision && valid_identity? ? revision.loaded_policy_digest == @identity : nil, applicability)

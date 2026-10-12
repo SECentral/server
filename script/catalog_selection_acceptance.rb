@@ -8,7 +8,7 @@ class CatalogSnapshotOracle
     @snapshot = snapshot
     @id = snapshot.host_id
     @hostname = snapshot.host.hostname
-    @current_state_observation = Struct.new(:host_snapshot, :stale?).new(snapshot, false)
+    @current_state_observation = Struct.new(:id, :host_snapshot, :stale?).new(nil, snapshot, false)
   end
 
   def selinux_state_for(*)

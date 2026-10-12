@@ -40,7 +40,8 @@ RSpec.describe CatalogReferenceSelection do
     result = described_class.call(snapshot: snapshot)
     expect(result).to have_attributes(status: "selected", revision: first, basis: "major_release_family_agreement", candidate_count: 2, policy_identity_match: false)
     expect(result.as_json[:equivalence_asserted]).to be(false)
-    expect(result.family("effective_permissive_domains")).to include(status: "unsupported", comparison_allowed: false)
+    expect(result.family("effective_permissive_domains")).to include(status: "unknown", comparison_allowed: false, reason: "effective_policy_requires_exact_reference")
+    expect(result.family("future_policy_family")).to include(status: "unsupported", comparison_allowed: false)
   end
 
   it "exposes bounded incompatible candidates and changes eligibility on archive/unarchive" do

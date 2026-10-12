@@ -115,7 +115,7 @@ RSpec.describe "Catalog reference effective permissive extraction" do
     fallback = CatalogReferenceSelection.call(snapshot: snapshot)
     explicit = CatalogReferenceSelection.call(snapshot: snapshot, revision_id: record.id)
     expect(fallback.basis).to eq("major_release_family_agreement")
-    [exact, fallback, explicit].each { |selection| expect(selection.family("effective_permissive_domains")).to include(status: "unsupported", comparison_allowed: false) }
+    [exact, fallback, explicit].each { |selection| expect(selection.family("effective_permissive_domains")).to include(status: "unknown", comparison_allowed: false) }
     expect(explicit.revision.reference_permissive_domains[:domains]).to eq([])
     expect(explicit.as_json[:equivalence_asserted]).to be(false)
     record.catalog_management.change!(lifecycle: "archived", changed_by: "test")

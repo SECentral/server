@@ -122,7 +122,7 @@ RSpec.describe AttachCatalogPolicy do
     expect(fallback.basis).to eq("major_release_family_agreement")
     expect(explicit.as_json[:equivalence_asserted]).to be(false)
     expect(explicit.revision.reference_policy_artifact[:policy_artifact_digest]).to eq(record.loaded_policy_digest)
-    [exact, fallback, explicit].each { |selection| expect(selection.family("effective_permissive_domains")).to include(status: "unsupported", comparison_allowed: false) }
+    [exact, fallback, explicit].each { |selection| expect(selection.family("effective_permissive_domains")).to include(status: "unknown", comparison_allowed: false) }
     record.catalog_management.change!(lifecycle: "archived", changed_by: "test")
     expect(CatalogReferenceSelection.call(snapshot: snapshot, revision_id: record.id).reason).to eq("archived_reference")
   end

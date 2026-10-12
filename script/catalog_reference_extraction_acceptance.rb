@@ -46,7 +46,7 @@ raise "Archive lost derived facts" unless revision.reference_permissive_domains[
 revision.catalog_management.change!(lifecycle: "active", changed_by: "acceptance")
 raise "Catalog semantic/import evidence changed" unless revision.reload.attributes == original_revision && revision.distribution_catalog_imports.first.reload.attributes == original_import
 raise "Host evidence fabricated" unless [Host, HostSnapshot, RawEvent].all? { |model| model.count.zero? }
-raise "Future family enabled" unless CatalogReferenceSelection.for_policy_identity(identity).family("effective_permissive_domains")[:status] == "unsupported"
+raise "Future family enabled" unless CatalogReferenceSelection.for_policy_identity(identity).family("future_policy_family")[:status] == "unsupported"
 
 cache_started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 20.times { PolicyPermissiveDomains.lookup(identity) }

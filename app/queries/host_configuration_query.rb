@@ -53,7 +53,7 @@ class HostConfigurationQuery
       port_inventory_status: selinux.dig("policy", "port_inventory", "status"),
       file_context_mappings_status: selinux.dig("policy", "file_context_mappings_status") || "unknown",
       policy_identity: @comparison.policy_identity,
-      effective_permissive_domains: PolicyPermissiveDomains.lookup(@comparison.policy_identity)
+      effective_permissive_domains: @comparison.host_permissive_state
     }
   end
 
@@ -83,6 +83,7 @@ class HostConfigurationQuery
     {
       available: !!@comparison.comparison_available?,
       paused: @comparison.stale,
+      effective_permissive_domains: @comparison.effective_permissive_domains,
       summary: {
         booleans: boolean_summary_payload,
         ports: port_summary_payload

@@ -192,6 +192,29 @@ snapshots and old revisions are retained separately, but there is no general
 stored reference-selection pin/result. A fresh evaluation of an older snapshot
 is today's comparison, not evidence of which catalog was used at event time.
 
+## Effective permissive-domain comparison
+
+The host configuration page includes a separate effective permissive-domain reference
+section alongside configured Boolean/port comparisons. It compares complete exact
+compiled-policy membership, not configured `semanage permissive` state, enforcement
+mode or AVC-local decisions. Counts and lists are neutral state differences, not
+administrative attribution or security recommendations.
+
+Automatic exact selection plus verified companion and observed current-semantics
+analysis on both sides permits comparison. Major-release Boolean/port agreement does
+not: that section shows Unknown with an exact-reference-required explanation even
+when the configured families compare successfully. A compatible active explicit
+target may compare different SHAs and is labeled non-equivalent. Archived new
+selection remains unavailable.
+
+The API includes host/reference/selection evidence in
+`comparison.effective_permissive_domains`, with `matching`, `unexpected_on_host`,
+`missing_from_host` and counts. Unknown returns null sets/counts and stable reasons
+for host trust/artifact/analysis, selection and reference artifact/analysis. No partial
+set differences are invented. Observed empty/empty is a valid match. Pending analysis
+polls; errors require explicit operator correction/retry. See
+[companion and extraction operations](catalog-policy-companions.md).
+
 ## Check identity and provenance
 
 The detail page separates the editable name and Active/Archived status from:

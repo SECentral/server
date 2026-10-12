@@ -1,6 +1,7 @@
 # Exact-artifact knowledge only. Callers supply an effective trusted identity,
 # never recover an identity from a masked checkpoint or module names.
 class PolicyPermissiveDomains
+  ARTIFACT_UNAVAILABLE_REASON = "Exact policy artifact is unavailable"
   def self.for_identities(identities)
     valid = identities.compact.uniq.select { |identity| identity.match?(PolicyArtifact::IDENTITY_FORMAT) }
     # Verify backing bytes in PostgreSQL without transferring binaries to cached readers.
@@ -13,10 +14,11 @@ class PolicyPermissiveDomains
       end
       analysis = artifact.current_permissive_domain_analysis? ? artifact.permissive_domain_analysis : { "status" => "unavailable", "error_message" => "Incompatible policy extraction semantics" }
       [artifact.policy_identity, {
-        status: analysis.fetch("status", "pending"), policy_identity: artifact.policy_identity,
+         status: analysis.fetch("status", "pending"), policy_identity: artifact.policy_identity,
+         semantics_version: analysis["semantics_version"],
         domains: analysis["status"] == "observed" ? analysis.fetch("domains") : nil,
         provenance: "exact_loaded_policy_artifact", evaluator_version: analysis["evaluator_version"],
-        evaluated_at: analysis["evaluated_at"], reason: analysis["error_message"]
+         evaluated_at: analysis["evaluated_at"], reason: analysis["status"] == "error" ? "Exact policy analysis failed" : analysis["status"] == "unavailable" ? "Exact policy analysis is unavailable" : nil
       }]
     end
   end
@@ -42,7 +44,7 @@ class PolicyPermissiveDomains
     return { status: "unavailable", policy_identity: nil, domains: nil, provenance: "exact_loaded_policy_artifact", reason: "Trusted exact policy identity is unavailable" } unless identity.to_s.match?(PolicyArtifact::IDENTITY_FORMAT)
 
     (facts || for_identities([identity])).fetch(identity) {
-      { status: "unavailable", policy_identity: identity, domains: nil, provenance: "exact_loaded_policy_artifact", reason: "Exact policy artifact is unavailable" }
+      { status: "unavailable", policy_identity: identity, domains: nil, provenance: "exact_loaded_policy_artifact", reason: ARTIFACT_UNAVAILABLE_REASON }
     }
   end
 

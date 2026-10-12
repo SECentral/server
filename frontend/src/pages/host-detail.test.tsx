@@ -55,13 +55,20 @@ const matchingConfiguration: HostConfigurationResponse = {
     context: { distribution: "almalinux", major_version: "9", architecture: "x86_64", policy_type: "targeted" }, policy_identity_match: true, equivalence_asserted: true,
     families: {
       booleans: { status: "comparable", reference_status: "complete", host_status: "observed", comparison_allowed: true, reason: null },
-      ports: { status: "comparable", reference_status: "complete", host_status: "observed", comparison_allowed: true, reason: null }
+      ports: { status: "comparable", reference_status: "complete", host_status: "observed", comparison_allowed: true, reason: null },
+      effective_permissive_domains: { status: "comparable", reference_status: "observed", host_status: "observed", comparison_allowed: true, reason: null }
     }
   },
   reference_options: { revisions: [], truncated: false },
   comparison: {
     available: true,
     paused: false,
+    effective_permissive_domains: {
+      status: "observed", reason: null, matching: [], unexpected_on_host: [], missing_from_host: [], counts: { matching: 0, unexpected_on_host: 0, missing_from_host: 0 },
+      host: { status: "observed", policy_identity: "sha256:abc", semantics_version: 1, evaluator_version: "SETools test", evaluated_at: null },
+      reference: { status: "observed", policy_identity: "sha256:abc", semantics_version: 1, evaluator_version: "SETools test", evaluated_at: null, revision_id: 3, content_digest: "sha256:def" },
+      selection: { mode: "automatic", basis: "exact_policy_identity", policy_identity_match: true, equivalence_asserted: true }
+    },
     summary: {
       booleans: { reference_entries: 350, compared: 350, match: 350, differ: 0, host_only: 0, not_observed: 0, unavailable: 0 },
       ports: { compared: 621, match: 621, differ: 0, not_observed: 0 }

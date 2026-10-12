@@ -1769,6 +1769,7 @@ components:
         domains: {type: [array, 'null'], items: {type: string}}
         provenance: {type: string, const: exact_loaded_policy_artifact}
         evaluator_version: {type: [string, 'null']}
+        semantics_version: {type: [integer, 'null']}
         evaluated_at: {type: [string, 'null'], format: date-time}
         reason: {type: [string, 'null']}
     OccurrencePermissivePolicyState:
@@ -1779,6 +1780,7 @@ components:
         policy_identity: {type: [string, 'null']}
         provenance: {type: string, const: exact_loaded_policy_artifact}
         evaluator_version: {type: [string, 'null']}
+        semantics_version: {type: [integer, 'null']}
         evaluated_at: {type: [string, 'null'], format: date-time}
         reason: {type: [string, 'null']}
         source_type: {type: [string, 'null']}
@@ -3051,7 +3053,10 @@ components:
             - available
             - paused
             - summary
+            - effective_permissive_domains
           properties:
+            effective_permissive_domains:
+              $ref: "#/components/schemas/EffectivePermissiveComparison"
             available:
               type: boolean
               description: Reference overlays can be displayed under the existing trusted identity gate; individual comparison usability is in selection.families, and stale results are paused.
@@ -3111,7 +3116,7 @@ components:
           enum: [comparable, incomplete, unavailable, unknown, stale, unsupported]
         reference_status:
           type: string
-          enum: [complete, incomplete, unavailable, unsupported]
+          enum: [complete, incomplete, unavailable, unsupported, observed, pending, error, not_evaluated]
         host_status:
           type: string
         comparison_allowed:
@@ -3173,13 +3178,98 @@ components:
           description: True only for automatic exact raw-policy identity, not a statement that all reference families are available.
         families:
           type: object
-          required: [booleans, ports]
-          description: These are the only supported families; other policy facts must not inherit Boolean/port family-agreement eligibility.
+          required: [booleans, ports, effective_permissive_domains]
+          description: Effective permissive membership requires exact or explicit verified reference authority; Boolean/port agreement does not grant that eligibility.
           properties:
             booleans:
               $ref: "#/components/schemas/CatalogFamilyApplicability"
             ports:
               $ref: "#/components/schemas/CatalogFamilyApplicability"
+            effective_permissive_domains:
+              $ref: "#/components/schemas/CatalogFamilyApplicability"
+    EffectivePermissiveEvidence:
+      type: object
+      required: [status, policy_identity, semantics_version, evaluator_version, evaluated_at]
+      properties:
+        status:
+          type: string
+          enum: [observed, pending, unavailable, error]
+        policy_identity:
+          type: [string, "null"]
+        semantics_version:
+          type: [integer, "null"]
+        evaluator_version:
+          type: [string, "null"]
+        evaluated_at:
+          type: [string, "null"]
+          format: date-time
+        snapshot_id:
+          type: [integer, "null"]
+        observation_id:
+          type: [integer, "null"]
+        evidence_basis:
+          type: [string, "null"]
+          enum: [trusted_current_checkpoint, null]
+        revision_id:
+          type: integer
+        content_digest:
+          type: string
+    EffectivePermissiveComparison:
+      type: object
+      description: Complete exact-policy-derived membership sets. Differences are state evidence, not administrative attribution, security judgment or binary equivalence. Unknown never supplies partial differences.
+      required: [status, reason, host, reference, selection, matching, unexpected_on_host, missing_from_host, counts]
+      properties:
+        status:
+          type: string
+          enum: [observed, unknown]
+        reason:
+          type: [string, "null"]
+          enum: [host_policy_identity_unavailable, stale_host_observation, host_policy_artifact_unavailable, host_permissive_analysis_pending, host_permissive_analysis_unavailable, host_permissive_analysis_error, reference_absent, reference_ambiguous, reference_unavailable, reference_archived, incompatible_policy_context, effective_policy_requires_exact_reference, reference_policy_artifact_unavailable, reference_policy_artifact_invalid, reference_permissive_analysis_pending, reference_permissive_analysis_unavailable, reference_permissive_analysis_error, null]
+        host:
+          $ref: "#/components/schemas/EffectivePermissiveEvidence"
+        reference:
+          oneOf:
+            - $ref: "#/components/schemas/EffectivePermissiveEvidence"
+            - type: "null"
+        selection:
+          type: object
+          required: [mode, basis, policy_identity_match, equivalence_asserted]
+          properties:
+            mode:
+              type: string
+              enum: [automatic, explicit]
+            basis:
+              type: [string, "null"]
+              enum: [exact_policy_identity, major_release_family_agreement, explicit_revision, null]
+            policy_identity_match:
+              type: [boolean, "null"]
+            equivalence_asserted:
+              type: boolean
+        matching:
+          type: [array, "null"]
+          items:
+            type: string
+        unexpected_on_host:
+          type: [array, "null"]
+          items:
+            type: string
+        missing_from_host:
+          type: [array, "null"]
+          items:
+            type: string
+        counts:
+          type: [object, "null"]
+          required: [matching, unexpected_on_host, missing_from_host]
+          properties:
+            matching:
+              type: integer
+              minimum: 0
+            unexpected_on_host:
+              type: integer
+              minimum: 0
+            missing_from_host:
+              type: integer
+              minimum: 0
     CatalogImport:
       type: object
       required:

@@ -26,6 +26,7 @@ import { fetchHostConfiguration } from "../api/configuration";
 import type { HostConfigurationResponse } from "../api/configuration";
 import { fetchHost, type HostDetailResponse } from "../api/hosts";
 import { EffectivePermissiveDomains } from "../components/EffectivePermissiveDomains";
+import { EffectivePermissiveComparison } from "../components/EffectivePermissiveComparison";
 import { CatalogReferenceSelection } from "../components/CatalogReferenceSelection";
 
 function comparisonLimited(data: HostConfigurationResponse): boolean {
@@ -109,8 +110,9 @@ function ComparisonHeader({ data, host }: { data: HostConfigurationResponse; hos
   const referenceDetails = reference ? [reference.policy_type, reference.architecture]
     .filter(Boolean).join(" · ") : "";
   const stale = data.observation?.status === "stale" || data.comparison.paused;
-  const differenceCount = data.differences?.total
-    ?? (data.comparison.summary.booleans?.differ ?? 0) + (data.comparison.summary.booleans?.host_only ?? 0) + (data.comparison.summary.ports?.differ ?? 0);
+  const differenceCount = (data.differences?.total
+    ?? (data.comparison.summary.booleans?.differ ?? 0) + (data.comparison.summary.booleans?.host_only ?? 0) + (data.comparison.summary.ports?.differ ?? 0))
+    + (data.comparison.effective_permissive_domains.counts?.unexpected_on_host ?? 0) + (data.comparison.effective_permissive_domains.counts?.missing_from_host ?? 0);
   const limited = comparisonLimited(data);
 
   return (
@@ -231,7 +233,7 @@ function Differences({ data }: { data: HostConfigurationResponse }) {
   return (
     <section aria-label="Differences">
       {differences.total === 0 ? (
-         <p className="configuration-no-differences"><Label color={comparisonLimited(data) ? "orange" : "green"}>{comparisonLimited(data) ? "No observed differences — comparison limited" : "Matches reference"}</Label> No boolean or port differences were observed.</p>
+          <p className="configuration-no-differences"><Label color={comparisonLimited(data) ? "orange" : "green"}>{comparisonLimited(data) ? "No observed Boolean/port differences — comparison limited" : "No Boolean/port differences"}</Label> No boolean or port differences were observed.</p>
       ) : (
         <div className="pf-v6-c-table__responsive-wrapper">
           <table className="pf-v6-c-table pf-m-compact pf-m-grid-md configuration-differences-table" aria-label="Configuration differences">
@@ -467,7 +469,7 @@ export function HostConfiguration() {
   const configQuery = useQuery({
     queryKey: ["host-configuration", Number(id), view, q, page, referenceRevisionId],
     queryFn: () => fetchHostConfiguration(Number(id), { view, q: q || undefined, page, referenceRevisionId: referenceRevisionId ?? undefined }),
-    refetchInterval: (query) => query.state.data?.selinux.effective_permissive_domains?.status === "pending" ? 2000 : false,
+    refetchInterval: (query) => query.state.data?.selinux.effective_permissive_domains?.status === "pending" || query.state.data?.comparison.effective_permissive_domains.reference?.status === "pending" ? 2000 : false,
     placeholderData: (previousData, previousQuery) => previousQuery?.queryKey[1] === Number(id) && previousQuery.queryKey[5] === referenceRevisionId ? previousData : undefined
   });
   const hostQuery = useQuery({
@@ -543,6 +545,8 @@ export function HostConfiguration() {
           {data && <TechnicalDetails data={data} host={hostQuery.data?.host} />}
           {data && <CatalogReferenceSelection data={data} requestedRevision={referenceRevisionId} onSelect={setReference} />}
           <EffectivePermissiveDomains key={data?.selinux.effective_permissive_domains?.policy_identity} state={data?.selinux.effective_permissive_domains} />
+          {data && (configQuery.isFetching ? <section aria-label="Effective permissive-domain reference comparison"><h3>Effective permissive domains — reference comparison</h3><p role="status">Refreshing the current exact-policy comparison…</p></section>
+            : <EffectivePermissiveComparison key={`${data.comparison.effective_permissive_domains.host.policy_identity}-${data.comparison.effective_permissive_domains.reference?.policy_identity}-${data.comparison.effective_permissive_domains.host.semantics_version}-${data.comparison.effective_permissive_domains.reference?.semantics_version}-${referenceRevisionId}`} comparison={data.comparison.effective_permissive_domains} />)}
           {comparisonAvailable ? (
             <>
               {(data?.comparison.paused || data?.observation?.status === "stale") && (

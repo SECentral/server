@@ -106,7 +106,7 @@ RSpec.describe "Host SELinux configuration API", type: :request do
     expect(payload.fetch("reference")).to eq("kind" => "distribution_catalog", "catalog_revision" => {
       "id" => catalog.id, "display_name" => "AlmaLinux 9", "policy_type" => "targeted", "architecture" => "x86_64", "loaded_policy_digest" => identity, "content_digest" => catalog.content_digest, "lifecycle" => "active", "applicability" => "major_release"
     })
-    expect(payload.fetch("comparison")).to eq("available" => true, "paused" => false, "summary" => {
+    expect(payload.fetch("comparison").except("effective_permissive_domains")).to eq("available" => true, "paused" => false, "summary" => {
       "booleans" => { "reference_entries" => 2, "compared" => 2, "match" => 1, "differ" => 1, "host_only" => 1, "not_observed" => 0, "unavailable" => 0 },
       "ports" => { "compared" => 2, "match" => 1, "differ" => 1, "not_observed" => 0 }
     })

@@ -311,6 +311,7 @@ export type EffectivePermissiveDomains = {
     domains: Array<string> | null;
     provenance: 'exact_loaded_policy_artifact';
     evaluator_version?: string | null;
+    semantics_version?: number | null;
     evaluated_at?: string | null;
     reason?: string | null;
 };
@@ -320,6 +321,7 @@ export type OccurrencePermissivePolicyState = {
     policy_identity: string | null;
     provenance: 'exact_loaded_policy_artifact';
     evaluator_version?: string | null;
+    semantics_version?: number | null;
     evaluated_at?: string | null;
     reason?: string | null;
     source_type: string | null;
@@ -924,6 +926,7 @@ export type HostConfigurationResponse = {
         } | null;
     };
     comparison: {
+        effective_permissive_domains: EffectivePermissiveComparison;
         /**
          * Reference overlays can be displayed under the existing trusted identity gate; individual comparison usability is in selection.families, and stale results are paused.
          */
@@ -969,7 +972,7 @@ export type CatalogReferenceIdentity = {
 
 export type CatalogFamilyApplicability = {
     status: 'comparable' | 'incomplete' | 'unavailable' | 'unknown' | 'stale' | 'unsupported';
-    reference_status: 'complete' | 'incomplete' | 'unavailable' | 'unsupported';
+    reference_status: 'complete' | 'incomplete' | 'unavailable' | 'unsupported' | 'observed' | 'pending' | 'error' | 'not_evaluated';
     host_status: string;
     /**
      * Partial host data permits only observed comparisons, not missing-state claims.
@@ -1010,12 +1013,50 @@ export type CatalogReferenceSelection = {
      */
     equivalence_asserted: boolean;
     /**
-     * These are the only supported families; other policy facts must not inherit Boolean/port family-agreement eligibility.
+     * Effective permissive membership requires exact or explicit verified reference authority; Boolean/port agreement does not grant that eligibility.
      */
     families: {
         booleans: CatalogFamilyApplicability;
         ports: CatalogFamilyApplicability;
+        effective_permissive_domains: CatalogFamilyApplicability;
     };
+};
+
+export type EffectivePermissiveEvidence = {
+    status: 'observed' | 'pending' | 'unavailable' | 'error';
+    policy_identity: string | null;
+    semantics_version: number | null;
+    evaluator_version: string | null;
+    evaluated_at: string | null;
+    snapshot_id?: number | null;
+    observation_id?: number | null;
+    evidence_basis?: 'trusted_current_checkpoint' | null;
+    revision_id?: number;
+    content_digest?: string;
+};
+
+/**
+ * Complete exact-policy-derived membership sets. Differences are state evidence, not administrative attribution, security judgment or binary equivalence. Unknown never supplies partial differences.
+ */
+export type EffectivePermissiveComparison = {
+    status: 'observed' | 'unknown';
+    reason: 'host_policy_identity_unavailable' | 'stale_host_observation' | 'host_policy_artifact_unavailable' | 'host_permissive_analysis_pending' | 'host_permissive_analysis_unavailable' | 'host_permissive_analysis_error' | 'reference_absent' | 'reference_ambiguous' | 'reference_unavailable' | 'reference_archived' | 'incompatible_policy_context' | 'effective_policy_requires_exact_reference' | 'reference_policy_artifact_unavailable' | 'reference_policy_artifact_invalid' | 'reference_permissive_analysis_pending' | 'reference_permissive_analysis_unavailable' | 'reference_permissive_analysis_error' | null;
+    host: EffectivePermissiveEvidence;
+    reference: EffectivePermissiveEvidence | null;
+    selection: {
+        mode: 'automatic' | 'explicit';
+        basis: 'exact_policy_identity' | 'major_release_family_agreement' | 'explicit_revision' | null;
+        policy_identity_match: boolean | null;
+        equivalence_asserted: boolean;
+    };
+    matching: Array<string> | null;
+    unexpected_on_host: Array<string> | null;
+    missing_from_host: Array<string> | null;
+    counts: {
+        matching: number;
+        unexpected_on_host: number;
+        missing_from_host: number;
+    } | null;
 };
 
 export type CatalogImport = {

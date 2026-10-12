@@ -36,13 +36,20 @@ const base: HostConfigurationResponse = {
     context: { distribution: "almalinux", major_version: "9", architecture: "x86_64", policy_type: "targeted" }, policy_identity_match: false, equivalence_asserted: false,
     families: {
       booleans: { status: "comparable", reference_status: "complete", host_status: "observed", comparison_allowed: true, reason: null },
-      ports: { status: "comparable", reference_status: "complete", host_status: "observed", comparison_allowed: true, reason: null }
+      ports: { status: "comparable", reference_status: "complete", host_status: "observed", comparison_allowed: true, reason: null },
+      effective_permissive_domains: { status: "unknown", reference_status: "unavailable", host_status: "observed", comparison_allowed: false, reason: "effective_policy_requires_exact_reference" }
     }
   },
   reference_options: { revisions: [], truncated: false },
   comparison: {
     available: true,
     paused: false,
+    effective_permissive_domains: {
+      status: "unknown", reason: "effective_policy_requires_exact_reference", counts: null, matching: null, unexpected_on_host: null, missing_from_host: null,
+      host: { status: "observed", policy_identity: identity, semantics_version: 1, evaluator_version: "SETools test", evaluated_at: null, snapshot_id: 1, observation_id: 1, evidence_basis: "trusted_current_checkpoint" },
+      reference: { status: "unavailable", policy_identity: identity, semantics_version: null, evaluator_version: null, evaluated_at: null, revision_id: 3, content_digest: "sha256:" + "1".repeat(64) },
+      selection: { mode: "automatic", basis: "major_release_family_agreement", policy_identity_match: false, equivalence_asserted: false }
+    },
     summary: {
       booleans: { reference_entries: 2, compared: 2, match: 1, differ: 1, host_only: 1, not_observed: 0, unavailable: 0 },
       ports: { compared: 2, match: 1, differ: 1, not_observed: 0 }
@@ -94,7 +101,7 @@ const noReference: HostConfigurationResponse = {
   ...base,
   reference: { kind: "none" },
   selection: { ...base.selection, status: "absent", basis: null, reason: "no_matching_candidates", selected_revision: null },
-  comparison: { available: false, paused: false, summary: { booleans: base.comparison.summary.booleans, ports: base.comparison.summary.ports } },
+  comparison: { ...base.comparison, available: false, paused: false, summary: { booleans: base.comparison.summary.booleans, ports: base.comparison.summary.ports } },
   differences: undefined
 };
 
@@ -224,6 +231,7 @@ describe("HostConfiguration", () => {
     const unknown = {
       ...explicit,
       selection: { ...explicit.selection, families: {
+        ...explicit.selection.families,
         booleans: { ...explicit.selection.families.booleans, status: "unknown" as const, host_status: "unknown", comparison_allowed: false, reason: "host_inventory_unknown" },
         ports: { ...explicit.selection.families.ports, status: "unavailable" as const, host_status: "unavailable", comparison_allowed: false, reason: "host_inventory_unavailable" }
       } },
@@ -233,7 +241,7 @@ describe("HostConfiguration", () => {
     expect(await screen.findByRole("heading", { name: /Booleans: unknown/ })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Ports: unavailable/ })).toBeInTheDocument();
     expect(screen.queryByText("Matches reference")).not.toBeInTheDocument();
-    expect(screen.getByText("No observed differences — comparison limited")).toBeInTheDocument();
+    expect(screen.getByText("No observed Boolean/port differences — comparison limited")).toBeInTheDocument();
   });
 
   it("shows facts, reference, summary, and differences", async () => {
@@ -360,7 +368,8 @@ describe("HostConfiguration", () => {
       differences: { ...base.differences!, total: 0, booleans: [], ports: [] }
     });
 
-    expect(await screen.findAllByText("Matches reference")).toHaveLength(2);
+    expect(await screen.findByText("No observed Boolean/port differences — comparison limited")).toBeInTheDocument();
+    expect(screen.queryByText("Matches reference")).not.toBeInTheDocument();
     expect(screen.getByText("No boolean or port differences were observed.")).toBeInTheDocument();
   });
 
