@@ -93,7 +93,7 @@ RSpec.describe DistributionCatalogReference do
 
     second.catalog_management.change!(lifecycle: "archived", changed_by: "operator")
     expect(described_class.for_snapshot(snapshot)).to have_attributes(revision: first, applicability: "major_release")
-    # An archived exact match can still use an eligible active ADR 0010 fallback.
+    # An archived exact match can still use an eligible active major-release fallback.
     snapshot.details["selinux"]["policy_identity"] = other_identity
     expect(described_class.for_snapshot(snapshot)).to have_attributes(revision: first, applicability: "major_release")
 

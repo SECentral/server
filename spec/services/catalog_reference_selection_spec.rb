@@ -28,7 +28,7 @@ RSpec.describe CatalogReferenceSelection do
     expect(result).to have_attributes(mode: "automatic", status: "selected", revision: exact, basis: "exact_policy_identity", policy_identity_match: true)
     expect(result.family("booleans")).to include(status: "comparable", comparison_allowed: true)
     exact.catalog_management.change!(lifecycle: "archived", changed_by: "test")
-    expect(described_class.call(snapshot: host_snapshot).basis).to eq("adr0010_major_release_family_agreement")
+    expect(described_class.call(snapshot: host_snapshot).basis).to eq("major_release_family_agreement")
     expect(DistributionCatalogRevision.for_snapshot(host_snapshot)).to eq(exact)
     exact.catalog_management.change!(lifecycle: "active", changed_by: "test")
     expect(described_class.call(snapshot: host_snapshot).revision).to eq(exact)
@@ -38,7 +38,7 @@ RSpec.describe CatalogReferenceSelection do
     first = revision(1)
     revision(2)
     result = described_class.call(snapshot: snapshot)
-    expect(result).to have_attributes(status: "selected", revision: first, basis: "adr0010_major_release_family_agreement", candidate_count: 2, policy_identity_match: false)
+    expect(result).to have_attributes(status: "selected", revision: first, basis: "major_release_family_agreement", candidate_count: 2, policy_identity_match: false)
     expect(result.as_json[:equivalence_asserted]).to be(false)
     expect(result.family("effective_permissive_domains")).to include(status: "unsupported", comparison_allowed: false)
   end

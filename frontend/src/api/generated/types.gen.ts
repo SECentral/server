@@ -980,8 +980,8 @@ export type CatalogFamilyApplicability = {
 
 /**
  * One domain selection contract. Selected revision is separate from family
- * usability. Automatic exact/ADR0010 and explicit request basis never fill
- * missing host evidence. ADR0010 grants only Boolean/port reference agreement,
+ * usability. Automatic exact/family-agreement and explicit request basis never fill
+ * missing host evidence. Major-release family agreement grants only Boolean/port reference agreement,
  * not applicability for future exact-policy facts. Fresh evaluation uses
  * current active eligibility; there is no persisted historical selection pin.
  *
@@ -989,7 +989,7 @@ export type CatalogFamilyApplicability = {
 export type CatalogReferenceSelection = {
     mode: 'automatic' | 'explicit';
     status: 'selected' | 'absent' | 'ambiguous' | 'unavailable';
-    basis: 'exact_policy_identity' | 'adr0010_major_release_family_agreement' | 'explicit_revision' | null;
+    basis: 'exact_policy_identity' | 'major_release_family_agreement' | 'explicit_revision' | null;
     reason: string | null;
     selected_revision: CatalogReferenceIdentity | null;
     candidates: Array<CatalogReferenceIdentity>;
@@ -1010,7 +1010,7 @@ export type CatalogReferenceSelection = {
      */
     equivalence_asserted: boolean;
     /**
-     * These are the only supported families; future consumers must not inherit ADR0010 eligibility.
+     * These are the only supported families; other policy facts must not inherit Boolean/port family-agreement eligibility.
      */
     families: {
         booleans: CatalogFamilyApplicability;

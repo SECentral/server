@@ -119,7 +119,7 @@ RSpec.describe AttachCatalogPolicy do
     snapshot.details["selinux"]["policy_identity"] = "sha256:" + "f" * 64
     fallback = CatalogReferenceSelection.call(snapshot: snapshot)
     explicit = CatalogReferenceSelection.call(snapshot: snapshot, revision_id: record.id)
-    expect(fallback.basis).to eq("adr0010_major_release_family_agreement")
+    expect(fallback.basis).to eq("major_release_family_agreement")
     expect(explicit.as_json[:equivalence_asserted]).to be(false)
     expect(explicit.revision.reference_policy_artifact[:policy_artifact_digest]).to eq(record.loaded_policy_digest)
     [exact, fallback, explicit].each { |selection| expect(selection.family("effective_permissive_domains")).to include(status: "unsupported", comparison_allowed: false) }

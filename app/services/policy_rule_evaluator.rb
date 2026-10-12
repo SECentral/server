@@ -1,7 +1,5 @@
 require "digest"
-require "open3"
 require "tempfile"
-require "timeout"
 
 class PolicyRuleEvaluator
   RULE = /\Aallow\s+(\S+)\s+(\S+):(\S+)\s+(.+?);(?:\s+\[\s*(.*?)\s*\]:(True|False))?\z/
@@ -22,19 +20,18 @@ class PolicyRuleEvaluator
       file.binmode
       file.write(@artifact.artifact)
       file.flush
-      version, version_status = Open3.capture2("sesearch", "--version")
+      version, _, version_status = SetoolsProcess.call("sesearch", "--version")
       return unavailable("SETools sesearch is unavailable") unless version_status.success?
 
-      output, error, status = Timeout.timeout(30) do
-        Open3.capture3(
+      output, error, status = SetoolsProcess.call(
           "sesearch", "--allow", "--source", @fact.source_type,
           "--target", @fact.target_type, "--class", @fact.object_class, "--perms", @fact.permission,
           file.path
         )
-      end
       return { status: "error", error_message: error.presence || "sesearch exited with #{status.exitstatus}" } unless status.success?
 
       rules = output.lines.map(&:strip).reject(&:empty?)
+      raise "Invalid SETools rule output" unless rules.all? { |rule| rule.match?(RULE) }
       {
         status: rules.empty? ? "no_match" : "matched",
         matching_rules: rules,

@@ -64,7 +64,7 @@ DistributionCatalogRevision.transaction do
   results[:exact] = selection_summary(exact)
   raise "Exact reference not selected" unless results[:exact][:selection][:basis] == "exact_policy_identity"
   results[:fallback] = selection_summary(fallback)
-  raise "Fallback incorrectly identified" unless results[:fallback][:selection][:basis] == "adr0010_major_release_family_agreement" && results[:fallback][:selection][:policy_identity_match] == false
+  raise "Fallback incorrectly identified" unless results[:fallback][:selection][:basis] == "major_release_family_agreement" && results[:fallback][:selection][:policy_identity_match] == false
   results[:explicit_nonexact] = selection_summary(exact, revision_id: rhel.id)
   raise "Explicit target was replaced" unless results[:explicit_nonexact][:selection][:selected_revision][:id] == rhel.id && results[:explicit_nonexact][:selection][:equivalence_asserted] == false
   results[:warm_selector] = { exact: selector_measurement(exact), fallback: selector_measurement(fallback), explicit: selector_measurement(exact, revision_id: rhel.id) }

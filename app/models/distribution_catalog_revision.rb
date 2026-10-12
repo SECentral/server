@@ -7,6 +7,10 @@ class DistributionCatalogRevision < ApplicationRecord
   has_one :catalog_management, dependent: :restrict_with_exception
   has_one :catalog_policy_artifact, dependent: :restrict_with_exception
 
+  def reference_permissive_domains
+    PolicyPermissiveDomains.for_revision(self)
+  end
+
   def reference_policy_artifact
     identity = { catalog_revision_id: id, content_digest: content_digest, expected_policy_digest: loaded_policy_digest }
     companion = catalog_policy_artifact

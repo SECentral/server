@@ -869,7 +869,7 @@ paths:
       description: |
         Host heartbeat-confirmed configuration compared against the
         selected reference. Default automatic selection is active exact identity,
-        then ADR0010 Boolean/port agreement; explicit targets apply only to this
+        then major-release Boolean/port agreement; explicit targets apply only to this
         request. Selection/absence/ambiguity is distinct from family usability.
         `view` selects the payload block: `differences` (findings and
         limitations), `booleans` (full comparison, search + pagination),
@@ -1137,8 +1137,8 @@ paths:
       operationId: unarchiveCatalog
       summary: Restore a catalog to active eligibility
       description: |
-        Idempotently restores active management state, subject to existing ADR
-        0010 automatic applicability. Accepts only an empty body. Does not certify
+        Idempotently restores active management state, subject to automatic
+        reference-selection eligibility. Accepts only an empty body. Does not certify
         provenance or alter immutable identity. Serialized with rename/archive.
       security:
         - session: []
@@ -3124,8 +3124,8 @@ components:
       required: [mode, status, basis, reason, selected_revision, candidates, candidate_count, candidates_truncated, context, policy_identity_match, equivalence_asserted, families]
       description: |
         One domain selection contract. Selected revision is separate from family
-        usability. Automatic exact/ADR0010 and explicit request basis never fill
-        missing host evidence. ADR0010 grants only Boolean/port reference agreement,
+        usability. Automatic exact/family-agreement and explicit request basis never fill
+        missing host evidence. Major-release family agreement grants only Boolean/port reference agreement,
         not applicability for future exact-policy facts. Fresh evaluation uses
         current active eligibility; there is no persisted historical selection pin.
       properties:
@@ -3137,7 +3137,7 @@ components:
           enum: [selected, absent, ambiguous, unavailable]
         basis:
           type: [string, "null"]
-          enum: [exact_policy_identity, adr0010_major_release_family_agreement, explicit_revision, null]
+          enum: [exact_policy_identity, major_release_family_agreement, explicit_revision, null]
         reason:
           type: [string, "null"]
         selected_revision:
@@ -3174,7 +3174,7 @@ components:
         families:
           type: object
           required: [booleans, ports]
-          description: These are the only supported families; future consumers must not inherit ADR0010 eligibility.
+          description: These are the only supported families; other policy facts must not inherit Boolean/port family-agreement eligibility.
           properties:
             booleans:
               $ref: "#/components/schemas/CatalogFamilyApplicability"

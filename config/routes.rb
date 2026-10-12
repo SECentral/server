@@ -1,5 +1,5 @@
 Rails.application.routes.draw do
-  # Overview serves the SPA shell (plan 0053 Phase 5); the React app owns `/`.
+  # Overview serves the SPA shell; the React app owns `/`.
   root to: "spa#index"
 
   # Agent ingestion routes stay isolated behind bearer authentication.
@@ -8,7 +8,7 @@ Rails.application.routes.draw do
   post "/api/v1/expected-context-observations", to: "expected_context_observations#create"
   put "/api/v1/policy-artifacts/:policy_identity", to: "policy_artifacts#create"
 
-  # Versioned operator API (plan 0053); controllers live under Api::V1.
+  # Versioned operator API; controllers live under Api::V1.
   namespace :api do
     namespace :v1 do
       get "system", to: "system#show"

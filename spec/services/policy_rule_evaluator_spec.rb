@@ -12,8 +12,8 @@ RSpec.describe PolicyRuleEvaluator do
 
   it "preserves attribute-derived rules, conditional expression, and branch" do
     output = "allow nsswitch_domain unreserved_port_t:tcp_socket name_connect; [ nis_enabled ]:True\n"
-    allow(Open3).to receive(:capture2).and_return([ "4.4.4\n", success ])
-    allow(Open3).to receive(:capture3).and_return([ output, "", success ])
+    allow(SetoolsProcess).to receive(:call).with("sesearch", "--version").and_return([ "4.4.4\n", "", success ])
+    allow(SetoolsProcess).to receive(:call).with("sesearch", "--allow", any_args).and_return([ output, "", success ])
 
     result = described_class.call(fact, artifact)
 
@@ -25,17 +25,20 @@ RSpec.describe PolicyRuleEvaluator do
   end
 
   it "keeps successful empty output distinct from evaluator errors and unavailability" do
-    allow(Open3).to receive(:capture2).and_return([ "4.4.4\n", success ])
-    allow(Open3).to receive(:capture3).and_return([ "", "", success ])
+    allow(SetoolsProcess).to receive(:call).with("sesearch", "--version").and_return([ "4.4.4\n", "", success ])
+    allow(SetoolsProcess).to receive(:call).with("sesearch", "--allow", any_args).and_return([ "", "", success ])
     expect(described_class.call(fact, artifact)).to include(status: "no_match")
 
-    allow(Open3).to receive(:capture3).and_return([ "", "invalid policy", instance_double(Process::Status, success?: false, exitstatus: 1) ])
+    allow(SetoolsProcess).to receive(:call).with("sesearch", "--allow", any_args).and_return([ "progress is not an allow rule", "", success ])
     expect(described_class.call(fact, artifact)).to include(status: "error")
 
-    allow(Open3).to receive(:capture3).and_raise(Timeout::Error)
+    allow(SetoolsProcess).to receive(:call).with("sesearch", "--allow", any_args).and_return([ "", "invalid policy", instance_double(Process::Status, success?: false, exitstatus: 1) ])
     expect(described_class.call(fact, artifact)).to include(status: "error")
 
-    allow(Open3).to receive(:capture2).and_raise(Errno::ENOENT)
+    allow(SetoolsProcess).to receive(:call).with("sesearch", "--allow", any_args).and_raise(StandardError, "runtime bound")
+    expect(described_class.call(fact, artifact)).to include(status: "error")
+
+    allow(SetoolsProcess).to receive(:call).with("sesearch", "--version").and_raise(Errno::ENOENT)
     expect(described_class.call(fact, artifact)).to include(status: "unavailable")
   end
 

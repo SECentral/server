@@ -20,7 +20,9 @@ RSpec.describe PolicyPermissiveDomains do
   end
 
   def artifact(domains: nil, status: nil, bytes: "test policy")
-    result = status ? { "status" => status, "domains" => domains, "evaluator_version" => "test" } : {}
+    result = status ? { "status" => status, "domains" => domains, "evaluator_version" => "test",
+      "semantics_version" => PolicyPermissiveDomainAnalyzer::SEMANTICS_VERSION,
+      "policy_identity" => "sha256:#{Digest::SHA256.hexdigest(bytes)}" } : {}
     PolicyArtifact.create!(policy_identity: "sha256:#{Digest::SHA256.hexdigest(bytes)}", artifact: bytes, artifact_size: bytes.bytesize, permissive_domain_analysis: result)
   end
 
@@ -45,7 +47,7 @@ RSpec.describe PolicyPermissiveDomains do
 
   it "enqueues legacy/new artifacts once and serializes concurrent analysis, then reuses results" do
     policy = artifact
-    allow(PolicyPermissiveDomainAnalyzer).to receive(:call).and_return({ "status" => "observed", "domains" => ["postgresql_t"] })
+    allow(PolicyPermissiveDomainAnalyzer).to receive(:call).and_return({ "status" => "observed", "domains" => ["postgresql_t"], "evaluator_version" => "test" })
     expect { 2.times { described_class.lookup(policy.policy_identity) } }.not_to have_enqueued_job(AnalyzePolicyPermissiveDomainsJob)
     2.times.map { Thread.new { AnalyzePolicyPermissiveDomainsJob.perform_now(policy.id) } }.each(&:value)
     expect(PolicyPermissiveDomainAnalyzer).to have_received(:call).once
@@ -123,23 +125,32 @@ RSpec.describe PolicyPermissiveDomainAnalyzer do
 
   it "uses authoritative SETools output, validates identifiers and canonicalizes domains" do
     status = instance_double(Process::Status, success?: true)
-    allow(Open3).to receive(:capture3).and_return([JSON.generate(domains: %w[rhcd_t postgresql_t rhcd_t], evaluator_version: "SETools test"), "", status])
+    allow(SetoolsProcess).to receive(:call).and_return([JSON.generate(domains: %w[rhcd_t postgresql_t rhcd_t], evaluator_version: "SETools test"), "", status])
     expect(described_class.call(policy)).to include("status" => "observed", "domains" => %w[postgresql_t rhcd_t])
-    expect(Open3).to have_received(:capture3).with("python3", Rails.root.join("script/policy_permissive_domains.py").to_s, anything)
-    allow(Open3).to receive(:capture3).and_return([JSON.generate(domains: ["invalid type"], evaluator_version: "test"), "", status])
+    expect(SetoolsProcess).to have_received(:call).with("python3", Rails.root.join("script/policy_permissive_domains.py").to_s, anything)
+    allow(SetoolsProcess).to receive(:call).and_return([JSON.generate(domains: ["invalid type"], evaluator_version: "test"), "", status])
     expect(described_class.call(policy)).to include("status" => "error")
   end
 
   it "distinguishes authoritative empty, unavailable parser and invalid artifact" do
     status = instance_double(Process::Status, success?: true)
-    allow(Open3).to receive(:capture3).and_return([JSON.generate(domains: [], evaluator_version: "test"), "", status])
+    allow(SetoolsProcess).to receive(:call).and_return([JSON.generate(domains: [], evaluator_version: "test"), "", status])
     expect(described_class.call(policy)).to include("status" => "observed", "domains" => [])
-    allow(Open3).to receive(:capture3).and_raise(Errno::ENOENT)
+    allow(SetoolsProcess).to receive(:call).and_raise(Errno::ENOENT)
     expect(described_class.call(policy)["status"]).to eq("unavailable")
-    allow(Open3).to receive(:capture3).and_return(["", "invalid binary policy", instance_double(Process::Status, success?: false, exitstatus: 1)])
+    allow(SetoolsProcess).to receive(:call).and_return(["", "invalid binary policy", instance_double(Process::Status, success?: false, exitstatus: 1)])
     expect(described_class.call(policy)["status"]).to eq("error")
     artifact = policy
     artifact.policy_identity = "sha256:" + "a" * 64
     expect(described_class.call(artifact)["status"]).to eq("unavailable")
+  end
+
+  it "rejects malformed/duplicate-key JSON, invalid versions and oversized output without facts" do
+    success = instance_double(Process::Status, success?: true)
+    ["progress {}", '{"domains":[],"domains":[],"evaluator_version":"test"}', JSON.generate(domains: [], evaluator_version: 1), "x" * (SetoolsProcess::MAX_OUTPUT + 1)].each do |output|
+      allow(SetoolsProcess).to receive(:call).and_return([output, "", success])
+      expect(described_class.call(policy)).to include("status" => "error")
+      expect(described_class.call(policy)).not_to have_key("domains")
+    end
   end
 end

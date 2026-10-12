@@ -324,7 +324,7 @@ RSpec.describe "Host SELinux configuration API", type: :request do
     original_host = record.attributes
     original_snapshot = record.current_snapshot.attributes
     get "/api/v1/hosts/#{record.id}/configuration"
-    expect(JSON.parse(response.body)["selection"]).to include("mode" => "automatic", "status" => "selected", "basis" => "adr0010_major_release_family_agreement", "equivalence_asserted" => false)
+    expect(JSON.parse(response.body)["selection"]).to include("mode" => "automatic", "status" => "selected", "basis" => "major_release_family_agreement", "equivalence_asserted" => false)
 
     get "/api/v1/hosts/#{record.id}/configuration", params: { view: "booleans", reference_revision_id: chosen.id }
     expect(response).to have_http_status(:ok)

@@ -84,20 +84,55 @@ backups. There is no purge feature or active-state retention shortcut. Unique SH
 storage bounds each blob to 16 MiB but total storage grows with distinct policies;
 administrators must account for database/backups capacity.
 
-## Selection and Plan 0058
+## Reference selection and applicability
 
 Consume `CatalogReferenceSelection` unchanged. Automatic exact selection can supply
-a verified reference input; ADR 0010 fallback supplies Boolean/port authority only.
+a verified reference input; major-release family-agreement fallback supplies
+Boolean/port authority only.
 An active explicit nonidentical revision can supply a chosen, non-equivalent target;
 new explicit archived selection remains unavailable. Future effective-policy families
-remain unsupported until Plan 0058 implements extraction and applicability.
+remain unsupported until their comparison and applicability rules are implemented.
 
 Availability is not extraction status or applicability. Existing host analysis caches
 are exact-SHA-only and reusable; catalog-only creation defers automatic analysis.
-Plan 0058 owns safe extractor execution, versioned results, comparison and presentation.
+Extraction uses bounded execution and versioned results; host/reference comparison
+and presentation are not yet available.
 Retained results must pin host policy/checkpoint authority, catalog revision/content
 digest, reference SHA and extractor/evaluator semantics; no historical result store
 is added here.
+
+### Reference extraction
+
+`revision.reference_permissive_domains` verifies companion authority and requests
+the shared asynchronous exact-artifact analysis on first need. It never parses
+in the caller. Attachment remains byte-only; an observed compatible host result
+can be reused immediately without another job.
+
+| Bytes / extraction | Reference result |
+| --- | --- |
+| No verified companion | unavailable; `reference_policy_artifact_unavailable` |
+| Invalid retained bytes | unavailable; `reference_policy_artifact_invalid` |
+| Verified bytes, queued/incomplete analysis | pending; domains=null |
+| Parser/tool/resource failure | error or unavailable; domains=null |
+| Successful complete extraction | observed; sorted unique domains, including [] |
+
+The existing cache records exact SHA, result semantics version 1, actual SETools
+version and evaluation time. Unversioned/incompatible old results require current
+analysis; failures are not automatically retried. Operators can explicitly reset
+the artifact cache to `{}` under its row lock and enqueue after correcting the
+underlying problem. Restart application/job processes when deploying extraction
+changes; do not manually stamp legacy results as current-version facts.
+
+Hardened shared SETools execution enforces wall/CPU 30 seconds, address space
+512 MiB and combined output 1 MiB, kills/reaps the helper process group and descendants,
+and discards partial/invalid output. Cached byte SHA/size are checked before facts
+are exposed; detected corruption invalidates certainty without repairing identity.
+
+Archive retains both companion and cache. Extracted facts are derived policy-state
+evidence, not administrative intent/actor/time, global mode or AVC-local behavior.
+Extraction alone grants no selection applicability: major-release family-agreement fallback remains
+ineligible and effective-policy comparison remains unsupported. Extraction does not
+add comparison UI or another V3 JSON family.
 
 ## Licensing and distribution
 
@@ -107,6 +142,3 @@ not committed to Git or automatically downloaded. Public redistribution of compi
 policy must satisfy its applicable policy license, including corresponding build
 source/notices; the catalog JSON alone is not source for that binary. No public binary
 bundle or per-binary licensing engine is introduced.
-
-Architecture and parser-resource handoff:
-[ADR 0019](../../docs/decisions/0019-verified-catalog-policy-companions.md).

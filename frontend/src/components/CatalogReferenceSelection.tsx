@@ -48,7 +48,7 @@ export function CatalogReferenceSelection({ data, requestedRevision, onSelect }:
         <Alert isInline variant="info" title={label}>
           <p><Link to={`/catalogs/${selected.id}`}>{selected.display_name}</Link> · revision {selected.id} · <code>{selected.content_digest}</code> · {selected.lifecycle}</p>
           {selection.mode === "explicit" ? <p>This request uses a selected comparison target. Selection does not establish that this catalog matches the host's loaded policy and does not save a host preference.</p>
-            : selection.basis === "adr0010_major_release_family_agreement" ? <p>Complete Boolean/port families agree across eligible major-release candidates under ADR 0010. This is not exact binary-policy equivalence and does not apply to other policy facts.</p>
+            : selection.basis === "major_release_family_agreement" ? <p>Complete Boolean/port families agree across eligible major-release candidates. This is not exact binary-policy equivalence and does not apply to other policy facts.</p>
               : <p>Automatic selection used the trusted host's exact loaded-policy digest. Family availability and host evidence limits still apply.</p>}
           {selection.policy_identity_match === false && <p>Loaded policy identity differs from selected reference.</p>}
         </Alert>

@@ -37,19 +37,41 @@ class PolicyArtifact < ApplicationRecord
 
   def enqueue_permissive_domain_analysis
     analysis = permissive_domain_analysis
-    return unless analysis["status"].nil? || analysis["status"] == "pending"
-    return if analysis["last_enqueued_at"] && Time.iso8601(analysis["last_enqueued_at"]) > PolicyFact::ENQUEUE_INTERVAL.ago
+    version = PolicyPermissiveDomainAnalyzer::SEMANTICS_VERSION
+    return if analysis["semantics_version"].is_a?(Integer) && analysis["semantics_version"] > version
+    return if current_permissive_domain_analysis? && analysis["status"] != "pending"
+    return if current_permissive_domain_analysis? && analysis["last_enqueued_at"] && Time.iso8601(analysis["last_enqueued_at"]) > PolicyFact::ENQUEUE_INTERVAL.ago
 
     enqueue = with_lock do
       analysis = permissive_domain_analysis
-      next false unless analysis["status"].nil? || analysis["status"] == "pending"
-      next false if analysis["last_enqueued_at"] && Time.iso8601(analysis["last_enqueued_at"]) > PolicyFact::ENQUEUE_INTERVAL.ago
+      next false if analysis["semantics_version"].is_a?(Integer) && analysis["semantics_version"] > version
+      next false if current_permissive_domain_analysis? && analysis["status"] != "pending"
+      next false if current_permissive_domain_analysis? && analysis["last_enqueued_at"] && Time.iso8601(analysis["last_enqueued_at"]) > PolicyFact::ENQUEUE_INTERVAL.ago
 
-      update_column(:permissive_domain_analysis, { "status" => "pending", "last_enqueued_at" => Time.current.iso8601(6) })
+      update_column(:permissive_domain_analysis, { "status" => "pending", "policy_identity" => policy_identity,
+        "semantics_version" => version, "last_enqueued_at" => Time.current.iso8601(6) })
       true
     end
-    AnalyzePolicyPermissiveDomainsJob.perform_later(id) if enqueue
+    AnalyzePolicyPermissiveDomainsJob.perform_later(id, version) if enqueue
   rescue StandardError => error
     Rails.logger.warn("permissive-domain analysis enqueue failed artifact=#{id}: #{error.message}")
+  end
+
+  def current_permissive_domain_analysis?
+    result = permissive_domain_analysis
+    result["semantics_version"].is_a?(Integer) && result["semantics_version"] == PolicyPermissiveDomainAnalyzer::SEMANTICS_VERSION && result["policy_identity"] == policy_identity &&
+      %w[pending observed unavailable error].include?(result["status"]) &&
+      (result["status"] != "observed" || (PolicyPermissiveDomainAnalyzer.valid_domains?(result["domains"]) && result["domains"] == result["domains"].uniq.sort && PolicyPermissiveDomainAnalyzer.valid_evaluator_version?(result["evaluator_version"])))
+  end
+
+  def invalidate_permissive_domain_analysis!(reason)
+    with_lock do
+      previous_version = permissive_domain_analysis["semantics_version"]
+      version = PolicyPermissiveDomainAnalyzer::SEMANTICS_VERSION
+      version = [version, previous_version].max if previous_version.is_a?(Integer)
+      update_column(:permissive_domain_analysis, { "status" => "unavailable", "policy_identity" => policy_identity,
+        "semantics_version" => version,
+        "error_message" => reason, "evaluated_at" => Time.current.iso8601(6) })
+    end
   end
 end

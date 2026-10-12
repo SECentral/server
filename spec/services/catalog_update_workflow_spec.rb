@@ -31,7 +31,7 @@ RSpec.describe "Manual catalog update boundary" do
     old_import = first.catalog_import.attributes
     unknown = snapshot("sha256:" + "f" * 64)
     agreed = import(document(2))
-    expect(CatalogReferenceSelection.call(snapshot: unknown)).to have_attributes(status: "selected", basis: "adr0010_major_release_family_agreement")
+    expect(CatalogReferenceSelection.call(snapshot: unknown)).to have_attributes(status: "selected", basis: "major_release_family_agreement")
     expect(CatalogReferenceSelection.call(snapshot: snapshot(agreed.revision.loaded_policy_digest)).revision).to eq(agreed.revision)
     conflicting = import(document(3, default: !document(1).dig("catalog", "families", "booleans", "entries", 0, "default")))
     expect(CatalogReferenceSelection.call(snapshot: unknown).status).to eq("ambiguous")

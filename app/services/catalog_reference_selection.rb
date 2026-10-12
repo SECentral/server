@@ -4,7 +4,7 @@ class CatalogReferenceSelection
   FAMILIES = %w[booleans ports].freeze
   Result = Data.define(:mode, :status, :revision, :basis, :reason, :candidates, :candidate_count, :context, :policy_identity_match, :families) do
     def applicability
-      { "exact_policy_identity" => "exact", "adr0010_major_release_family_agreement" => "major_release", "explicit_revision" => "explicit" }[basis]
+      { "exact_policy_identity" => "exact", "major_release_family_agreement" => "major_release", "explicit_revision" => "explicit" }[basis]
     end
 
     def family(name)
@@ -99,7 +99,7 @@ class CatalogReferenceSelection
 
     # The representative is stable within an equivalent family, never an upgrade
     # or recency preference. Every eligible candidate participates in agreement.
-    result("selected", revision: candidates.first, basis: "adr0010_major_release_family_agreement", candidates: candidates)
+    result("selected", revision: candidates.first, basis: "major_release_family_agreement", candidates: candidates)
   end
 
   private

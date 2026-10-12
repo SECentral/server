@@ -1117,7 +1117,8 @@ RSpec.describe "Events API", type: :request do
   it "exposes SHA-bound source membership and derived load comparisons without synthetic events" do
     identities = %w[ordinary permissive].map do |bytes|
       artifact = PolicyArtifact.create!(policy_identity: "sha256:#{Digest::SHA256.hexdigest(bytes)}", artifact: bytes, artifact_size: bytes.bytesize,
-        permissive_domain_analysis: { "status" => "observed", "domains" => bytes == "permissive" ? ["postgresql_t"] : [] })
+        permissive_domain_analysis: { "status" => "observed", "domains" => bytes == "permissive" ? ["postgresql_t"] : [],
+          "policy_identity" => "sha256:#{Digest::SHA256.hexdigest(bytes)}", "semantics_version" => PolicyPermissiveDomainAnalyzer::SEMANTICS_VERSION, "evaluator_version" => "test" })
       artifact.policy_identity
     end
     checkpoint = heartbeat_request

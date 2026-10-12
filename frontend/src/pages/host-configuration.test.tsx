@@ -30,7 +30,7 @@ const base: HostConfigurationResponse = {
     }
   },
   selection: {
-    mode: "automatic", status: "selected", basis: "adr0010_major_release_family_agreement", reason: null,
+    mode: "automatic", status: "selected", basis: "major_release_family_agreement", reason: null,
     selected_revision: { id: 3, display_name: "AlmaLinux 9", content_digest: "sha256:" + "1".repeat(64), loaded_policy_digest: identity, lifecycle: "active", distribution: "almalinux", major_version: "9", architecture: "x86_64", policy_type: "targeted" },
     candidates: [], candidate_count: 1, candidates_truncated: false,
     context: { distribution: "almalinux", major_version: "9", architecture: "x86_64", policy_type: "targeted" }, policy_identity_match: false, equivalence_asserted: false,
@@ -170,7 +170,7 @@ function renderHostConfiguration(payload: HostConfigurationResponse, initialEntr
 }
 
 describe("HostConfiguration", () => {
-  it("presents automatic exact and ADR0010 fallback bases without inferring them from names", async () => {
+  it("presents automatic exact and major-release fallback bases without inferring them from names", async () => {
     const exact = { ...selectable, selection: { ...base.selection, basis: "exact_policy_identity" as const, policy_identity_match: true, equivalence_asserted: true } };
     const { unmount } = renderHostConfiguration(exact);
     expect(await screen.findByRole("heading", { name: /Exact policy reference/ })).toBeInTheDocument();
