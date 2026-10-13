@@ -10,6 +10,7 @@ import { HostConfiguration } from "./pages/HostConfiguration";
 import { HostDetail } from "./pages/HostDetail";
 import { HostOccurrenceDetail } from "./pages/HostOccurrenceDetail";
 import { Hosts } from "./pages/Hosts";
+import { GlobalLog } from "./pages/GlobalLog";
 import { IssueDetail } from "./pages/IssueDetail";
 import { Issues } from "./pages/Issues";
 import { Overview } from "./pages/Overview";
@@ -41,6 +42,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<Overview />} />
         <Route path="/hosts" element={<Hosts />} />
+        <Route path="/log" element={<GlobalLog />} />
         <Route path="/hosts/:id/occurrences/:occurrenceId" element={<HostOccurrenceDetail />} />
         <Route path="/hosts/:id" element={<HostDetail />} />
         <Route path="/hosts/:id/configuration" element={<HostConfiguration />} />

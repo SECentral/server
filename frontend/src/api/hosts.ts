@@ -20,6 +20,10 @@ export function fetchHost(id: number): Promise<HostDetailResponse> {
   return apiFetch<HostDetailResponse>(`/api/v1/hosts/${id}`);
 }
 
+export function fetchHostOccurrence(id: number, occurrenceId: number): Promise<Types.OccurrenceDetail> {
+  return apiFetch(`/api/v1/hosts/${id}/occurrences/${occurrenceId}`);
+}
+
 export function fetchHostOccurrences(
   id: number,
   params: { limit?: number; before?: string; page?: number } = {}

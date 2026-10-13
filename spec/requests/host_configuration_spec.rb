@@ -3,7 +3,10 @@ require "rails_helper"
 RSpec.describe "Host SELinux configuration API", type: :request do
   let(:identity) { "sha256:" + "a" * 64 }
 
-  before { sign_in_operator }
+  before do
+    Organization.create!(name: "configuration")
+    sign_in_operator
+  end
 
   after do
     Occurrence.delete_all
@@ -38,7 +41,7 @@ RSpec.describe "Host SELinux configuration API", type: :request do
   end
 
   def host(details, observed_at: Time.current, received_at: Time.current)
-    organization = Organization.create!(name: "configuration-#{SecureRandom.uuid}")
+    organization = Organization.sole
     record = organization.hosts.create!(external_id: SecureRandom.uuid, hostname: "alma-01")
     observe(record, details, observed_at: observed_at, received_at: received_at)
     record
@@ -289,7 +292,7 @@ RSpec.describe "Host SELinux configuration API", type: :request do
   end
 
   it "exposes null facts for hosts without a heartbeat-confirmed observation" do
-    organization = Organization.create!(name: "event-only-configuration")
+    organization = Organization.sole
     record = organization.hosts.create!(external_id: "event-only", hostname: "event-only")
     HostSnapshot.create!(host: record, details: { "selinux" => { "boolean_status" => "observed", "booleans" => [{ "name" => "virt_use_nfs", "current" => true, "status" => "observed" }] } })
 

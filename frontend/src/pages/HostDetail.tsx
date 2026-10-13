@@ -218,9 +218,6 @@ export function HostDetail() {
             <dl className="host-policy-metrics">
               <div><dt>Booleans</dt><dd>{configuration?.comparison.available && comparisonSummary ? <>{booleanDifferences + hostOnlyBooleans > 0 ? <><StatusLabel color="orange">{booleanDifferences + hostOnlyBooleans} drifted</StatusLabel>{" "}</> : null}<span>{booleanDifferences + hostOnlyBooleans > 0 ? `(${comparisonSummary.booleans.match}/${comparisonSummary.booleans.reference_entries} match)` : `${comparisonSummary.booleans.match} / ${comparisonSummary.booleans.reference_entries} match`}</span></> : "Unavailable"}</dd></div>
               <div><dt>Ports</dt><dd>{configuration?.comparison.available && comparisonSummary ? <>{portDifferences > 0 ? <><StatusLabel color="orange">{portDifferences} drifted</StatusLabel>{" "}</> : null}<span>{portDifferences > 0 ? `(${comparisonSummary.ports.match}/${comparisonSummary.ports.compared + comparisonSummary.ports.not_observed} match)` : `${comparisonSummary.ports.match} / ${comparisonSummary.ports.compared + comparisonSummary.ports.not_observed} match`}</span></> : "Unavailable"}</dd></div>
-              {/* ponytail: inventory slots use placeholder counts; replace with snapshot counts when inventories are reported. */}
-              <div><dt>Custom modules</dt><dd>0 loaded</dd></div>
-              <div><dt>Local fcontexts</dt><dd>0 overrides</dd></div>
             </dl>
           </CardBody>
           <CardFooter className="host-comparison-footer"><Button component="a" href={`/hosts/${host.id}/configuration`} variant="link" isInline>View full comparison <span aria-hidden="true">→</span></Button></CardFooter>

@@ -30,6 +30,7 @@ import { useSession } from "../hooks/useSession";
 const NAV_ITEMS = [
   { to: "/", label: "Overview" },
   { to: "/issues", label: "SELinux issues" },
+  { to: "/log", label: "Global log" },
   { to: "/hosts", label: "Monitored servers" },
   { to: "/catalogs", label: "Catalogs" },
   { to: "/configuration", label: "SELinux configuration" }

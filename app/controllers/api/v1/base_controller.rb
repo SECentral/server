@@ -20,11 +20,21 @@ class Api::V1::BaseController < OperatorApiController
     render json: { error: { code: "not_found", message: "Resource not found" } }, status: :not_found
   end
 
+  rescue_from ActiveRecord::SoleRecordExceeded do
+    render json: { error: { code: "organization_unavailable", message: "Operator access requires exactly one organization" } }, status: :service_unavailable
+  end
+
   rescue_from ActionController::InvalidAuthenticityToken do
     render json: { error: { code: "invalid_csrf_token", message: "Invalid or missing CSRF token" } }, status: :unprocessable_content
   end
 
   private
+
+  def current_organization
+    @current_organization ||= Organization.sole
+  rescue ActiveRecord::RecordNotFound
+    raise ActiveRecord::SoleRecordExceeded
+  end
 
   def set_csrf_header
     response.headers["X-CSRF-Token"] = form_authenticity_token

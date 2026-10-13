@@ -16,7 +16,7 @@ class Api::V1::HostsController < Api::V1::BaseController
   end
 
   def show
-    host = Host.includes(:agent_installations, current_state_observation: :host_snapshot).find(params[:id])
+    host = current_organization.hosts.includes(:agent_installations, current_state_observation: :host_snapshot).find(params[:id])
     render json: { host: HostSerializer.call(host, counts: host_counts([host]).fetch(host.id), include_snapshot: true) }
   end
 

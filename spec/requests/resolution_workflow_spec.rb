@@ -9,8 +9,8 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
   end
   before { sign_in_operator }
 
-  def fixture(network: true, path: "/var/www/html/test file;$(id)")
-    org = Organization.create!(name: "resolution-#{SecureRandom.hex(4)}")
+  def fixture(network: true, path: "/var/www/html/test file;$(id)", organization: nil)
+    org = organization || Organization.find_or_create_by!(name: "resolution")
     issue = Issue.create!(organization: org, fingerprint_version: 3, fingerprint_digest: SecureRandom.hex,
       source_type: "httpd_t", target_type: network ? "unreserved_port_t" : "user_home_t", target_class: network ? "tcp_socket" : "file",
       permissions: [network ? "name_connect" : "entrypoint"], first_seen_at: Time.current, last_seen_at: Time.current)
@@ -434,7 +434,7 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
     expect(draft["entries"].size).to eq(1)
     expect(draft["entries"].sole["provenance"].size).to eq(2)
     expect(draft["entries"].sole["provenance"].first["known_alternatives"].size).to eq(2)
-    foreign, foreign_occurrence, = fixture
+    foreign, foreign_occurrence, = fixture(organization: Organization.create!(name: "foreign"))
     mutate("/api/v1/policy-drafts/#{id}/entries", method: :post, issue_id: foreign.id, occurrence_id: foreign_occurrence.id)
     expect(response).to have_http_status(:not_found)
     get "/api/v1/policy-drafts", params: { issue_id: issue.id }

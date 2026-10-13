@@ -1,6 +1,6 @@
 class Api::V1::HostOccurrencesController < Api::V1::BaseController
   def index
-    host = Host.find(params[:id])
+    host = current_organization.hosts.find(params[:id])
     limit = params.fetch(:limit, 50).to_i
     limit = 50 if limit > 50 || limit < 1
 
@@ -38,6 +38,13 @@ class Api::V1::HostOccurrencesController < Api::V1::BaseController
       occurrences: occurrences.map { |occurrence| OccurrenceDetailSerializer.call(occurrence, guidance: occurrence_guidance(occurrence), policy_states: policy_states) },
       meta: { next_cursor: next_cursor }.merge(page ? { page: page, page_size: limit, total: total, total_pages: total_pages } : {})
     }
+  end
+
+  def show
+    host = current_organization.hosts.find(params[:id])
+    occurrence = host.occurrences.where(organization: current_organization)
+      .includes(:host, :issue, :host_snapshot, :normalized_denial, raw_event: :raw_audit_records).find(params[:occurrence_id])
+    render json: OccurrenceDetailSerializer.call(occurrence, guidance: occurrence_guidance(occurrence))
   end
 
   private

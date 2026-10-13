@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_11_000002) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_13_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -63,56 +63,56 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_11_000002) do
   end
 
   create_table "distribution_catalog_booleans", force: :cascade do |t|
-    t.datetime "created_at", null: false
-    t.boolean "default_value", null: false
-    t.text "description", null: false
     t.bigint "distribution_catalog_revision_id", null: false
     t.string "name", null: false
+    t.boolean "default_value", null: false
+    t.text "description", null: false
+    t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["distribution_catalog_revision_id", "name"], name: "index_distribution_catalog_booleans_on_revision_and_name", unique: true
     t.index ["distribution_catalog_revision_id"], name: "idx_on_distribution_catalog_revision_id_d0306ad656"
   end
 
   create_table "distribution_catalog_imports", force: :cascade do |t|
-    t.jsonb "acquisition_metadata", default: {}, null: false
-    t.binary "artifact", null: false
-    t.jsonb "comparison_report"
-    t.datetime "created_at", null: false
     t.bigint "distribution_catalog_revision_id", null: false
+    t.binary "artifact", null: false
+    t.jsonb "acquisition_metadata", default: {}, null: false
+    t.string "source_path"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
     t.string "imported_by"
     t.string "source_kind", default: "unspecified", null: false
-    t.string "source_path"
-    t.datetime "updated_at", null: false
+    t.jsonb "comparison_report"
     t.index ["distribution_catalog_revision_id"], name: "idx_on_distribution_catalog_revision_id_fd9fa95ad5"
     t.check_constraint "source_kind::text = ANY (ARRAY['unspecified'::character varying, 'administrative_cli'::character varying, 'operator_upload'::character varying]::text[])", name: "catalog_import_source_kind"
   end
 
   create_table "distribution_catalog_ports", force: :cascade do |t|
-    t.datetime "created_at", null: false
     t.bigint "distribution_catalog_revision_id", null: false
-    t.integer "end_port", null: false
     t.string "protocol", null: false
-    t.string "selinux_type", null: false
     t.integer "start_port", null: false
+    t.integer "end_port", null: false
+    t.string "selinux_type", null: false
+    t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["distribution_catalog_revision_id", "protocol", "start_port", "end_port", "selinux_type"], name: "index_distribution_catalog_ports_on_revision_and_mapping", unique: true
     t.index ["distribution_catalog_revision_id"], name: "idx_on_distribution_catalog_revision_id_7ca5258b0e"
   end
 
   create_table "distribution_catalog_revisions", force: :cascade do |t|
-    t.string "architecture", null: false
-    t.boolean "booleans_complete", null: false
-    t.integer "collector_semantics_version", null: false
-    t.string "content_digest", null: false
-    t.datetime "created_at", null: false
-    t.string "distribution", null: false
-    t.integer "kernel_policy_version", null: false
-    t.string "loaded_policy_digest", null: false
-    t.string "major_version", null: false
-    t.jsonb "policy_packages", default: [], null: false
-    t.string "policy_type", null: false
-    t.boolean "ports_complete", null: false
     t.integer "schema_version", null: false
+    t.string "content_digest", null: false
+    t.integer "collector_semantics_version", null: false
+    t.string "loaded_policy_digest", null: false
+    t.string "policy_type", null: false
+    t.integer "kernel_policy_version", null: false
+    t.string "distribution", null: false
+    t.string "major_version", null: false
+    t.string "architecture", null: false
+    t.jsonb "policy_packages", default: [], null: false
+    t.boolean "booleans_complete", null: false
+    t.boolean "ports_complete", null: false
+    t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["content_digest"], name: "index_distribution_catalog_revisions_on_content_digest", unique: true
     t.index ["loaded_policy_digest"], name: "index_distribution_catalog_revisions_on_loaded_policy_digest", unique: true
@@ -238,54 +238,54 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_11_000002) do
   end
 
   create_table "policy_artifacts", force: :cascade do |t|
+    t.string "policy_identity", null: false
     t.binary "artifact", null: false
     t.bigint "artifact_size", null: false
-    t.datetime "created_at", null: false
-    t.string "policy_identity", null: false
     t.string "source_host_id"
+    t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.jsonb "permissive_domain_analysis", default: {}, null: false
     t.index ["policy_identity"], name: "index_policy_artifacts_on_policy_identity", unique: true
   end
 
   create_table "policy_draft_entries", force: :cascade do |t|
-    t.datetime "created_at", null: false
-    t.string "object_class", null: false
-    t.string "permission", null: false
     t.bigint "policy_draft_id", null: false
-    t.jsonb "provenance", default: [], null: false
     t.string "source_type", null: false
     t.string "target_type", null: false
+    t.string "object_class", null: false
+    t.string "permission", null: false
+    t.jsonb "provenance", default: [], null: false
+    t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["policy_draft_id", "source_type", "target_type", "object_class", "permission"], name: "index_draft_entries_on_permission", unique: true
     t.index ["policy_draft_id"], name: "index_policy_draft_entries_on_policy_draft_id"
   end
 
   create_table "policy_drafts", force: :cascade do |t|
-    t.datetime "created_at", null: false
+    t.bigint "organization_id", null: false
     t.string "name", null: false
     t.string "operator", null: false
-    t.bigint "organization_id", null: false
     t.string "status", default: "draft", null: false
+    t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["organization_id"], name: "index_policy_drafts_on_organization_id"
   end
 
   create_table "policy_facts", force: :cascade do |t|
-    t.datetime "created_at", null: false
-    t.text "error_message"
-    t.datetime "evaluated_at"
-    t.string "evaluator_version"
-    t.datetime "last_enqueued_at"
-    t.jsonb "matching_rules", default: [], null: false
-    t.string "object_class", null: false
-    t.string "permission", null: false
     t.string "policy_identity", null: false
     t.string "query_kind", null: false
-    t.jsonb "rule_details", default: [], null: false
     t.string "source_type", null: false
-    t.string "status", default: "pending", null: false
     t.string "target_type", null: false
+    t.string "object_class", null: false
+    t.string "permission", null: false
+    t.string "status", default: "pending", null: false
+    t.jsonb "matching_rules", default: [], null: false
+    t.jsonb "rule_details", default: [], null: false
+    t.string "evaluator_version"
+    t.text "error_message"
+    t.datetime "evaluated_at"
+    t.datetime "last_enqueued_at"
+    t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["policy_identity", "query_kind", "source_type", "target_type", "object_class", "permission"], name: "index_policy_facts_on_exact_question", unique: true
     t.index ["policy_identity", "status"], name: "index_policy_facts_on_policy_identity_and_status"
@@ -310,60 +310,62 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_11_000002) do
     t.datetime "agent_received_at", null: false
     t.bigint "audit_sequence", null: false
     t.datetime "audit_timestamp", null: false
-    t.jsonb "boolean_changes", default: [], null: false
     t.string "boot_id", null: false
-    t.string "category", default: "avc", null: false
-    t.jsonb "checkpoint_invalidated_fields", default: [], null: false
     t.string "completion_reason", null: false
     t.datetime "created_at", null: false
-    t.jsonb "enforcement_changes", default: [], null: false
     t.string "evidence_digest", null: false
-    t.jsonb "file_context_changes", default: [], null: false
     t.jsonb "file_context_observations", default: [], null: false
     t.bigint "host_id", null: false
     t.datetime "host_observed_at"
     t.bigint "host_snapshot_id"
     t.bigint "organization_id", null: false
     t.jsonb "policy_evaluations", default: [], null: false
-    t.jsonb "port_changes", default: [], null: false
     t.integer "schema_version", null: false
     t.datetime "server_received_at", null: false
-    t.string "transition_type"
     t.datetime "updated_at", null: false
+    t.string "category", default: "avc", null: false
+    t.string "transition_type"
+    t.jsonb "boolean_changes", default: [], null: false
+    t.jsonb "enforcement_changes", default: [], null: false
+    t.jsonb "checkpoint_invalidated_fields", default: [], null: false
+    t.jsonb "port_changes", default: [], null: false
+    t.jsonb "file_context_changes", default: [], null: false
     t.index ["agent_installation_id"], name: "index_raw_events_on_agent_installation_id"
     t.index ["evidence_digest"], name: "index_raw_events_on_evidence_digest"
     t.index ["host_id", "boot_id", "transition_type", "audit_timestamp"], name: "index_raw_events_on_state_transition"
     t.index ["host_id"], name: "index_raw_events_on_host_id"
     t.index ["host_snapshot_id"], name: "index_raw_events_on_host_snapshot_id"
+    t.index ["organization_id", "category", "audit_timestamp", "id"], name: "index_raw_events_on_log_time"
     t.index ["organization_id", "host_id", "boot_id", "audit_timestamp", "audit_sequence"], name: "index_raw_events_on_identity", unique: true
+    t.index ["organization_id", "host_id", "category", "audit_timestamp", "id"], name: "index_raw_events_on_host_log_time"
     t.index ["organization_id"], name: "index_raw_events_on_organization_id"
   end
 
   create_table "resolution_intent_changes", force: :cascade do |t|
-    t.string "action", null: false
-    t.datetime "created_at", null: false
-    t.jsonb "details", default: {}, null: false
     t.bigint "issue_id", null: false
     t.string "operator", null: false
+    t.string "action", null: false
+    t.jsonb "details", default: {}, null: false
+    t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["issue_id"], name: "index_resolution_intent_changes_on_issue_id"
   end
 
   create_table "resolution_intents", force: :cascade do |t|
+    t.bigint "issue_id", null: false
     t.string "candidate_id", null: false
     t.string "candidate_kind", null: false
-    t.datetime "created_at", null: false
-    t.jsonb "evidence_basis", default: {}, null: false
-    t.string "evidence_version", null: false
-    t.bigint "issue_id", null: false
-    t.string "operator", null: false
-    t.integer "plan_semantics_version"
-    t.jsonb "plan_snapshot", default: {}, null: false
-    t.datetime "selected_at", null: false
     t.text "selected_intent", null: false
-    t.jsonb "semantic_plan_basis"
+    t.string "operator", null: false
+    t.datetime "selected_at", null: false
     t.string "status", default: "selected", null: false
+    t.string "evidence_version", null: false
+    t.jsonb "evidence_basis", default: {}, null: false
+    t.jsonb "plan_snapshot", default: {}, null: false
+    t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.jsonb "semantic_plan_basis"
+    t.integer "plan_semantics_version"
     t.index ["issue_id"], name: "index_resolution_intents_on_issue_id", unique: true
   end
 

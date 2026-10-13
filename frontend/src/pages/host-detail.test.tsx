@@ -166,6 +166,11 @@ function renderHostDetail(hostId: number, options: {
     if (url.startsWith(`/api/v1/hosts/${hostId}/configuration`)) {
       return Promise.resolve(jsonResponse(200, options.configuration ?? matchingConfiguration));
     }
+    if (url.startsWith(`/api/v1/hosts/${hostId}/occurrences/`)) {
+      const id = Number(url.split("/").at(-1));
+      const item = [...occurrencesPage(1).occurrences, ...occurrencesPage(2).occurrences].find((entry) => entry.id === id);
+      return Promise.resolve(jsonResponse(item ? 200 : 404, item ?? { error: { code: "not_found", message: "Occurrence not found" } }));
+    }
     if (url.startsWith(`/api/v1/hosts/${hostId}/occurrences`)) {
       const params = new URL(url, "http://localhost").searchParams;
       if (params.has("page")) {
@@ -225,8 +230,10 @@ describe("HostDetail", () => {
     expect(screen.getByText("Matches reference")).toBeInTheDocument();
     expect(screen.getByText("350 / 350 match")).toBeInTheDocument();
     expect(screen.getByText("621 / 621 match")).toBeInTheDocument();
-    expect(screen.getByText("0 loaded")).toBeInTheDocument();
-    expect(screen.getByText("0 overrides")).toBeInTheDocument();
+    expect(screen.queryByText("Custom modules")).not.toBeInTheDocument();
+    expect(screen.queryByText("Local fcontexts")).not.toBeInTheDocument();
+    expect(screen.queryByText("0 loaded")).not.toBeInTheDocument();
+    expect(screen.queryByText("0 overrides")).not.toBeInTheDocument();
     expect(screen.getByText("1", { selector: ".host-activity-facts strong" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Total Occurrences" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "AVC / 24h" })).toBeInTheDocument();
@@ -358,14 +365,15 @@ describe("HostDetail", () => {
     expect(screen.getByRole("button", { name: "Copy raw AVC record 0 for occurrence 101" })).toBeInTheDocument();
   });
 
-  it("resolves older occurrence routes through the existing cursor API", async () => {
+  it("opens older occurrences directly without traversing host history", async () => {
     const { fetchMock } = renderHostDetail(10, { initialEntry: "/hosts/10/occurrences/100" });
 
     expect(await screen.findByRole("heading", { name: "httpd_t → user_home_t" })).toBeInTheDocument();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/hosts/10/occurrences?limit=50&before=cursor-1",
+      "/api/v1/hosts/10/occurrences/100",
       expect.objectContaining({ method: "GET" })
     ));
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/occurrences?"))).toBe(false);
     expect(screen.getByText("Ungrouped event")).toBeInTheDocument();
   });
 

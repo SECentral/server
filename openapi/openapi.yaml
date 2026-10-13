@@ -32,6 +32,148 @@ security:
     csrf: []
 
 paths:
+  /api/v1/selinux-log:
+    get:
+      operationId: listSelinuxLog
+      summary: Fleet-wide timeline of retained AVC occurrences and supported administrative events
+      description: |
+        Single-organization operator access. AVC rows represent occurrences, not
+        every captured raw AVC; occurrences without issues are included. Supported
+        administrative types are policy loads, boolean/enforcement activity, port
+        mapping writes and file-context mapping writes/reports. Reconciliation
+        remains in host activity details. No causality or completeness guarantee.
+
+        Both branches filter and sort by raw_events.audit_timestamp, serialized
+        in UTC with six fractional digits. This timestamp wins over differing
+        occurrence.occurred_at values. Missing audit timestamps violate storage
+        constraints; receipt/current times are never substituted. Ordering is
+        event_time DESC, source_kind DESC (administrative=1, AVC=0), source_id DESC.
+
+        Intervals are start-inclusive/end-exclusive. Signed versioned cursors bind
+        to the organization, category, host and absolute time bounds, not limit.
+        Reusing a cursor with changed filters is rejected. Pagination is not a
+        frozen snapshot; late arrivals can enter already-browsed intervals.
+        Supplying page selects numbered offset pagination with exact filtered
+        totals and clamps pages beyond the last page. Page and before cannot be
+        combined. Numbered pages can shift as entries arrive or are deleted.
+      parameters:
+        - name: category
+          in: query
+          schema: { type: string, enum: [all, avc, administrative], default: all }
+        - name: host_id
+          in: query
+          description: Legacy single-host filter; cannot be combined with host_ids[].
+          schema: { type: integer, minimum: 1 }
+        - name: host_ids[]
+          in: query
+          description: One to 50 selected host IDs; matches any selected host. Deduplicated and sorted for cursor binding. Cannot be combined with host_id.
+          style: form
+          explode: true
+          schema: { type: array, minItems: 1, maxItems: 50, items: { type: integer, minimum: 1 } }
+        - name: start
+          in: query
+          description: Absolute UTC start, at most six fractional digits; omitted for unbounded start.
+          schema: { type: string, format: date-time, pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z$' }
+        - name: end
+          in: query
+          description: Absolute UTC exclusive end, after start; omitted for unbounded end.
+          schema: { type: string, format: date-time, pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z$' }
+        - name: before
+          in: query
+          schema: { type: string, maxLength: 4096 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 50 }
+        - name: page
+          in: query
+          description: Positive page number, with filtered totals; cannot be combined with before.
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Bounded page; exact filtered totals are included when page is supplied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelinuxLogResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid category, timestamp, limit, or cursor; includes filter-mismatched cursors
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Exactly one organization is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/selinux-log/hosts:
+    get:
+      operationId: searchSelinuxLogHosts
+      summary: Search stored hosts for the global log, including inactive hosts
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 200 }
+        - name: host_id
+          in: query
+          schema: { type: integer, minimum: 1 }
+        - name: host_ids[]
+          in: query
+          description: Fetch labels for selected hosts; one to 50 IDs, not combined with host_id.
+          style: form
+          explode: true
+          schema: { type: array, minItems: 1, maxItems: 50, items: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: Up to 50 host options scoped to the single organization
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [hosts]
+                properties:
+                  hosts:
+                    type: array
+                    maxItems: 50
+                    items:
+                      $ref: "#/components/schemas/SelinuxLogHost"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          description: Invalid search
+        "503":
+          description: Exactly one organization is required
+  /api/v1/hosts/{id}/occurrences/{occurrence_id}:
+    get:
+      operationId: getHostOccurrence
+      summary: Direct lookup of a retained occurrence within its host and organization
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+        - name: occurrence_id
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Occurrence evidence and investigation guidance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OccurrenceDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: Exactly one organization is required
   /api/v1/events:
     post:
       operationId: ingestEvents
@@ -4560,6 +4702,74 @@ components:
             properties:
               name: { type: string }
               value: { type: [boolean, "null"] }
+    SelinuxLogHost:
+      type: object
+      required: [id, hostname, external_id]
+      properties:
+        id: { type: integer }
+        hostname: { type: [string, "null"] }
+        external_id: { type: string }
+    SelinuxAdministrativeFacts:
+      type: object
+      required: [transition_type, boundary_established, boolean_changes, enforcement_changes, port_changes, file_context_changes]
+      properties:
+        transition_type:
+          $ref: "#/components/schemas/SelinuxActivityItem/properties/transition_type"
+        boundary_established: { type: boolean }
+        boolean_changes:
+          $ref: "#/components/schemas/SelinuxActivityItem/properties/boolean_changes"
+        enforcement_changes:
+          $ref: "#/components/schemas/SelinuxActivityItem/properties/enforcement_changes"
+        port_changes:
+          $ref: "#/components/schemas/SelinuxActivityItem/properties/port_changes"
+        file_context_changes:
+          $ref: "#/components/schemas/SelinuxActivityItem/properties/file_context_changes"
+    SelinuxLogItem:
+      type: object
+      required: [id, category, event_time, host]
+      properties:
+        id: { type: integer }
+        category: { type: string, enum: [avc, administrative] }
+        event_time: { type: string, format: date-time }
+        host:
+          $ref: "#/components/schemas/SelinuxLogHost"
+        issue_id: { type: [integer, "null"] }
+        actor:
+          $ref: "#/components/schemas/SelinuxActivityActor"
+        administrative:
+          $ref: "#/components/schemas/SelinuxAdministrativeFacts"
+        avc:
+          type: object
+          required: [status, source_type, target_type, target_class, permissions, target_paths, command, executable, permissive]
+          properties:
+            status: { type: string }
+            source_type: { type: [string, "null"] }
+            target_type: { type: [string, "null"] }
+            target_class: { type: [string, "null"] }
+            permissions: { type: array, items: { type: string } }
+            target_paths: { type: array, items: { type: string } }
+            command: { type: [string, "null"] }
+            executable: { type: [string, "null"] }
+            permissive: { type: [boolean, "null"] }
+    SelinuxLogResponse:
+      type: object
+      required: [items, coverage, meta]
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/SelinuxLogItem"
+        coverage: { type: string }
+        meta:
+          type: object
+          required: [page_size, next_cursor]
+          properties:
+            page_size: { type: integer, minimum: 1, maximum: 50 }
+            next_cursor: { type: [string, "null"] }
+            page: { type: integer, minimum: 1 }
+            total: { type: integer, minimum: 0, description: Exact count of entries matching host/category/time filters in numbered-page mode. }
+            total_pages: { type: integer, minimum: 0 }
     SelinuxActivityItem:
       type: object
       required: [id, host_id, boot_id, event_time, evidence_class, transition_type, boundary_established, audit_sequence, boolean_changes, previous_checkpoint, reconciliation, window_avc_count]

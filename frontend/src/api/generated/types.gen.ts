@@ -1704,6 +1704,93 @@ export type SelinuxCheckpoint = {
     }>;
 };
 
+export type SelinuxLogHost = {
+    id: number;
+    hostname: string | null;
+    external_id: string;
+};
+
+export type SelinuxAdministrativeFacts = {
+    transition_type: 'policy_load' | 'boolean_change' | 'enforcement_change' | 'port_change' | 'file_context_change';
+    boundary_established: boolean;
+    boolean_changes: Array<{
+        name: string;
+        old_value: boolean;
+        new_value: boolean;
+        state_change_established: boolean;
+    }>;
+    /**
+     * Validated enabled-SELinux runtime enforcement fields; an unvalidated MAC_STATUS shape remains history without a delta or boundary.
+     */
+    enforcement_changes: Array<{
+        old_mode: 'enforcing' | 'permissive';
+        new_mode: 'enforcing' | 'permissive';
+        state_change_established: boolean;
+    }>;
+    /**
+     * Validated port-write fields only. Delete omits type; modify has no old value and may be equal-value. Boundary does not claim a reconstructed mapping delta.
+     */
+    port_changes: Array<{
+        operation: 'add' | 'modify' | 'delete';
+        protocol: 'tcp' | 'udp';
+        start: number;
+        end: number;
+        target_context: string | null;
+        selinux_type: string | null;
+        success: boolean;
+        boundary_established: boolean;
+    }>;
+    /**
+     * Validated expected-label configuration writes; no old context or resulting inode label inferred.
+     */
+    file_context_changes: Array<{
+        operation: 'add' | 'modify' | 'delete';
+        expression: string;
+        file_selector: 'any' | 'file';
+        target_context: string | null;
+        selinux_type: string | null;
+        success: boolean;
+        boundary_established: boolean;
+        state_change_established: false;
+    }>;
+};
+
+export type SelinuxLogItem = {
+    id: number;
+    category: 'avc' | 'administrative';
+    event_time: string;
+    host: SelinuxLogHost;
+    issue_id?: number | null;
+    actor?: SelinuxActivityActor;
+    administrative?: SelinuxAdministrativeFacts;
+    avc?: {
+        status: string;
+        source_type: string | null;
+        target_type: string | null;
+        target_class: string | null;
+        permissions: Array<string>;
+        target_paths: Array<string>;
+        command: string | null;
+        executable: string | null;
+        permissive: boolean | null;
+    };
+};
+
+export type SelinuxLogResponse = {
+    items: Array<SelinuxLogItem>;
+    coverage: string;
+    meta: {
+        page_size: number;
+        next_cursor: string | null;
+        page?: number;
+        /**
+         * Exact count of entries matching host/category/time filters in numbered-page mode.
+         */
+        total?: number;
+        total_pages?: number;
+    };
+};
+
 export type SelinuxActivityItem = {
     actor?: SelinuxActivityActor;
     id: number;
@@ -1851,6 +1938,145 @@ export type IssueId = number;
  * Exact UTF-8 JSON artifact bytes, 1–2097152 bytes.
  */
 export type CatalogUpload = Blob | File;
+
+export type ListSelinuxLogData = {
+    body?: never;
+    path?: never;
+    query?: {
+        category?: 'all' | 'avc' | 'administrative';
+        /**
+         * Legacy single-host filter; cannot be combined with host_ids[].
+         */
+        host_id?: number;
+        /**
+         * One to 50 selected host IDs; matches any selected host. Deduplicated and sorted for cursor binding. Cannot be combined with host_id.
+         */
+        'host_ids[]'?: Array<number>;
+        /**
+         * Absolute UTC start, at most six fractional digits; omitted for unbounded start.
+         */
+        start?: string;
+        /**
+         * Absolute UTC exclusive end, after start; omitted for unbounded end.
+         */
+        end?: string;
+        before?: string;
+        limit?: number;
+        /**
+         * Positive page number, with filtered totals; cannot be combined with before.
+         */
+        page?: number;
+    };
+    url: '/api/v1/selinux-log';
+};
+
+export type ListSelinuxLogErrors = {
+    /**
+     * Unauthenticated
+     */
+    401: Error;
+    /**
+     * Not found
+     */
+    404: Error;
+    /**
+     * Invalid category, timestamp, limit, or cursor; includes filter-mismatched cursors
+     */
+    422: Error;
+    /**
+     * Exactly one organization is required
+     */
+    503: Error;
+};
+
+export type ListSelinuxLogError = ListSelinuxLogErrors[keyof ListSelinuxLogErrors];
+
+export type ListSelinuxLogResponses = {
+    /**
+     * Bounded page; exact filtered totals are included when page is supplied
+     */
+    200: SelinuxLogResponse;
+};
+
+export type ListSelinuxLogResponse = ListSelinuxLogResponses[keyof ListSelinuxLogResponses];
+
+export type SearchSelinuxLogHostsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        q?: string;
+        host_id?: number;
+        /**
+         * Fetch labels for selected hosts; one to 50 IDs, not combined with host_id.
+         */
+        'host_ids[]'?: Array<number>;
+    };
+    url: '/api/v1/selinux-log/hosts';
+};
+
+export type SearchSelinuxLogHostsErrors = {
+    /**
+     * Unauthenticated
+     */
+    401: Error;
+    /**
+     * Invalid search
+     */
+    422: unknown;
+    /**
+     * Exactly one organization is required
+     */
+    503: unknown;
+};
+
+export type SearchSelinuxLogHostsError = SearchSelinuxLogHostsErrors[keyof SearchSelinuxLogHostsErrors];
+
+export type SearchSelinuxLogHostsResponses = {
+    /**
+     * Up to 50 host options scoped to the single organization
+     */
+    200: {
+        hosts: Array<SelinuxLogHost>;
+    };
+};
+
+export type SearchSelinuxLogHostsResponse = SearchSelinuxLogHostsResponses[keyof SearchSelinuxLogHostsResponses];
+
+export type GetHostOccurrenceData = {
+    body?: never;
+    path: {
+        id: number;
+        occurrence_id: number;
+    };
+    query?: never;
+    url: '/api/v1/hosts/{id}/occurrences/{occurrence_id}';
+};
+
+export type GetHostOccurrenceErrors = {
+    /**
+     * Unauthenticated
+     */
+    401: Error;
+    /**
+     * Not found
+     */
+    404: Error;
+    /**
+     * Exactly one organization is required
+     */
+    503: unknown;
+};
+
+export type GetHostOccurrenceError = GetHostOccurrenceErrors[keyof GetHostOccurrenceErrors];
+
+export type GetHostOccurrenceResponses = {
+    /**
+     * Occurrence evidence and investigation guidance
+     */
+    200: OccurrenceDetail;
+};
+
+export type GetHostOccurrenceResponse = GetHostOccurrenceResponses[keyof GetHostOccurrenceResponses];
 
 export type IngestEventsData = {
     body: IngestionEnvelope;

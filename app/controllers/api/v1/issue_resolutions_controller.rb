@@ -18,6 +18,6 @@ class Api::V1::IssueResolutionsController < Api::V1::BaseController
   private
 
   def workflow
-    ResolutionWorkflow.new(Issue.find(params[:id]), operator: session[:operator_username])
+    ResolutionWorkflow.new(current_organization.issues.find(params[:id]), operator: session[:operator_username])
   end
 end

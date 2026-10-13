@@ -2,7 +2,7 @@ import { Alert, Breadcrumb, BreadcrumbItem, Spinner, Title } from "@patternfly/r
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { OccurrenceInvestigation } from "../components/OccurrenceInvestigation";
-import { fetchHost, fetchHostOccurrences, fetchHostSelinuxActivity } from "../api/hosts";
+import { fetchHost, fetchHostOccurrence, fetchHostSelinuxActivity } from "../api/hosts";
 
 function formatUtc(iso: string): string {
   return `${new Intl.DateTimeFormat("en", {
@@ -13,20 +13,6 @@ function formatUtc(iso: string): string {
     hourCycle: "h23",
     timeZone: "UTC"
   }).format(new Date(iso))} UTC`;
-}
-
-async function fetchHostOccurrence(hostId: number, occurrenceId: number) {
-  const seen = new Set<string>();
-  let before: string | undefined;
-  while (true) {
-    const page = await fetchHostOccurrences(hostId, { limit: 50, before });
-    const occurrence = page.occurrences.find((item) => item.id === occurrenceId);
-    if (occurrence) return occurrence;
-    const cursor = page.meta.next_cursor;
-    if (!cursor || seen.has(cursor)) return null;
-    seen.add(cursor);
-    before = cursor;
-  }
 }
 
 export function HostOccurrenceDetail() {

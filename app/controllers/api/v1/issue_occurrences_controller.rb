@@ -1,6 +1,6 @@
 class Api::V1::IssueOccurrencesController < Api::V1::BaseController
   def index
-    issue = Issue.find(params[:id])
+    issue = current_organization.issues.find(params[:id])
     return render_summary_page(issue) if params[:view] == "summary"
     limit = params.fetch(:limit, 50).to_i
     limit = 50 if limit > 50 || limit < 1
@@ -34,7 +34,7 @@ class Api::V1::IssueOccurrencesController < Api::V1::BaseController
   end
 
   def show
-    issue = Issue.find(params[:id])
+    issue = current_organization.issues.find(params[:id])
     occurrence = issue.occurrences.includes(:host, :host_snapshot, :normalized_denial, raw_event: :raw_audit_records).find(params[:occurrence_id])
     render json: OccurrenceDetailSerializer.call(occurrence, guidance: occurrence_guidance(issue, occurrence))
   end

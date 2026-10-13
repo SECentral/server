@@ -11,6 +11,7 @@
 public/spa/
 /.bundle/
 /.cache/
+/frontend/.local/
 /.local/
 /.npm/
 /frontend/.npm/

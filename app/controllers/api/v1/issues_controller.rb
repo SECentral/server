@@ -31,7 +31,7 @@ class Api::V1::IssuesController < Api::V1::BaseController
   end
 
   def show
-    issue = Issue.find(params[:id])
+    issue = current_organization.issues.find(params[:id])
     intelligence = IssueIntelligence.call(issue)
     analyzer = IssueDiagnosis.new(issue, intelligence)
     host_explanations = analyzer.per_host
@@ -64,7 +64,7 @@ class Api::V1::IssuesController < Api::V1::BaseController
   end
 
   def update_status
-    issue = Issue.find(params[:id])
+    issue = current_organization.issues.find(params[:id])
     issue.transition_to!(params.require(:status))
     render json: IssueDetailSerializer.call(issue.reload)
   rescue ArgumentError
@@ -72,7 +72,7 @@ class Api::V1::IssuesController < Api::V1::BaseController
   end
 
   def update_disposition
-    issue = Issue.find(params[:id])
+    issue = current_organization.issues.find(params[:id])
     issue.set_disposition!(params.require(:disposition), note: params[:note])
     render json: IssueDetailSerializer.call(issue.reload)
   rescue ArgumentError

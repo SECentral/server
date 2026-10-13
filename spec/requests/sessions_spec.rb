@@ -52,7 +52,8 @@ RSpec.describe "Operator authentication", type: :request do
     sign_in_operator
     get "/api/v1/hosts/1"
 
-    expect(response).to have_http_status(:not_found)
+    expect(response).to have_http_status(:service_unavailable)
+    expect(JSON.parse(response.body).dig("error", "code")).to eq("organization_unavailable")
   end
 
   it "does not let an operator session access agent endpoints" do

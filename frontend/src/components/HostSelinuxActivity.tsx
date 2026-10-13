@@ -11,6 +11,7 @@ import {
   type SelinuxCheckpoint
 } from "../api/hosts";
 import { EvidenceBlock, formatUtc } from "./OccurrenceEvidence";
+import { administrativeDescription, SelinuxActivitySummary } from "./SelinuxActivitySummary";
 
 function time(iso: string): string {
   return iso.replace("T", " ").replace(/Z$/, " UTC");
@@ -18,10 +19,6 @@ function time(iso: string): string {
 
 function state(value: boolean | null): string {
   return value === true ? "On" : value === false ? "Off" : "Unknown";
-}
-
-function mode(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function Checkpoint({ checkpoint, title }: { checkpoint: SelinuxCheckpoint; title: string }) {
@@ -55,26 +52,15 @@ function ActivityItem({ item, selected }: { item: SelinuxActivityItem; selected:
   const enforcement = activity.transition_type === "enforcement_change";
   const ports = activity.transition_type === "port_change";
   const mappings = activity.transition_type === "file_context_change";
-  const mappingSummary = (activity.file_context_changes ?? []).map((change) => `${change.expression} · ${change.file_selector} · ${change.operation}${change.selinux_type ? ` → ${change.selinux_type}` : ""}${change.boundary_established ? "" : " · boundary not established"}`).join("; ") || "Mapping configuration reported · boundary not established";
-  const portChanges = activity.port_changes ?? [];
-  const portSummary = portChanges.map((change) => `${change.protocol.toUpperCase()}/${change.start}${change.end === change.start ? "" : `-${change.end}`} · ${change.operation}${change.selinux_type ? ` → ${change.selinux_type}` : ""}${change.boundary_established ? "" : " · boundary not established"}`).join("; ") || "Port configuration reported · boundary not established";
-  const enforcementChanges = activity.enforcement_changes ?? [];
+  const { mappingSummary, portSummary, title, typeLabel } = administrativeDescription(activity);
   const persistentRequested = actor?.proctitle?.split(/\s+/).some((argument) => argument === "-P" || argument === "--persistent");
-  const title = mappings ? (activity.boundary_established ? "File-context mapping write reported" : "File-context configuration reported") : ports ? (activity.boundary_established ? "Port mapping write reported" : "Port configuration reported") : !activity.boundary_established ? (enforcement ? "Enforcement status reported" : activity.transition_type === "policy_load" ? "Policy load reported" : "Boolean change reported")
-    : activity.transition_type === "policy_load" ? "SELinux policy loaded"
-    : enforcement ? "Enforcement changed"
-    : activity.boolean_changes.length > 1 ? "SELinux booleans changed" : "Boolean changed";
 
   return (
     <Tbody>
       <Tr id={`selinux-activity-${item.id}`} aria-label={`SELinux activity ${item.id}`}>
         <Td dataLabel="Timestamp"><time dateTime={activity.event_time} title={activity.event_time}>{formatUtc(activity.event_time)}</time></Td>
-        <Td dataLabel="Type">{mappings ? "File-context mapping" : ports ? "Port mapping" : enforcement ? "Enforcement" : activity.transition_type === "policy_load" ? "Policy load" : "Boolean"}</Td>
-        <Td dataLabel="Summary" className="selinux-activity-summary">{mappings ? mappingSummary : ports ? portSummary : enforcement ? enforcementChanges.length ? enforcementChanges.map((change, index) => <span key={index}>
-          {index ? "; " : ""}{change.state_change_established ? "" : "Reported: "}{mode(change.old_mode)} → {mode(change.new_mode)}{change.state_change_established ? "" : " · state change not established"}
-        </span>) : "Enforcement status reported · state change not established" : activity.transition_type === "policy_load" ? title : activity.boolean_changes.map((change, index) => <span key={`${change.name}-${index}`}>
-          {index > 0 ? "; " : ""}<code>{change.name}</code>: {change.state_change_established ? "" : "Reported: "}{state(change.old_value)} → {state(change.new_value)}{change.state_change_established ? "" : " · state change not established"}
-        </span>)}</Td>
+        <Td dataLabel="Type">{typeLabel}</Td>
+        <Td dataLabel="Summary" className="selinux-activity-summary"><SelinuxActivitySummary activity={activity} /></Td>
         <Td dataLabel="User / Origin">{actor?.login_uid != null ? <code>UID {actor.login_uid}</code> : "Unknown user"}{actor?.command ? <> · <code>{actor.command}</code></> : null}</Td>
         <Td dataLabel="Action"><Button variant="link" isInline icon={expanded ? <ChevronDownIcon aria-hidden="true" /> : <ChevronRightIcon aria-hidden="true" />} aria-expanded={expanded} aria-controls={`selinux-audit-${item.id}`} onClick={() => setExpanded((value) => !value)}>{expanded ? "Hide Audit" : "View Audit"}</Button></Td>
       </Tr>

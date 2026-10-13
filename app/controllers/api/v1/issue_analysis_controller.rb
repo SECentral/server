@@ -1,6 +1,6 @@
 class Api::V1::IssueAnalysisController < Api::V1::BaseController
   def show
-    issue = Issue.find(params[:id])
+    issue = current_organization.issues.find(params[:id])
     intelligence = IssueIntelligence.call(issue)
     triage = IssueTriageSignals.call(issue)
     host_explanations = IssueDiagnosis.per_host(issue, intelligence: intelligence)

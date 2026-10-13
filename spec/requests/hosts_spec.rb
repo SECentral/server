@@ -1,7 +1,10 @@
 require "rails_helper"
 
 RSpec.describe "Hosts API", type: :request do
-  before { sign_in_operator }
+  before do
+    Organization.create!(name: "hosts")
+    sign_in_operator
+  end
 
   after do
     Occurrence.delete_all
@@ -201,7 +204,7 @@ RSpec.describe "Hosts API", type: :request do
   end
 
   it "returns a nil snapshot without a heartbeat-confirmed observation" do
-    host = Host.create!(organization: Organization.create!(name: "event-only-org"), external_id: "event-only", hostname: "event-only")
+    host = Host.create!(organization: Organization.sole, external_id: "event-only", hostname: "event-only")
     HostSnapshot.create!(host: host, details: { "selinux" => { "enforcement" => "enforcing" } })
 
     get "/api/v1/hosts/#{host.id}"
@@ -318,7 +321,7 @@ RSpec.describe "Hosts API", type: :request do
   end
 
   def observe_host(external_id, details, at: Time.current, received_at: at)
-    organization = Organization.create!(name: "hosts-#{external_id}")
+    organization = Organization.sole
     host = Host.create!(organization: organization, external_id: external_id, hostname: external_id)
     snapshot = HostSnapshot.create!(host: host, details: details)
     installation = AgentInstallation.create!(organization: organization, name: "obs-agent-#{external_id}", bound_host: host)
@@ -327,7 +330,7 @@ RSpec.describe "Hosts API", type: :request do
   end
 
   def create_issue(digest = "digest-#{SecureRandom.hex(4)}")
-    Issue.create!(organization: Organization.create!(name: "host-issue-#{SecureRandom.hex(4)}"), fingerprint_version: 3,
+    Issue.create!(organization: Organization.sole, fingerprint_version: 3,
       fingerprint_digest: digest, source_type: "httpd_t", target_type: "default_t",
       target_class: "file", permissions: ["read"], first_seen_at: Time.current,
       last_seen_at: Time.current)

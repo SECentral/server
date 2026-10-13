@@ -61,7 +61,7 @@ class HostSelinuxActivity
     event = supported_events.find(id)
     item = project(supported_events.where(id: event.id)).first
     records = event.raw_audit_records.to_a
-    item.merge(permissive_domain_comparison: permissive_comparison(event, item), actor: actor(records), evidence: {
+    item.merge(permissive_domain_comparison: permissive_comparison(event, item), actor: SelinuxAdministrativeEvent.actor(records), evidence: {
       completion_reason: event.completion_reason, digest: event.evidence_digest,
       records: records.map { |record| record.attributes.slice("position", "record_type", "type_name", "audit_timestamp", "sequence", "payload") }
     }, window_occurrences: window_occurrences(event, item))
@@ -87,8 +87,7 @@ class HostSelinuxActivity
   end
 
   def supported_events
-    @host.raw_events.where(category: "selinux_administrative")
-      .where("transition_type IN (?) OR boolean_changes <> '[]'::jsonb OR EXISTS (SELECT 1 FROM raw_audit_records WHERE raw_event_id = raw_events.id AND record_type IN (1403, 1404, 2312))", RawEvent::STATE_TRANSITIONS)
+    SelinuxAdministrativeEvent.supported(@host.raw_events)
   end
 
   def response(items, cursor = nil, **pagination)
@@ -151,23 +150,13 @@ class HostSelinuxActivity
     snapshots = @host.host_snapshots.where(id: events.flat_map { |event| [event.previous_snapshot_id, event.refreshed_snapshot_id || event.observed_snapshot_id] }.compact).index_by(&:id)
     # Actor summaries are needed on initial render; batch retained records for the bounded page.
     ActiveRecord::Associations::Preloader.new(records: events, associations: :raw_audit_records).call
-    events.map { |event| item(event, snapshots).merge(actor: actor(event.raw_audit_records)) }
+    events.map { |event| item(event, snapshots).merge(actor: SelinuxAdministrativeEvent.actor(event.raw_audit_records)) }
   end
 
   def item(event, snapshots)
-    boundary = RawEvent::STATE_TRANSITIONS.include?(event.transition_type)
-    changes = event.boolean_changes.map do |change|
-      { name: change["name"], old_value: change["old_value"] == 1, new_value: change["new_value"] == 1,
-        state_change_established: change["success"] && change["old_value"] != change["new_value"] }
-    end
-    enforcement = event.enforcement_changes.map do |change|
-      { old_mode: change["old_mode"], new_mode: change["new_mode"],
-        state_change_established: change["success"] && change["old_mode"] != change["new_mode"] }
-    end
-    ports = event.port_changes.map { |change| change.merge("boundary_established" => change["success"]) }
-    mappings = event.file_context_changes.map { |change| change.merge("boundary_established" => change["success"], "state_change_established" => false) }
-    type = event.transition_type || (event.raw_audit_records.any? { |record| record.record_type == 2312 && RawEvent.file_context_record?(record.payload) } ? "file_context_change" : event.raw_audit_records.any? { |record| record.record_type == 2312 } ? "port_change" : event.raw_audit_records.any? { |record| record.record_type == 1404 } ? "enforcement_change" : changes.any? ? "boolean_change" : "policy_load")
-    names = changes.map { |change| change[:name] }
+    facts = SelinuxAdministrativeEvent.facts(event)
+    boundary = facts[:boundary_established]
+    names = facts[:boolean_changes].map { |change| change[:name] }
     checkpoint_id = event.refreshed_snapshot_id || event.observed_snapshot_id
     checkpoint_time = event.refreshed_time || event.observed_time
     refreshed = checkpoint(checkpoint_id, checkpoint_time, snapshots, names) if boundary
@@ -182,18 +171,14 @@ class HostSelinuxActivity
     else
       "pending"
     end
-    {
+    facts.merge(
       id: event.id, host_id: event.host_id, boot_id: event.boot_id, event_time: event.audit_timestamp.iso8601(6),
-      evidence_class: boundary ? "observed_transition" : "administrative_history", transition_type: type,
-      boundary_established: boundary, audit_sequence: event.audit_sequence, boolean_changes: changes,
-      enforcement_changes: enforcement,
-      port_changes: ports,
-      file_context_changes: mappings,
+      evidence_class: boundary ? "observed_transition" : "administrative_history", audit_sequence: event.audit_sequence,
       previous_checkpoint: checkpoint(event.previous_snapshot_id, event.previous_time, snapshots, names),
       reconciliation: { status: status, checkpoint: refreshed, unreconciled_fields: unreconciled,
         next_transition: event.following_id ? { id: event.following_id, event_time: event.following_time.iso8601(6), audit_sequence: event.following_sequence } : nil },
       window_avc_count: event.window_count.to_i
-    }
+    )
   end
 
   def checkpoint(id, time, snapshots, names)
@@ -229,26 +214,4 @@ class HostSelinuxActivity
       end
   end
 
-  def actor(records)
-    fields = Hash.new { |hash, key| hash[key] = [] }
-    records.select { |record| [1403, 1404, 1405, 2312, 1300, 1327].include?(record.record_type) }.each do |record|
-        record.payload.scan(/(?:\A|\s)(auid|uid|pid|ses|subj|exe|comm|proctitle)=("(?:\\.|[^"])*"|\S+)/).each do |key, value|
-        decoded = if value.start_with?('"')
-          value[1...-1].gsub('\\"', '"').gsub("\\\\", "\\")
-        elsif %w[exe comm proctitle].include?(key) && value.match?(/\A(?:[0-9A-Fa-f]{2})+\z/)
-          [value].pack("H*").force_encoding("UTF-8").scrub.tr("\0", " ")
-        else
-          value
-        end
-        fields[key] << decoded
-      end
-    end
-    values = fields.transform_values { |items| items.uniq.one? ? items.first : nil }
-    { login_uid: audit_id(values["auid"]), execution_uid: audit_id(values["uid"]), pid: audit_id(values["pid"]), context: values["subj"], session: audit_id(values["ses"]),
-      executable: values["exe"], command: values["comm"], proctitle: values["proctitle"] }
-  end
-
-  def audit_id(value)
-    value.to_i if value.to_s.match?(/\A\d+\z/) && value != "4294967295"
-  end
 end

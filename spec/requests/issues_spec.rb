@@ -1,7 +1,10 @@
 require "rails_helper"
 
 RSpec.describe "Issues API", type: :request do
-  before { sign_in_operator }
+  before do
+    Organization.create!(name: "issues")
+    sign_in_operator
+  end
 
   after do
     Occurrence.delete_all
@@ -53,7 +56,7 @@ RSpec.describe "Issues API", type: :request do
     expect(item).to include(
       "id" => issue.id, "status" => "open", "display_status" => "open", "disposition" => "unclassified",
       "source_type" => "httpd_t", "target_type" => "default_t", "target_class" => "file", "permissions" => ["read"],
-      "fingerprint_version" => 3, "fingerprint_digest" => "digest",
+      "fingerprint_version" => 3, "fingerprint_digest" => issue.fingerprint_digest,
       "occurrences_count" => 1, "hosts_count" => 1,
       "hosts" => [{ "id" => issue.occurrences.first.host_id, "hostname" => "web-1" }],
       "observed_paths" => []
@@ -191,7 +194,7 @@ RSpec.describe "Issues API", type: :request do
     expect(body.fetch("issue")).to include(
       "id" => issue.id, "occurrences_count" => 2, "affected_hosts" => 2,
       "status" => "open", "display_status" => "open", "disposition" => "under_investigation",
-      "fingerprint_version" => 3, "fingerprint_digest" => "digest"
+      "fingerprint_version" => 3, "fingerprint_digest" => issue.fingerprint_digest
     )
     expect(body.dig("issue", "disposition_history", 0)).to include("note" => "Reviewing the host change", "previous_disposition" => "unclassified", "disposition" => "under_investigation")
     expect(body.fetch("intelligence")).to include("affected_hosts" => 2)
@@ -627,9 +630,9 @@ RSpec.describe "Issues API", type: :request do
     expect(issue.reload.disposition).to eq("expected_harmless")
   end
 
-  def create_issue(digest = "digest", source_type = "httpd_t", **attributes)
+  def create_issue(digest = "digest-#{SecureRandom.hex(4)}", source_type = "httpd_t", **attributes)
     Issue.create!({
-      organization: Organization.create!(name: "Issue organization #{SecureRandom.hex(4)}"),
+      organization: Organization.sole,
       fingerprint_version: 3,
       fingerprint_digest: digest,
       source_type: source_type,
@@ -671,7 +674,7 @@ RSpec.describe "Issues API", type: :request do
   end
 
   def observe_host(external_id, details)
-    organization = Organization.create!(name: "observe-#{external_id}")
+    organization = Organization.sole
     host = Host.create!(organization: organization, external_id: external_id, hostname: external_id)
     snapshot = HostSnapshot.create!(host: host, details: details)
     installation = AgentInstallation.create!(organization: organization, name: "obs-agent-#{external_id}", bound_host: host)
@@ -680,7 +683,7 @@ RSpec.describe "Issues API", type: :request do
   end
 
   def create_ungroupable_event(external_id, occurred_at: Time.current)
-    organization = Organization.create!(name: "ungroupable-#{external_id}")
+    organization = Organization.sole
     host = Host.create!(organization: organization, external_id: external_id, hostname: external_id)
     snapshot = HostSnapshot.create!(host: host, details: { "id" => external_id })
     installation = AgentInstallation.create!(organization: organization, name: "agent-#{external_id}")
