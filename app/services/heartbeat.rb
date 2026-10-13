@@ -29,6 +29,8 @@ class Heartbeat
         current = host.host_snapshot_observations.first
         stale_policy_state ||= current && current.host_snapshot.details["boot_id"] == @payload.dig("host", "boot_id") && observed_at < current.last_observed_at
         unless stale_policy_state
+          RecordHostReporting.call(host, observed_at: observed_at, received_at: now,
+            boot_id: @payload.dig("host", "boot_id"), enforcement: @payload.dig("host", "selinux", "enforcement"))
           snapshot = host.host_snapshots.find_or_create_by!(details: @payload.fetch("host"))
           observation = host.host_snapshot_observations.first
           if observation&.host_snapshot == snapshot

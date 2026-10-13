@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_13_000001) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_13_000002) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -118,6 +118,16 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_13_000001) do
     t.index ["loaded_policy_digest"], name: "index_distribution_catalog_revisions_on_loaded_policy_digest", unique: true
   end
 
+  create_table "host_reporting_days", force: :cascade do |t|
+    t.bigint "host_id", null: false
+    t.date "observed_on", null: false
+    t.bigint "credited_microseconds", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["host_id", "observed_on"], name: "index_host_reporting_days_on_host_id_and_observed_on", unique: true
+    t.check_constraint "credited_microseconds >= 0 AND credited_microseconds <= '86400000000'::bigint", name: "host_reporting_day_duration"
+  end
+
   create_table "host_snapshot_observations", force: :cascade do |t|
     t.bigint "agent_installation_id", null: false
     t.datetime "created_at", null: false
@@ -150,9 +160,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_13_000001) do
     t.datetime "last_seen_at"
     t.bigint "organization_id", null: false
     t.datetime "updated_at", null: false
+    t.datetime "reporting_started_at"
+    t.datetime "reporting_observed_at"
+    t.datetime "reporting_received_at"
+    t.string "reporting_boot_id"
+    t.string "reporting_sample_status"
     t.index ["last_seen_at"], name: "index_hosts_on_last_seen_at"
     t.index ["organization_id", "external_id"], name: "index_hosts_on_organization_id_and_external_id", unique: true
     t.index ["organization_id"], name: "index_hosts_on_organization_id"
+    t.check_constraint "reporting_sample_status IS NULL OR (reporting_sample_status::text = ANY (ARRAY['eligible'::character varying, 'ineligible'::character varying, 'timing_unknown'::character varying, 'recovering'::character varying]::text[]))", name: "host_reporting_sample_status"
   end
 
   create_table "issue_disposition_changes", force: :cascade do |t|
@@ -378,6 +394,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_13_000001) do
   add_foreign_key "distribution_catalog_booleans", "distribution_catalog_revisions"
   add_foreign_key "distribution_catalog_imports", "distribution_catalog_revisions"
   add_foreign_key "distribution_catalog_ports", "distribution_catalog_revisions"
+  add_foreign_key "host_reporting_days", "hosts", on_delete: :cascade
   add_foreign_key "host_snapshot_observations", "agent_installations"
   add_foreign_key "host_snapshot_observations", "host_snapshots"
   add_foreign_key "host_snapshot_observations", "hosts"

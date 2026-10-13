@@ -8,6 +8,7 @@ class Host < ApplicationRecord
   has_many :raw_events, dependent: :restrict_with_exception
   has_many :agent_installations, foreign_key: :bound_host_id, dependent: :nullify
   has_many :occurrences, dependent: :restrict_with_exception
+  has_many :host_reporting_days, dependent: :delete_all
 
   validates :external_id, presence: true, uniqueness: { scope: :organization_id }
 
