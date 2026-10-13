@@ -284,13 +284,24 @@
 .host-overview-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: stretch;
+  align-items: start;
   gap: var(--pf-t--global--spacer--md);
   margin-block-end: var(--pf-t--global--spacer--lg);
 }
 
+.host-overview-column {
+  display: grid;
+  min-width: 0;
+  gap: var(--pf-t--global--spacer--md);
+}
+
 .host-overview-card {
   min-width: 0;
+}
+
+.host-readiness-tooltip-paragraphs {
+  display: grid;
+  row-gap: var(--pf-t--global--spacer--md);
 }
 
 .host-detail-page .host-surface-card {

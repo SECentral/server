@@ -2357,13 +2357,16 @@ components:
         meta:
           $ref: "#/components/schemas/PageMeta"
     HostDetail:
-      description: Host core detail. Same fields as the list item, plus the heartbeat-confirmed snapshot.
+      description: Host core detail, heartbeat-confirmed snapshot and authoritative enforcing-readiness reporting progress. Readiness is not a safety probability or audit-capture guarantee.
       allOf:
         - $ref: "#/components/schemas/HostListItem"
         - type: object
           required:
             - snapshot
+            - enforcing_readiness
           properties:
+            enforcing_readiness:
+              $ref: "#/components/schemas/EnforcingReadiness"
             snapshot:
               description: Heartbeat-confirmed snapshot, or null when no observation exists.
               type:
@@ -2377,6 +2380,42 @@ components:
                   $ref: "#/components/schemas/HostPlatform"
                 selinux:
                   $ref: "#/components/schemas/HostSelinux"
+    EnforcingReadiness:
+      type: object
+      description: Server-calculated accumulated reporting progress toward a 30-day target. Numeric progress can coexist with unknown capture continuity. Unknown carries null duration/band, never older certainty.
+      required: [status, reason, band, target_days, credited_seconds, reporting_days, capture_continuity, reporting_started_at, latest_avc_at, explanation]
+      properties:
+        status:
+          type: string
+          enum: [observed, unknown]
+        reason:
+          type: [string, 'null']
+          enum: [reporting_not_tracked, reporting_time_unknown, enforcement_unavailable, reporting_stale, checkpoint_unavailable, checkpoint_boot_mismatch, denial_time_unavailable, null]
+        band:
+          type: [string, 'null']
+          enum: ['0–19%', '20–39%', '40–59%', '60–79%', '80–99%', '100%', null]
+        target_days:
+          type: integer
+          enum: [30]
+        credited_seconds:
+          type: [number, 'null']
+          minimum: 0
+        reporting_days:
+          description: Credited days rounded down to one decimal; null for Unknown. The explanation handles nonzero durations below 0.1 day.
+          type: [number, 'null']
+          minimum: 0
+        capture_continuity:
+          type: string
+          enum: [unknown]
+        reporting_started_at:
+          type: [string, 'null']
+          format: date-time
+        latest_avc_at:
+          type: [string, 'null']
+          format: date-time
+        explanation:
+          description: Authoritative plain-text tooltip with blank-line paragraph boundaries. Numeric results summarize observation progress with a separate safety caveat; Unknown results explain the reason. Render as text.
+          type: string
     HostDetailResponse:
       type: object
       required:
@@ -2897,7 +2936,8 @@ components:
             - integer
             - "null"
     HostConfigurationBooleanSummary:
-      type: object
+      description: Null when Boolean comparison evidence is unavailable; not an observed-zero summary.
+      type: [object, 'null']
       required:
         - reference_entries
         - compared
@@ -2922,7 +2962,8 @@ components:
         unavailable:
           type: integer
     HostConfigurationPortSummary:
-      type: object
+      description: Null when port comparison evidence is unavailable; not an observed-zero summary.
+      type: [object, 'null']
       required:
         - compared
         - match

@@ -1,8 +1,8 @@
 class HostEnforcingReadiness
   TARGET_SECONDS = 30 * 86_400
 
-  def self.call(host, at: Time.current)
-    reason = unknown_reason(host, at)
+  def self.call(host, at: Time.current, checkpoint_enforcement: nil)
+    reason = unknown_reason(host, at, checkpoint_enforcement)
     latest_avc_at = host.raw_events.where(category: "avc").maximum(:audit_timestamp)
     reason ||= "denial_time_unavailable" if latest_avc_at && latest_avc_at > at
     basis = { target_days: 30, capture_continuity: "unknown", reporting_started_at: host.reporting_started_at, latest_avc_at: latest_avc_at }
@@ -18,7 +18,7 @@ class HostEnforcingReadiness
       credited_seconds: microseconds.fdiv(HostReportingDay::MICROSECONDS), reporting_days: (microseconds * 10 / (86_400 * HostReportingDay::MICROSECONDS)).fdiv(10))
   end
 
-  def self.unknown_reason(host, at)
+  def self.unknown_reason(host, at, checkpoint_enforcement)
     return "reporting_not_tracked" unless host.reporting_observed_at && host.reporting_received_at
     return "reporting_time_unknown" if %w[timing_unknown recovering].include?(host.reporting_sample_status)
     return "enforcement_unavailable" unless host.reporting_sample_status == "eligible"
@@ -29,7 +29,8 @@ class HostEnforcingReadiness
     observation = host.current_state_observation
     return "checkpoint_unavailable" unless observation
     return "checkpoint_boot_mismatch" unless observation.host_snapshot.details["boot_id"] == host.reporting_boot_id
-    "enforcement_unavailable" unless %w[enforcing permissive].include?(host.enforcement_for(observation))
+    checkpoint_enforcement ||= host.enforcement_for(observation)
+    "enforcement_unavailable" unless %w[enforcing permissive].include?(checkpoint_enforcement)
   end
   private_class_method :unknown_reason
 end

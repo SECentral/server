@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -39,7 +39,23 @@ const detailPayload: HostDetailResponse = {
         policy_identity: "sha256:abc"
       }
     },
-    counts: { active_issues: 1, avcs_24h: 2, total_events: 30 }
+    counts: { active_issues: 1, avcs_24h: 2, total_events: 30 },
+    enforcing_readiness: {
+      status: "observed", reason: null, band: "40–59%", target_days: 30,
+      credited_seconds: 1036800, reporting_days: 12, capture_continuity: "unknown",
+      reporting_started_at: "2026-09-13T10:00:00Z", latest_avc_at: null,
+      explanation: "SECentral has accumulated 12.0 days of credited agent-reporting observations with no SELinux denials observed. This represents 40–59% observation progress toward the standard 30-day target. Host is already enforcing.\n\nThese observations can help you assess readiness for enforcing mode, but they do not guarantee that all applications and services will work as expected. Verify system behavior when transitioning to enforcing mode."
+    }
+  }
+};
+
+const permissiveDetail: HostDetailResponse = {
+  host: {
+    ...detailPayload.host,
+    selinux: { ...detailPayload.host.selinux, enforcement: "permissive" },
+    snapshot: { ...detailPayload.host.snapshot!, selinux: { ...detailPayload.host.snapshot!.selinux, enforcement: "permissive" } },
+    enforcing_readiness: { ...detailPayload.host.enforcing_readiness,
+      explanation: detailPayload.host.enforcing_readiness.explanation.replace(" Host is already enforcing.", "") }
   }
 };
 
@@ -204,10 +220,70 @@ function renderHostDetail(hostId: number, options: {
       </MemoryRouter>
     </QueryClientProvider>
   );
-  return { fetchMock, ...view };
+  return { fetchMock, queryClient, ...view };
 }
 
 describe("HostDetail", () => {
+  it("shows only the readiness label, sublabel, server band and a hover/focus description", async () => {
+    renderHostDetail(10, { host: permissiveDetail });
+    const region = await screen.findByRole("region", { name: "Enforcing readiness" });
+    expect(within(region).getByText("Based on a 30-day observation target")).toBeInTheDocument();
+    expect(within(region).getByText("40–59%")).toBeInTheDocument();
+    expect(within(region).queryByRole("progressbar")).not.toBeInTheDocument();
+    const user = userEvent.setup();
+    const info = within(region).getByRole("button", { name: "About enforcing readiness" });
+    await user.hover(info);
+    const tooltip = await screen.findByRole("tooltip");
+    const paragraphs = permissiveDetail.host.enforcing_readiness.explanation.split("\n\n");
+    expect(tooltip.querySelector(".host-readiness-tooltip-paragraphs")?.children).toHaveLength(2);
+    for (const paragraph of paragraphs) expect(within(tooltip).getByText(paragraph)).toHaveProperty("tagName", "P");
+    await user.unhover(info);
+    await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
+    act(() => info.focus());
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("with no SELinux denials observed");
+    expect(info).toHaveAccessibleDescription(permissiveDetail.host.enforcing_readiness.explanation.replace(/\s+/g, " "));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
+  });
+
+  it("uses the server's band and explanation rather than deriving a percentage from duration", async () => {
+    const data = { host: { ...permissiveDetail.host, enforcing_readiness: { ...permissiveDetail.host.enforcing_readiness,
+      // Deliberately inconsistent duration: display the server band, never recompute it.
+      band: "100%" as const, reporting_days: 0, credited_seconds: 0,
+      explanation: "The 30-day observation target is complete. Audit capture coverage is unknown; this does not guarantee safe enforcement." } } };
+    renderHostDetail(10, { host: data });
+    const region = await screen.findByRole("region", { name: "Enforcing readiness" });
+    expect(within(region).getByText("100%")).toBeInTheDocument();
+    expect(within(region).queryByText("Ready")).not.toBeInTheDocument();
+    await userEvent.setup().hover(within(region).getByRole("button", { name: "About enforcing readiness" }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(data.host.enforcing_readiness.explanation);
+  });
+
+  it("replaces a numeric result with reason-specific Unknown without retaining its older band", async () => {
+    const { fetchMock, queryClient } = renderHostDetail(10, { host: permissiveDetail });
+    const region = await screen.findByRole("region", { name: "Enforcing readiness" });
+    expect(within(region).getByText("40–59%")).toBeInTheDocument();
+    const explanation = "Enforcing readiness observation progress is Unknown because the reporting observation is stale. Audit capture coverage is unknown.";
+    fetchMock.mockImplementationOnce(() => Promise.resolve(jsonResponse(200, { host: { ...permissiveDetail.host,
+      enforcing_readiness: { ...detailPayload.host.enforcing_readiness, status: "unknown", reason: "reporting_stale",
+        band: null, credited_seconds: null, reporting_days: null, explanation } } })));
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: ["host", 10] }); });
+    expect(await within(region).findByText("Unknown")).toBeInTheDocument();
+    expect(within(region).queryByText("40–59%")).not.toBeInTheDocument();
+    await userEvent.setup().hover(within(region).getByRole("button", { name: "About enforcing readiness" }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(explanation);
+  });
+
+  it("renders readiness for sparse metadata without treating null comparisons as observed zero", async () => {
+    renderHostDetail(10, { host: permissiveDetail, configuration: { ...matchingConfiguration,
+      reference: { kind: "none" }, comparison: { ...matchingConfiguration.comparison,
+        available: false, summary: { booleans: null, ports: null } } } });
+    const region = await screen.findByRole("region", { name: "Enforcing readiness" });
+    expect(within(region).getByText("40–59%")).toBeInTheDocument();
+    expect(screen.getAllByText("Unavailable")).toHaveLength(2);
+    expect(screen.queryByText("Matches reference")).not.toBeInTheDocument();
+  });
+
   it("renders the host core, configuration, and links", async () => {
     const { container } = renderHostDetail(10);
 
@@ -253,6 +329,41 @@ describe("HostDetail", () => {
     );
     expect(screen.getByRole("table", { name: "Recent occurrences" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Issue #7" })).toHaveAttribute("href", "/issues/7");
+  });
+
+  it.each(["enforcing", "disabled", "unknown"])("hides readiness for trusted mode %s without changing API evidence", async (enforcement) => {
+    const data: HostDetailResponse = { host: { ...permissiveDetail.host,
+      // A retained snapshot is not the current trusted mode projection.
+      selinux: { ...permissiveDetail.host.selinux, enforcement } } };
+    renderHostDetail(10, { host: data });
+    await screen.findByRole("heading", { name: "web-1" });
+    expect(screen.queryByRole("region", { name: "Enforcing readiness" })).not.toBeInTheDocument();
+    expect(data.host.enforcing_readiness).toEqual(permissiveDetail.host.enforcing_readiness);
+  });
+
+  it.each(["stale", "none"] as const)("hides a retained permissive mode when observation is %s", async (status) => {
+    renderHostDetail(10, { host: { host: { ...permissiveDetail.host,
+      observation: { ...permissiveDetail.host.observation, status } } } });
+    await screen.findByRole("heading", { name: "web-1" });
+    expect(screen.queryByRole("region", { name: "Enforcing readiness" })).not.toBeInTheDocument();
+  });
+
+  it("hides unavailable mode despite fresh reporting and a retained permissive snapshot", async () => {
+    renderHostDetail(10, { host: { host: { ...permissiveDetail.host,
+      selinux: { ...permissiveDetail.host.selinux, enforcement: null } } } });
+    await screen.findByRole("heading", { name: "web-1" });
+    expect(screen.queryByRole("region", { name: "Enforcing readiness" })).not.toBeInTheDocument();
+  });
+
+  it("puts readiness in its own card after Host health and before Policy comparison", async () => {
+    const { container } = renderHostDetail(10, { host: permissiveDetail });
+    const readiness = await screen.findByRole("region", { name: "Enforcing readiness" });
+    const health = screen.getByRole("heading", { name: "Host health" }).closest(".pf-v6-c-card")!;
+    expect(health).not.toContainElement(readiness);
+    expect(readiness).toHaveClass("pf-v6-c-card");
+    expect(readiness.parentElement).toBe(health.parentElement);
+    expect(Array.from(container.querySelectorAll(".host-overview-grid h2")).map((heading) => heading.textContent))
+      .toEqual(["Host health", "Enforcing readiness", "Policy comparison"]);
   });
 
   it("replaces occurrence pages and navigates back without accumulating rows", async () => {
@@ -408,7 +519,7 @@ describe("HostDetail", () => {
       comparison: {
         ...matchingConfiguration.comparison,
         summary: {
-          booleans: { ...matchingConfiguration.comparison.summary.booleans, differ: 1, match: 349 },
+          booleans: { ...matchingConfiguration.comparison.summary.booleans!, differ: 1, match: 349 },
           ports: matchingConfiguration.comparison.summary.ports
         }
       },

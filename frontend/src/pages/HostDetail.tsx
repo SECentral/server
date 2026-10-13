@@ -18,9 +18,10 @@ import {
   Icon,
   Pagination,
   Spinner,
-  Title
+  Title,
+  Tooltip
 } from "@patternfly/react-core";
-import { CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, ExclamationTriangleIcon, TimesCircleIcon } from "@patternfly/react-icons";
+import { CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, ExclamationTriangleIcon, InfoCircleIcon, TimesCircleIcon } from "@patternfly/react-icons";
 import { Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -104,7 +105,7 @@ export function HostDetail() {
   const detailQuery = useQuery({
     queryKey: ["host", hostId],
     queryFn: () => fetchHost(hostId),
-    refetchInterval: (query) => query.state.data?.host.selinux.effective_permissive_domains?.status === "pending" ? 2000 : false,
+    refetchInterval: (query) => query.state.data?.host.selinux.effective_permissive_domains?.status === "pending" ? 2000 : 60000,
     enabled: validId
   });
   const configurationQuery = useQuery({
@@ -144,6 +145,8 @@ export function HostDetail() {
   }
 
   const { host } = detailQuery.data;
+  const readiness = host.enforcing_readiness;
+  const showReadiness = host.observation.status === "current" && host.selinux.enforcement === "permissive";
   const configuration = configurationQuery.data;
   const reference = configuration?.reference;
   const revision = reference?.catalog_revision;
@@ -154,9 +157,9 @@ export function HostDetail() {
   const hostPolicyIdentity = host.snapshot?.selinux.policy_identity ?? selinux.policy_identity;
   const platform = host.snapshot?.platform ?? host.platform;
   const comparisonSummary = configuration?.comparison.summary;
-  const booleanDifferences = comparisonSummary ? comparisonSummary.booleans.differ : 0;
-  const hostOnlyBooleans = comparisonSummary ? comparisonSummary.booleans.host_only : 0;
-  const portDifferences = comparisonSummary ? comparisonSummary.ports.differ : 0;
+  const booleanDifferences = comparisonSummary?.booleans?.differ ?? 0;
+  const hostOnlyBooleans = comparisonSummary?.booleans?.host_only ?? 0;
+  const portDifferences = comparisonSummary?.ports?.differ ?? 0;
   const drifted = host.observation.status === "current" && !paused && configuration?.comparison.available && (configuration.differences?.total ?? booleanDifferences + hostOnlyBooleans + portDifferences) > 0;
   const platformLabel = platform.os_id === "almalinux" ? "AlmaLinux" : platform.os_id
     ? platform.os_id.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
@@ -186,18 +189,34 @@ export function HostDetail() {
       </header>
 
       <div className="host-overview-grid">
-        <Card className="host-overview-card host-surface-card">
-          <CardTitle component="h2">Host health</CardTitle>
-          <CardBody>
-            <DescriptionFacts fields={[
-              ["Agent status", <StatusLabel color={AGENT_COLORS[host.agent.reporting_state] ?? "grey"}>{displayState(host.agent.reporting_state)}</StatusLabel>],
-              ["SELinux mode", selinux.enforcement ? <StatusLabel color={ENFORCEMENT_COLORS[selinux.enforcement] ?? "grey"}>{displayState(selinux.enforcement)}</StatusLabel> : "Unknown"],
-              ["Configuration freshness", <StatusLabel color={drifted ? "orange" : OBSERVATION_COLORS[host.observation.status] ?? "grey"}>{drifted ? "Drifted" : displayState(host.observation.status)}</StatusLabel>],
-              ["Kernel policy version", <code>{selinux.kernel_policy_version != null ? [selinux.configured_policy_type, selinux.kernel_policy_version].filter((value) => value != null).join(".") : "Unknown"}</code>],
-              ["Last heartbeat", host.agent.last_seen_at ? <time dateTime={host.agent.last_seen_at} title={host.agent.last_seen_at}>{timeAgo(host.agent.last_seen_at)}</time> : "Never reported"]
-            ]} />
-          </CardBody>
-        </Card>
+        <div className="host-overview-column">
+          <Card className="host-overview-card host-surface-card">
+            <CardTitle component="h2">Host health</CardTitle>
+            <CardBody>
+              <DescriptionFacts fields={[
+                ["Agent status", <StatusLabel color={AGENT_COLORS[host.agent.reporting_state] ?? "grey"}>{displayState(host.agent.reporting_state)}</StatusLabel>],
+                ["SELinux mode", selinux.enforcement ? <StatusLabel color={ENFORCEMENT_COLORS[selinux.enforcement] ?? "grey"}>{displayState(selinux.enforcement)}</StatusLabel> : "Unknown"],
+                ["Configuration freshness", <StatusLabel color={drifted ? "orange" : OBSERVATION_COLORS[host.observation.status] ?? "grey"}>{drifted ? "Drifted" : displayState(host.observation.status)}</StatusLabel>],
+                ["Kernel policy version", <code>{selinux.kernel_policy_version != null ? [selinux.configured_policy_type, selinux.kernel_policy_version].filter((value) => value != null).join(".") : "Unknown"}</code>],
+                ["Last heartbeat", host.agent.last_seen_at ? <time dateTime={host.agent.last_seen_at} title={host.agent.last_seen_at}>{timeAgo(host.agent.last_seen_at)}</time> : "Never reported"]
+              ]} />
+            </CardBody>
+          </Card>
+          {showReadiness && (
+            <Card component="section" aria-labelledby="enforcing-readiness-title" className="host-overview-card host-surface-card host-readiness-card">
+              <CardTitle id="enforcing-readiness-title" component="h2">Enforcing readiness</CardTitle>
+              <CardBody>
+                <p className="pf-v6-u-color-200 pf-v6-u-font-size-sm"><em>Based on a {readiness.target_days}-day observation target</em></p>
+                <div>
+                  <strong>{readiness.status === "observed" ? readiness.band : "Unknown"}</strong>{" "}
+                  <Tooltip content={<div className="host-readiness-tooltip-paragraphs">{readiness.explanation.split("\n\n").map((paragraph) => <p key={paragraph}>{paragraph}</p>)}</div>} isContentLeftAligned position="right" maxWidth="min(24rem, calc(100vw - 11rem))">
+                    <Button variant="plain" aria-label="About enforcing readiness"><InfoCircleIcon aria-hidden="true" /></Button>
+                  </Tooltip>
+                </div>
+              </CardBody>
+            </Card>
+          )}
+        </div>
 
         <Card className="host-overview-card host-surface-card">
           <CardTitle component="h2">Policy comparison</CardTitle>
@@ -216,8 +235,8 @@ export function HostDetail() {
               </>
             ) : null}
             <dl className="host-policy-metrics">
-              <div><dt>Booleans</dt><dd>{configuration?.comparison.available && comparisonSummary ? <>{booleanDifferences + hostOnlyBooleans > 0 ? <><StatusLabel color="orange">{booleanDifferences + hostOnlyBooleans} drifted</StatusLabel>{" "}</> : null}<span>{booleanDifferences + hostOnlyBooleans > 0 ? `(${comparisonSummary.booleans.match}/${comparisonSummary.booleans.reference_entries} match)` : `${comparisonSummary.booleans.match} / ${comparisonSummary.booleans.reference_entries} match`}</span></> : "Unavailable"}</dd></div>
-              <div><dt>Ports</dt><dd>{configuration?.comparison.available && comparisonSummary ? <>{portDifferences > 0 ? <><StatusLabel color="orange">{portDifferences} drifted</StatusLabel>{" "}</> : null}<span>{portDifferences > 0 ? `(${comparisonSummary.ports.match}/${comparisonSummary.ports.compared + comparisonSummary.ports.not_observed} match)` : `${comparisonSummary.ports.match} / ${comparisonSummary.ports.compared + comparisonSummary.ports.not_observed} match`}</span></> : "Unavailable"}</dd></div>
+              <div><dt>Booleans</dt><dd>{configuration?.comparison.available && comparisonSummary?.booleans ? <>{booleanDifferences + hostOnlyBooleans > 0 ? <><StatusLabel color="orange">{booleanDifferences + hostOnlyBooleans} drifted</StatusLabel>{" "}</> : null}<span>{booleanDifferences + hostOnlyBooleans > 0 ? `(${comparisonSummary.booleans.match}/${comparisonSummary.booleans.reference_entries} match)` : `${comparisonSummary.booleans.match} / ${comparisonSummary.booleans.reference_entries} match`}</span></> : "Unavailable"}</dd></div>
+              <div><dt>Ports</dt><dd>{configuration?.comparison.available && comparisonSummary?.ports ? <>{portDifferences > 0 ? <><StatusLabel color="orange">{portDifferences} drifted</StatusLabel>{" "}</> : null}<span>{portDifferences > 0 ? `(${comparisonSummary.ports.match}/${comparisonSummary.ports.compared + comparisonSummary.ports.not_observed} match)` : `${comparisonSummary.ports.match} / ${comparisonSummary.ports.compared + comparisonSummary.ports.not_observed} match`}</span></> : "Unavailable"}</dd></div>
             </dl>
           </CardBody>
           <CardFooter className="host-comparison-footer"><Button component="a" href={`/hosts/${host.id}/configuration`} variant="link" isInline>View full comparison <span aria-hidden="true">→</span></Button></CardFooter>

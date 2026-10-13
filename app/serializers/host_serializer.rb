@@ -23,7 +23,33 @@ class HostSerializer
       counts: counts
     }
     payload[:snapshot] = snapshot ? { platform: platform, selinux: selinux } : nil if include_snapshot
+    payload[:enforcing_readiness] = enforcing_readiness_payload(host, enforcement: state["enforcement"]) if include_snapshot
     payload
+  end
+
+  def self.enforcing_readiness_payload(host, enforcement:)
+    result = HostEnforcingReadiness.call(host, checkpoint_enforcement: enforcement)
+    explanation = if result[:status] == "observed"
+      days = result[:reporting_days].zero? && result[:credited_seconds].positive? ? "less than 0.1" : format("%.1f", result[:reporting_days])
+      text = "SECentral has accumulated #{days} days of credited agent-reporting observations with no SELinux denials observed. " \
+        "This represents #{result[:band]} observation progress toward the standard #{result[:target_days]}-day target."
+      text += " Host is already enforcing." if enforcement == "enforcing"
+      "#{text}\n\nThese observations can help you assess readiness for enforcing mode, but they do not guarantee that all applications and services will work as expected. Verify system behavior when transitioning to enforcing mode."
+    else
+      reason = {
+        "reporting_not_tracked" => "reporting duration has not yet been tracked from a usable heartbeat",
+        "reporting_time_unknown" => "reporting timestamps are ambiguous or timing recovery is incomplete",
+        "enforcement_unavailable" => "current SELinux enforcement evidence is missing, disabled or untrusted",
+        "reporting_stale" => "the reporting observation is stale",
+        "checkpoint_unavailable" => "a current heartbeat checkpoint is unavailable",
+        "checkpoint_boot_mismatch" => "the current checkpoint and reporting cursor refer to different boots",
+        "denial_time_unavailable" => "the recorded AVC timestamp is later than the evaluation time"
+      }.fetch(result[:reason], "usable reporting evidence is unavailable")
+      "Enforcing readiness observation progress is Unknown because #{reason}. " \
+        "Reporting time is not credited without usable, fresh evidence. " \
+        "Audit capture coverage is unknown; this indicator cannot establish that enforcing mode is safe."
+    end
+    result.merge(explanation: explanation)
   end
 
   def self.observation_payload(observation)

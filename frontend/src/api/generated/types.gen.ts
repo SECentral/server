@@ -547,9 +547,10 @@ export type HostListResponse = {
 };
 
 /**
- * Host core detail. Same fields as the list item, plus the heartbeat-confirmed snapshot.
+ * Host core detail, heartbeat-confirmed snapshot and authoritative enforcing-readiness reporting progress. Readiness is not a safety probability or audit-capture guarantee.
  */
 export type HostDetail = HostListItem & {
+    enforcing_readiness: EnforcingReadiness;
     /**
      * Heartbeat-confirmed snapshot, or null when no observation exists.
      */
@@ -557,6 +558,28 @@ export type HostDetail = HostListItem & {
         platform: HostPlatform;
         selinux: HostSelinux;
     } | null;
+};
+
+/**
+ * Server-calculated accumulated reporting progress toward a 30-day target. Numeric progress can coexist with unknown capture continuity. Unknown carries null duration/band, never older certainty.
+ */
+export type EnforcingReadiness = {
+    status: 'observed' | 'unknown';
+    reason: 'reporting_not_tracked' | 'reporting_time_unknown' | 'enforcement_unavailable' | 'reporting_stale' | 'checkpoint_unavailable' | 'checkpoint_boot_mismatch' | 'denial_time_unavailable' | null;
+    band: '0–19%' | '20–39%' | '40–59%' | '60–79%' | '80–99%' | '100%' | null;
+    target_days: 30;
+    credited_seconds: number | null;
+    /**
+     * Credited days rounded down to one decimal; null for Unknown. The explanation handles nonzero durations below 0.1 day.
+     */
+    reporting_days: number | null;
+    capture_continuity: 'unknown';
+    reporting_started_at: string | null;
+    latest_avc_at: string | null;
+    /**
+     * Authoritative plain-text tooltip with blank-line paragraph boundaries. Numeric results summarize observation progress with a separate safety caveat; Unknown results explain the reason. Render as text.
+     */
+    explanation: string;
 };
 
 export type HostDetailResponse = {
@@ -805,6 +828,9 @@ export type ConfigurationFleetResponse = {
     observed_host_count?: number | null;
 };
 
+/**
+ * Null when Boolean comparison evidence is unavailable; not an observed-zero summary.
+ */
 export type HostConfigurationBooleanSummary = {
     reference_entries: number;
     compared: number;
@@ -813,14 +839,17 @@ export type HostConfigurationBooleanSummary = {
     host_only: number;
     not_observed: number;
     unavailable: number;
-};
+} | null;
 
+/**
+ * Null when port comparison evidence is unavailable; not an observed-zero summary.
+ */
 export type HostConfigurationPortSummary = {
     compared: number;
     match: number;
     differ: number;
     not_observed: number;
-};
+} | null;
 
 export type HostConfigurationDifferences = {
     total: number;
