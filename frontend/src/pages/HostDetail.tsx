@@ -7,12 +7,10 @@ import {
   CardBody,
   CardFooter,
   CardTitle,
-  ClipboardCopy,
   DescriptionList,
   DescriptionListDescription,
   DescriptionListGroup,
   DescriptionListTerm,
-  ExpandableSection,
   Grid,
   GridItem,
   Icon,
@@ -21,15 +19,15 @@ import {
   Title,
   Tooltip
 } from "@patternfly/react-core";
-import { CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, ExclamationTriangleIcon, InfoCircleIcon, TimesCircleIcon } from "@patternfly/react-icons";
+import { CheckCircleIcon, ExclamationTriangleIcon, InfoCircleIcon, TimesCircleIcon } from "@patternfly/react-icons";
 import { Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { formatUtc } from "../components/OccurrenceEvidence";
 import { HostSelinuxActivity } from "../components/HostSelinuxActivity";
-import { EffectivePermissiveDomains } from "../components/EffectivePermissiveDomains";
+import { MetricCard } from "../components/MetricCard";
+import { osDisplayName } from "../platform";
 import { StatusLabel } from "../components/StatusLabel";
 import { fetchHostConfiguration, type HostConfigurationResponse } from "../api/configuration";
 import { fetchHost, fetchHostOccurrences, fetchHostSelinuxActivity } from "../api/hosts";
@@ -69,6 +67,13 @@ function DescriptionFacts({ fields }: { fields: [string, React.ReactNode][] }) {
   );
 }
 
+function comparisonDifferenceCount(data: HostConfigurationResponse): number {
+  const { booleans, ports } = data.comparison.summary;
+  const domains = data.comparison.effective_permissive_domains;
+  return (data.differences?.total ?? (booleans?.differ ?? 0) + (booleans?.host_only ?? 0) + (ports?.differ ?? 0))
+    + (domains?.status === "observed" ? (domains.counts?.unexpected_on_host ?? 0) + (domains.counts?.missing_from_host ?? 0) : 0);
+}
+
 function comparisonStatus(data: HostConfigurationResponse): { label: string; color: "green" | "orange" | "grey" } {
   if (data.comparison.paused || data.observation?.status === "stale") return { label: "Comparison paused", color: "orange" };
   if (data.selection.status === "ambiguous") return { label: "Ambiguous reference", color: "orange" };
@@ -76,10 +81,11 @@ function comparisonStatus(data: HostConfigurationResponse): { label: string; col
   if (data.reference.kind === "none") return { label: "No reference available", color: "grey" };
   if (!data.comparison.available) return { label: "Comparison unavailable", color: "orange" };
   const { booleans, ports } = data.comparison.summary;
-  const differences = data.differences?.total ?? (booleans?.differ ?? 0) + (booleans?.host_only ?? 0) + (ports?.differ ?? 0);
+  const differences = comparisonDifferenceCount(data);
   if (differences > 0) return { label: `${differences} Differences found`, color: "orange" };
-  if ((booleans?.compared ?? 0) + (ports?.compared ?? 0) === 0) return { label: "No comparable settings", color: "grey" };
-  if (Object.values(data.selection.families).some((family) => family.status !== "comparable") || (booleans?.not_observed ?? 0) + (booleans?.unavailable ?? 0) + (ports?.not_observed ?? 0) > 0) return { label: "Partially compared", color: "orange" };
+  const domainsCompared = data.comparison.effective_permissive_domains?.status === "observed" && data.comparison.effective_permissive_domains.counts != null;
+  if ((booleans?.compared ?? 0) + (ports?.compared ?? 0) === 0 && !domainsCompared) return { label: "No comparable settings", color: "grey" };
+  if (!domainsCompared || Object.values(data.selection.families).some((family) => family.status !== "comparable") || (booleans?.not_observed ?? 0) + (booleans?.unavailable ?? 0) + (ports?.not_observed ?? 0) > 0) return { label: "Partially compared", color: "orange" };
   return { label: "Matches reference", color: "green" };
 }
 
@@ -92,7 +98,6 @@ export function HostDetail() {
   const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   const requestedSize = Number(queryParams.get("occurrence_page_size") ?? 10);
   const perPage = [10, 25, 50].includes(requestedSize) ? requestedSize : 10;
-  const [provenanceExpanded, setProvenanceExpanded] = useState(false);
   function setOccurrencePage(nextPage: number, size = perPage) {
     setQueryParams((previous) => {
       const next = new URLSearchParams(previous);
@@ -152,18 +157,24 @@ export function HostDetail() {
   const revision = reference?.catalog_revision;
   const paused = Boolean(configuration && (configuration.comparison.paused || configuration.observation?.status === "stale"));
   const noReference = reference?.kind === "none";
+  const missingCatalog = !configurationQuery.isError && !paused && noReference
+    && configuration?.selection.status === "absent" && configuration.selection.reason === "no_matching_candidates";
   const comparison = configuration ? comparisonStatus(configuration) : null;
   const selinux = host.snapshot?.selinux ?? host.selinux;
-  const hostPolicyIdentity = host.snapshot?.selinux.policy_identity ?? selinux.policy_identity;
   const platform = host.snapshot?.platform ?? host.platform;
   const comparisonSummary = configuration?.comparison.summary;
   const booleanDifferences = comparisonSummary?.booleans?.differ ?? 0;
   const hostOnlyBooleans = comparisonSummary?.booleans?.host_only ?? 0;
   const portDifferences = comparisonSummary?.ports?.differ ?? 0;
-  const drifted = host.observation.status === "current" && !paused && configuration?.comparison.available && (configuration.differences?.total ?? booleanDifferences + hostOnlyBooleans + portDifferences) > 0;
-  const platformLabel = platform.os_id === "almalinux" ? "AlmaLinux" : platform.os_id
-    ? platform.os_id.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
-    : "Unknown platform";
+  const drifted = host.observation.status === "current" && !paused && configuration?.comparison.available && comparisonDifferenceCount(configuration) > 0;
+  const domainComparison = configuration?.comparison.effective_permissive_domains;
+  const domainCounts = !configurationQuery.isError && !paused && !noReference && domainComparison?.status === "observed" ? domainComparison.counts : null;
+  const domainDifferences = (domainCounts?.unexpected_on_host ?? 0) + (domainCounts?.missing_from_host ?? 0);
+  const domainState = host.selinux.effective_permissive_domains;
+  const domainCount = domainState?.status === "observed" ? domainState.domains?.length : undefined;
+  const platformLabel = osDisplayName(platform.os_id);
+  const catalogDistribution = configuration?.selection.context.distribution || platform.os_id;
+  const catalogFamily = [osDisplayName(catalogDistribution), configuration?.selection.context.major_version || platform.os_version?.split(".")[0]].filter(Boolean).join(" ");
   const platformSubtitle = [
     `${platformLabel}${platform.os_version ? ` ${platform.os_version}` : ""}`,
     platform.architecture,
@@ -221,7 +232,7 @@ export function HostDetail() {
         <Card className="host-overview-card host-surface-card">
           <CardTitle component="h2">Policy comparison</CardTitle>
           <CardBody>
-            <p className="host-policy-baseline">Baseline: {configurationQuery.isPending ? "Loading…" : revision?.display_name ? `${revision.display_name} Catalog` : "No catalog reference"}</p>
+            {revision && <p className="host-policy-baseline">Baseline: {revision.display_name} Catalog</p>}
             {configurationQuery.isError ? (
               <Alert variant="warning" isInline title="Reference comparison unavailable">Could not load the host configuration comparison.</Alert>
             ) : configurationQuery.isPending ? (
@@ -229,40 +240,43 @@ export function HostDetail() {
             ) : configuration ? (
               <>
                 {paused && <Alert variant="warning" isInline title="Comparison paused">Counts reflect last-observed data.</Alert>}
-                {noReference && <Alert variant="info" isInline title="No reference available">There is no catalog/reference to compare with this host.</Alert>}
+                {noReference && <p>{missingCatalog ? "No catalog reference is available for this host's OS family." : "No reference is selected. Review the host evidence and catalog selection in the full comparison."}</p>}
                 {!paused && !noReference && !configuration.comparison.available && <Alert variant="warning" isInline title="Comparison unavailable">The current host state cannot be compared with this reference.</Alert>}
-                {comparison && <StatusLabel color={comparison.color}>{comparison.label}</StatusLabel>}
+                {!missingCatalog && comparison && <StatusLabel color={comparison.color}>{comparison.label}</StatusLabel>}
               </>
             ) : null}
-            <dl className="host-policy-metrics">
+            {configuration && !configurationQuery.isError && !noReference && <dl className="host-policy-metrics">
               <div><dt>Booleans</dt><dd>{configuration?.comparison.available && comparisonSummary?.booleans ? <>{booleanDifferences + hostOnlyBooleans > 0 ? <><StatusLabel color="orange">{booleanDifferences + hostOnlyBooleans} drifted</StatusLabel>{" "}</> : null}<span>{booleanDifferences + hostOnlyBooleans > 0 ? `(${comparisonSummary.booleans.match}/${comparisonSummary.booleans.reference_entries} match)` : `${comparisonSummary.booleans.match} / ${comparisonSummary.booleans.reference_entries} match`}</span></> : "Unavailable"}</dd></div>
               <div><dt>Ports</dt><dd>{configuration?.comparison.available && comparisonSummary?.ports ? <>{portDifferences > 0 ? <><StatusLabel color="orange">{portDifferences} drifted</StatusLabel>{" "}</> : null}<span>{portDifferences > 0 ? `(${comparisonSummary.ports.match}/${comparisonSummary.ports.compared + comparisonSummary.ports.not_observed} match)` : `${comparisonSummary.ports.match} / ${comparisonSummary.ports.compared + comparisonSummary.ports.not_observed} match`}</span></> : "Unavailable"}</dd></div>
-            </dl>
+              <div><dt>Effective permissive domains</dt><dd>{configurationQuery.isPending ? "Loading…" : domainCounts ? <>
+                {domainDifferences > 0 && <><StatusLabel color="orange">{domainDifferences} differ</StatusLabel>{" "}</>}
+                <span>{domainCounts.matching} match{domainDifferences > 0 ? ` · ${domainCounts.unexpected_on_host} host-only · ${domainCounts.missing_from_host} reference-only` : domainCounts.matching === 0 ? " · both sets empty" : ""}</span>
+              </> : <>{domainCount != null ? `${domainCount} observed` : "Unknown"} · {paused ? "Comparison paused" : "Comparison unavailable"}</>}</dd></div>
+            </dl>}
           </CardBody>
-          <CardFooter className="host-comparison-footer"><Button component="a" href={`/hosts/${host.id}/configuration`} variant="link" isInline>View full comparison <span aria-hidden="true">→</span></Button></CardFooter>
+          {!configurationQuery.isPending && <CardFooter className="host-comparison-footer">{missingCatalog
+            ? <Button component="a" href="/catalogs/import" variant="link" isInline>Import a catalog for {catalogDistribution ? catalogFamily : "this OS family"}</Button>
+            : <Button component="a" href={`/hosts/${host.id}/configuration`} variant="link" isInline>View full comparison <span aria-hidden="true">→</span></Button>}
+          </CardFooter>}
         </Card>
       </div>
-
-      <Card className="host-surface-card"><CardBody><EffectivePermissiveDomains key={selinux.effective_permissive_domains?.policy_identity} state={selinux.effective_permissive_domains} /></CardBody></Card>
 
       <section className="host-activity-section" aria-labelledby="host-activity-title">
         <div className="host-activity-heading">
           <Title id="host-activity-title" headingLevel="h2" size="lg">Activity</Title>
-          <Button component="a" href={`/issues?host_id=${host.id}&status=open`} variant="link" isInline>View issues →</Button>
         </div>
         <Grid hasGutter className="host-activity-facts" aria-label="Activity metrics">
-          <GridItem span={12} lg={4}><Card className="host-surface-card host-metric-card"><CardTitle component="h3">Active Issues</CardTitle><CardBody><strong>{host.counts.active_issues.toLocaleString("en-US")}</strong></CardBody></Card></GridItem>
-          <GridItem span={12} lg={4}><Card className="host-surface-card host-metric-card"><CardTitle component="h3">Total Occurrences</CardTitle><CardBody><strong>{host.counts.total_events.toLocaleString("en-US")}</strong></CardBody></Card></GridItem>
-          <GridItem span={12} lg={4}><Card className="host-surface-card host-metric-card"><CardTitle component="h3">AVC / 24h</CardTitle><CardBody><strong>{host.counts.avcs_24h.toLocaleString("en-US")}</strong></CardBody></Card></GridItem>
+          <GridItem span={12} lg={4}><MetricCard className="host-surface-card" label="Active issues" value={host.counts.active_issues} href={`/issues?host_id=${host.id}&status=open`} /></GridItem>
+          <GridItem span={12} lg={4}><MetricCard className="host-surface-card" label="Total occurrences" value={host.counts.total_events} href="#recent-occurrences" /></GridItem>
+          <GridItem span={12} lg={4}><MetricCard className="host-surface-card" label="AVCs — 24h" value={host.counts.avcs_24h} /></GridItem>
         </Grid>
       </section>
 
       <HostSelinuxActivity activity={activityQuery} />
 
-      <section aria-label="Recent occurrences">
+      <section id="recent-occurrences" tabIndex={-1} aria-label="Recent occurrences">
         <Card className="host-surface-card host-table-card"><CardBody>
-        <Title headingLevel="h2" size="lg">Recent Occurrences ({(occurrencesQuery.data?.meta.total ?? host.counts.total_events).toLocaleString("en-US")})</Title>
-        <p className="pf-v6-u-color-200">Latest AVC denial events observed on this server.</p>
+        <div className="host-activity-heading"><Title headingLevel="h2" size="lg">Recent Occurrences ({(occurrencesQuery.data?.meta.total ?? host.counts.total_events).toLocaleString("en-US")})</Title></div>
         {occurrencesQuery.isPending ? (
           <div aria-label="Loading occurrences" style={{ padding: "var(--pf-v6-global--spacer--lg)" }}><Spinner /></div>
         ) : occurrencesQuery.isError ? (
@@ -284,21 +298,14 @@ export function HostDetail() {
               </Table>
             )}
             {occurrences.length === 0 && <p className="pf-v6-u-color-200">No occurrences recorded for this host.</p>}
-            <Pagination itemCount={occurrencesQuery.data?.meta.total ?? host.counts.total_events} page={occurrencesQuery.data?.meta.page ?? page} perPage={perPage} titles={{ paginationAriaLabel: "Recent occurrences pagination" }}
+            <div className="host-table-pagination"><Pagination itemCount={occurrencesQuery.data?.meta.total ?? host.counts.total_events} page={occurrencesQuery.data?.meta.page ?? page} perPage={perPage} titles={{ paginationAriaLabel: "Recent occurrences pagination" }}
               perPageOptions={[10, 25, 50].map((value) => ({ title: String(value), value }))}
               onSetPage={(_event, nextPage) => setOccurrencePage(nextPage)} onPerPageSelect={(_event, size) => setOccurrencePage(1, size)}
-              isDisabled={occurrencesQuery.isFetching} aria-label="Recent occurrences pagination" />
+              isDisabled={occurrencesQuery.isFetching} aria-label="Recent occurrences pagination" /></div>
           </>
         )}
         </CardBody></Card>
       </section>
-      <ExpandableSection className="host-technical-details host-disclosure" toggleText="Technical Provenance & Hashes" toggleIcon={provenanceExpanded ? <ChevronDownIcon aria-hidden="true" /> : <ChevronRightIcon aria-hidden="true" />} isExpanded={provenanceExpanded} onToggle={(_event, expanded) => setProvenanceExpanded(expanded)}>
-        {provenanceExpanded ? <DescriptionFacts fields={[
-          ["Host ID", <ClipboardCopy variant="inline-compact" isReadOnly isCode copyAriaLabel="Copy full host ID" textAriaLabel="Full host ID" hoverTip="Copy host ID" clickTip="Host ID copied">{host.external_id}</ClipboardCopy>],
-          ["Host policy ID", hostPolicyIdentity && <ClipboardCopy variant="inline-compact" isReadOnly isCode copyAriaLabel="Copy host policy ID" textAriaLabel="Host policy ID" hoverTip="Copy host policy ID" clickTip="Host policy ID copied">{hostPolicyIdentity}</ClipboardCopy>],
-          ["Reference policy ID", revision?.loaded_policy_digest && <ClipboardCopy variant="inline-compact" isReadOnly isCode copyAriaLabel="Copy reference policy ID" textAriaLabel="Reference policy ID" hoverTip="Copy reference policy ID" clickTip="Reference policy ID copied">{revision.loaded_policy_digest}</ClipboardCopy>]
-        ]} /> : null}
-      </ExpandableSection>
     </div>
   );
 }

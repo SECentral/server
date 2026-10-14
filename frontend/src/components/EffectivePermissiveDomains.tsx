@@ -16,6 +16,5 @@ export function EffectivePermissiveDomains({ state }: { state?: DomainState }) {
       </div> : null}
     </> : <p>Unknown — {state?.reason ?? (state?.status === "pending" ? "exact-policy analysis is pending" : "exact loaded policy is currently unavailable")}.</p>}
     <p className="pf-v6-u-color-200">Effective loaded policy; not global host mode or stored semanage configuration.</p>
-    {state?.policy_identity ? <details><summary>Exact policy provenance</summary><code>{state.policy_identity}</code></details> : null}
   </section>;
 }

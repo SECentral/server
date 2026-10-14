@@ -296,6 +296,35 @@ function renderDetail(initialEntry = "/issues/7") {
 }
 
 describe("issue investigation", () => {
+  it("keeps access flow and compact context visible while the sidebar opens technical evidence on demand", async () => {
+    const payload = detailPayload("002");
+    payload.issue.fingerprint_digest = "sha256:issue-fingerprint";
+    payload.resolutions = { candidates: [], rejected_candidates: [], intent: null, freshness: null, change_plan: null, history: [],
+      observed_access: { occurrence_id: 101, host_id: 10, hostname: "web-1", actor: "httpd", source_type: "httpd_t",
+        resource: "TCP/12345", target_type: "unreserved_port_t", object_class: "tcp_socket", permissions: ["name_connect"],
+        operation_label: "connect", outcome: "DENIED", observed_at: "2026-09-30T16:26:25Z" } };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    const user = userEvent.setup();
+    renderDetail();
+    const flow = await screen.findByRole("region", { name: "Observed access" });
+    expect(flow).toHaveTextContent("httpd");
+    expect(flow).toHaveTextContent("DENIED");
+    expect(flow).toHaveTextContent("TCP/12345");
+    const context = screen.getByRole("complementary", { name: "Investigation context" });
+    expect(context).toHaveTextContent("web-1");
+    expect(context).toHaveTextContent("Process");
+    expect(context).toHaveTextContent("Permission");
+    expect(context).toHaveTextContent("unreserved_port_t");
+    expect(screen.queryByText("sha256:issue-fingerprint")).not.toBeInTheDocument();
+    expect(screen.queryByText(/allow httpd_t port_type/)).not.toBeInTheDocument();
+    await user.click(within(context).getByRole("link", { name: "View technical evidence" }));
+    expect(screen.getByRole("button", { name: "Technical evidence & issue history" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("sha256:issue-fingerprint")).toBeVisible();
+    expect(screen.getByText(/allow httpd_t port_type/)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Technical evidence & issue history" }));
+    expect(screen.queryByText("sha256:issue-fingerprint")).not.toBeInTheDocument();
+  });
+
   function readFinding() {
     const rule = "allow httpd_t user_home_type:file { getattr ioctl lock open read }; [ httpd_read_user_content ]:True";
     const booleans = [{ name: "httpd_read_user_content", current: false, status: "observed" }];
@@ -322,9 +351,9 @@ describe("issue investigation", () => {
     expect(screen.getByText(/cannot determine whether/)).toHaveTextContent("user_home_t");
     expect(screen.queryByText("No evidence-backed explanation is available yet.")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Potential file-context mismatch" })).not.toBeInTheDocument();
-    const explanation = document.querySelector(".issue-primary-finding .issue-selinux-explanation") as HTMLElement;
-    expect(within(explanation).getByText(/allow httpd_t user_home_type:file/)).not.toBeVisible();
-    await user.click(within(explanation).getByText("SELinux explanation"));
+    expect(screen.queryByText(/allow httpd_t user_home_type:file/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Technical evidence & issue history" }));
+    const explanation = document.querySelector("#issue-technical-evidence .issue-selinux-explanation") as HTMLElement;
     expect(within(explanation).getByText(/allow httpd_t user_home_type:file/)).toBeVisible();
     expect(within(explanation).getByText(/user_home_t:file/)).toBeVisible();
     expect(within(explanation).getByText("read", { selector: "code" })).toBeVisible();
@@ -359,13 +388,13 @@ describe("issue investigation", () => {
     expect(screen.getByRole("heading", { name: /Expected for this path/ })).toBeInTheDocument();
     expect(screen.getByText("user_home_t", { selector: ".issue-context-type" })).toBeInTheDocument();
     expect(screen.getByText("httpd_sys_content_t", { selector: ".issue-context-type" })).toBeInTheDocument();
-    expect(screen.getAllByText("/var/www/html/secentral-test.html").length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("/var/www/html/secentral-test.html");
     expect(screen.getByText("Checked after the denial")).toBeInTheDocument();
     expect(screen.getByText("At the denial")).toBeInTheDocument();
     expect(screen.getByText("Different types")).toBeInTheDocument();
-    const fullContext = document.querySelector(".issue-primary-finding .issue-selinux-explanation") as HTMLElement;
-    expect(fullContext).not.toHaveAttribute("open");
-    await user.click(within(fullContext).getByText("Why these labels matter"));
+    expect(screen.queryByText("unconfined_u:object_r:user_home_t:s0")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Technical evidence & issue history" }));
+    const fullContext = document.querySelector("#issue-technical-evidence .issue-selinux-explanation") as HTMLElement;
     expect(within(fullContext).getByText("unconfined_u:object_r:user_home_t:s0")).toBeVisible();
   });
 
@@ -397,9 +426,10 @@ describe("issue investigation", () => {
     expect(document.querySelector(".issue-condition-summary li")).toHaveTextContent("httpd_can_network_connect");
     expect(document.querySelector(".issue-condition-summary li")).toHaveTextContent("Off");
     expect(screen.getAllByText("nis_enabled").length).toBeGreaterThan(0);
-    const selinuxExplanation = document.querySelector("details.issue-selinux-explanation");
-    expect(selinuxExplanation).not.toHaveAttribute("open");
-    await user.click(within(selinuxExplanation as HTMLElement).getByText("SELinux explanation"));
+    expect(screen.queryByText(/allow httpd_t port_type/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Checkpoint boolean state does not tell us whether this workload should have this capability/)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Technical evidence & issue history" }));
+    const selinuxExplanation = document.querySelector("#issue-technical-evidence .issue-selinux-explanation");
     expect(within(selinuxExplanation as HTMLElement).getByText(/allow httpd_t port_type/)).toBeVisible();
     expect(within(selinuxExplanation as HTMLElement).getByText(/allow nsswitch_domain unreserved_port_t/)).toBeVisible();
     expect(within(selinuxExplanation as HTMLElement).getByText(/controls connecting a socket to a labeled network port/)).toBeVisible();
@@ -498,14 +528,13 @@ describe("issue investigation", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "runcon could not start /usr/bin/id." })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "No matching SELinux allow was found for this access" })).toBeInTheDocument();
     expect(screen.getByText(/The evaluated policy has no allow rule for this launch/)).toBeInTheDocument();
-    within(document.querySelector(".issue-primary-finding .issue-selinux-explanation") as HTMLElement).queryAllByText(/entrypoint/).forEach((element) => expect(element).not.toBeVisible());
+    expect(document.querySelector(".issue-primary-finding .issue-selinux-explanation")).toBeNull();
     expect(screen.getByText(/16 retained denials/)).toBeInTheDocument();
     expect(screen.getByText(/3 affected hosts/)).toBeInTheDocument();
     expect(screen.getByText(/Where this occurs/).parentElement).toHaveTextContent("Same explanation across affected hosts");
 
-    const why = document.querySelector("details.issue-selinux-explanation");
-    expect(why).not.toHaveAttribute("open");
-    await user.click(within(why as HTMLElement).getByText("SELinux explanation"));
+    await user.click(screen.getByRole("button", { name: "Technical evidence & issue history" }));
+    const why = document.querySelector("#issue-technical-evidence .issue-selinux-explanation");
     expect(within(why as HTMLElement).getAllByText(/entrypoint/).length).toBeGreaterThan(0);
     const provenance = within(why as HTMLElement).getByText("Policy provenance").closest("details");
     expect(provenance).not.toBeNull();

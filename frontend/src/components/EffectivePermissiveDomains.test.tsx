@@ -12,12 +12,13 @@ describe("effective policy domains", () => {
     expect(screen.getByText(/not global host mode or stored semanage configuration/)).toBeTruthy();
   });
 
-  it("bounds domain rows and exposes exact-policy provenance", () => {
+  it("bounds domain rows without displaying policy hashes or provenance", () => {
     const domains = Array.from({ length: 25 }, (_, i) => `domain_${i}_t`);
     render(<EffectivePermissiveDomains state={{ status: "observed", policy_identity: "sha256:p", domains, provenance: "exact_loaded_policy_artifact" }} />);
     expect(screen.getAllByRole("listitem").length).toBe(20);
     fireEvent.click(screen.getByRole("button", { name: "Next domains" }));
     expect(screen.getAllByRole("listitem").length).toBe(5);
-    expect(screen.getByText("sha256:p")).toBeTruthy();
+    expect(screen.queryByText("sha256:p")).toBeNull();
+    expect(screen.queryByText("Exact policy provenance")).toBeNull();
   });
 });

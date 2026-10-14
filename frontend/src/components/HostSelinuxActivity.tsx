@@ -71,7 +71,9 @@ function ActivityItem({ item, selected }: { item: SelinuxActivityItem; selected:
             <AuditFacts fields={[
               ["Timestamp", <time dateTime={activity.event_time}>{time(activity.event_time)}</time>],
               ["Execution User / PID", <code>UID {actor?.execution_uid ?? "Unknown"}{actor?.execution_uid === 0 ? " (root)" : ""} / PID {actor?.pid ?? "Unknown"}</code>],
-              ["Command Executed", <code>{actor?.executable ?? actor?.command ?? "Unknown"}</code>],
+               ["Command Executed", <code>{actor?.executable ?? actor?.command ?? "Unknown"}</code>],
+               ["Command arguments", <code>{actor?.proctitle ?? "Not recorded"}</code>],
+               ["Audit session", actor?.session ?? "Not recorded"],
                ["Scope", <Tooltip content="A validated runtime record establishes an observed change. Command flags record requested scope, not proof of saved configuration."><span tabIndex={0}>{enforcement ? "Temporary (runtime)" : persistentRequested ? "Persistent (command request)" : activity.transition_type === "boolean_change" ? "Temporary (runtime)" : "Unknown"}</span></Tooltip>],
                ["Audit Identity", <code>{ports || mappings ? "USER_MAC_CONFIG_CHANGE" : enforcement ? "MAC_STATUS" : activity.transition_type === "policy_load" ? "MAC_POLICY_LOAD" : "MAC_CONFIG_CHANGE"} · {activity.audit_sequence}</code>]
             ]} />
@@ -98,7 +100,6 @@ function ActivityItem({ item, selected }: { item: SelinuxActivityItem; selected:
                  <p>Derived by comparing exact loaded-policy artifacts at the earlier and later checkpoints; not an audit event, command attribution or exact change time.</p>
                  <p>Added: {details.data.item.permissive_domain_comparison.added.join(", ") || "None"}</p>
                  <p>Removed: {details.data.item.permissive_domain_comparison.removed.join(", ") || "None"}</p>
-                 <details><summary>Compared exact policies</summary><code>{details.data.item.permissive_domain_comparison.from_policy_identity}</code> → <code>{details.data.item.permissive_domain_comparison.to_policy_identity}</code></details>
                </section> : null}
                {activity.window_avc_count > 0 ? <section aria-label="Unresolved interval AVCs">
                  <strong>{activity.window_avc_count} {activity.window_avc_count === 1 ? "AVC" : "AVCs"} in the unresolved interval.</strong>
@@ -114,7 +115,7 @@ function ActivityItem({ item, selected }: { item: SelinuxActivityItem; selected:
                    <EvidenceBlock hasCopyButton value={details.data.item.evidence.records.map((record) => record.payload).join("\n")} label={`SELinux activity ${item.id} audit records`} />
               </section>
              </> : null}
-        <ExpandableSection className="host-disclosure host-technical-details" toggleText="Technical Provenance & Hashes" toggleIcon={historyExpanded ? <ChevronDownIcon aria-hidden="true" /> : <ChevronRightIcon aria-hidden="true" />} isExpanded={historyExpanded} onToggle={(_event, value) => setHistoryExpanded(value)}>
+        <ExpandableSection className="host-disclosure" toggleText="Earlier state & interpretation limits" toggleIcon={historyExpanded ? <ChevronDownIcon aria-hidden="true" /> : <ChevronRightIcon aria-hidden="true" />} isExpanded={historyExpanded} onToggle={(_event, value) => setHistoryExpanded(value)}>
           {historyExpanded ? <>
             {activity.previous_checkpoint ? <Checkpoint checkpoint={activity.previous_checkpoint} title="Earlier historical checkpoint" /> : <p>No earlier checkpoint retained for this boot.</p>}
              {activity.transition_type === "policy_load" && activity.boundary_established ? <p>Previous exact policy state invalidated. The load record does not identify the new policy SHA.</p> : null}
@@ -122,16 +123,6 @@ function ActivityItem({ item, selected }: { item: SelinuxActivityItem; selected:
               {ports && activity.boundary_established ? <p>Port inventory and exact policy identity are unknown until refresh. This successful write may be an equal-value modify; no port delta is reconstructed. AVC-local target context remains evidence. Separate policy-load boundaries can invalidate additional checkpoint evidence.</p> : null}
               {mappings && activity.boundary_established ? <p>Expected-label mapping configuration is unknown until complete reconciliation. A successful write does not prove the value differed or any inode was relabeled. AVC target context remains direct evidence; separate policy-load boundaries retain their own semantics.</p> : null}
             <p>The audit transition is separate from checkpoint observations. Command fields provide context, not the authority for a state change.</p>
-            <AuditFacts fields={[
-              ["Boot", <code>{activity.boot_id}</code>],
-              ["Audit session", <code>{actor?.session ?? "Unknown"}</code>],
-              ["Process title", <code>{actor?.proctitle ?? "Unknown"}</code>],
-              ["Earlier checkpoint ID", <code>{activity.previous_checkpoint?.id ?? "Unknown"}</code>],
-              ["Earlier policy ID", <code>{activity.previous_checkpoint?.policy_identity ?? "Unknown"}</code>],
-              ["Host checkpoint ID", <code>{checkpoint?.id ?? "Unknown"}</code>],
-              ["Host checkpoint policy ID", <code>{checkpoint?.policy_identity ?? "Unknown"}</code>],
-              ["Evidence digest", <code>{details.data?.item.evidence.digest ?? "Unavailable"}</code>]
-            ]} />
           </> : null}
         </ExpandableSection>
       </div></Td></Tr> : null}
@@ -172,7 +163,7 @@ export function HostSelinuxActivity({ activity }: { activity: UseQueryResult<Sel
               <Thead><Tr><Th>Timestamp</Th><Th>Type</Th><Th>Summary</Th><Th>User / Origin</Th><Th>Action</Th></Tr></Thead>
               {activity.data.items.map((item) => <ActivityItem key={item.id} item={item} selected={item.id === selected} />)}
             </Table>}
-          <div className="selinux-activity-pagination">
+          <div className="host-table-pagination">
             {before && !selected ? <Button variant="link" onClick={() => navigate()}>Recent activity</Button> : null}
             {!selected && !before ? <Pagination itemCount={activity.data.meta.total ?? activity.data.items.length} page={activity.data.meta.page ?? page} perPage={10} perPageOptions={[{ title: "10", value: 10 }]} isDisabled={activity.isFetching} onSetPage={(_event, value) => navigate(value)} titles={{ paginationAriaLabel: "SELinux activity pagination" }} /> : null}
           </div>

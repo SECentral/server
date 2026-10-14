@@ -280,7 +280,8 @@ describe("HostDetail", () => {
         available: false, summary: { booleans: null, ports: null } } } });
     const region = await screen.findByRole("region", { name: "Enforcing readiness" });
     expect(within(region).getByText("40–59%")).toBeInTheDocument();
-    expect(screen.getAllByText("Unavailable")).toHaveLength(2);
+    expect(screen.queryByText("Booleans")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ports")).not.toBeInTheDocument();
     expect(screen.queryByText("Matches reference")).not.toBeInTheDocument();
   });
 
@@ -310,19 +311,26 @@ describe("HostDetail", () => {
     expect(screen.queryByText("Local fcontexts")).not.toBeInTheDocument();
     expect(screen.queryByText("0 loaded")).not.toBeInTheDocument();
     expect(screen.queryByText("0 overrides")).not.toBeInTheDocument();
-    expect(screen.getByText("1", { selector: ".host-activity-facts strong" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Total Occurrences" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "AVC / 24h" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Active issues 1" })).toHaveTextContent("1");
+    expect(screen.getByRole("link", { name: "Total occurrences 30" })).toHaveAttribute("href", "#recent-occurrences");
+    expect(screen.getByText("AVCs — 24h")).toBeVisible();
+    expect(screen.queryByRole("link", { name: "AVCs — 24h 2" })).not.toBeInTheDocument();
     expect(screen.queryByText("web-1", { selector: ".host-overview-subtitle" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy host policy ID" })).not.toBeInTheDocument();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Technical Provenance & Hashes" }));
-    expect(screen.getByRole("button", { name: "Copy full host ID" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copy host policy ID" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copy reference policy ID" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "View issues →" })).toHaveAttribute(
+    expect(screen.queryByRole("button", { name: "Technical Provenance & Hashes" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/sha256:/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Exact policy provenance")).not.toBeInTheDocument();
+    expect(screen.queryByText("Latest AVC denial events observed on this server.")).not.toBeInTheDocument();
+    const policyCard = screen.getByRole("heading", { name: "Policy comparison" }).closest(".pf-v6-c-card")!;
+    expect(within(policyCard as HTMLElement).getByText("Effective permissive domains")).toBeVisible();
+    expect(within(policyCard as HTMLElement).getByText("0 match · both sets empty")).toBeVisible();
+    expect(container.querySelectorAll(".host-table-pagination")).toHaveLength(2);
+    expect(screen.getByRole("link", { name: "Active issues 1" })).toHaveAttribute(
       "href",
       "/issues?host_id=10&status=open"
     );
+    expect(screen.queryByRole("link", { name: "View issues →" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Recent occurrences" })).toHaveAttribute("id", "recent-occurrences");
     expect(screen.getByRole("link", { name: "View full comparison" })).toHaveAttribute(
       "href",
       "/hosts/10/configuration"
@@ -533,15 +541,85 @@ describe("HostDetail", () => {
     expect(screen.getByRole("link", { name: "View full comparison" })).toHaveAttribute("href", "/hosts/10/configuration");
   });
 
-  it("shows when no reference catalog is available", async () => {
+  it("includes effective permissive-domain mismatches in the policy card and overall difference status", async () => {
+    renderHostDetail(10, { configuration: { ...matchingConfiguration,
+      comparison: { ...matchingConfiguration.comparison, effective_permissive_domains: {
+        ...matchingConfiguration.comparison.effective_permissive_domains,
+        counts: { matching: 1, unexpected_on_host: 2, missing_from_host: 1 }
+      } } } });
+    expect(await screen.findByText("3 differ")).toBeVisible();
+    const card = screen.getByRole("heading", { name: "Policy comparison" }).closest(".pf-v6-c-card")!;
+    expect(within(card as HTMLElement).getByText("1 match · 2 host-only · 1 reference-only")).toBeVisible();
+    expect(within(card as HTMLElement).getByText("3 Differences found")).toBeVisible();
+    expect(screen.getByText("Drifted")).toBeVisible();
+    expect(screen.queryByText("Matches reference")).not.toBeInTheDocument();
+  });
+
+  it("keeps observed host domain counts separate from an unavailable reference comparison", async () => {
+    renderHostDetail(10, { host: { host: { ...detailPayload.host, selinux: { ...detailPayload.host.selinux,
+      effective_permissive_domains: { status: "observed", domains: ["example_t"], policy_identity: "sha256:host", provenance: "exact_loaded_policy_artifact" }
+    } } }, configuration: { ...matchingConfiguration, comparison: { ...matchingConfiguration.comparison,
+      effective_permissive_domains: { ...matchingConfiguration.comparison.effective_permissive_domains,
+        status: "unknown", reason: "reference_permissive_analysis_pending", counts: null }
+    } } });
+    expect(await screen.findByText("1 observed · Comparison unavailable")).toBeVisible();
+    expect(screen.getByText("Partially compared")).toBeVisible();
+    expect(screen.queryByText("Matches reference")).not.toBeInTheDocument();
+    expect(screen.queryByText(/sha256:/)).not.toBeInTheDocument();
+  });
+
+  it("does not show stale permissive-domain counts as current matches", async () => {
+    renderHostDetail(10, { configuration: { ...matchingConfiguration,
+      comparison: { ...matchingConfiguration.comparison, paused: true }
+    } });
+    expect(await screen.findByText("Unknown · Comparison paused")).toBeVisible();
+    expect(screen.queryByText("0 match · both sets empty")).not.toBeInTheDocument();
+    expect(screen.queryByText("Matches reference")).not.toBeInTheDocument();
+  });
+
+  it("preserves RHEL casing in the host subtitle", async () => {
+    renderHostDetail(10, { host: { host: { ...detailPayload.host, snapshot: null,
+      platform: { os_id: "rhel", os_version: "10.1", architecture: "amd64" }
+    } } });
+    expect(await screen.findByText(/RHEL 10\.1 · amd64 · Last seen/)).toBeVisible();
+    expect(screen.queryByText(/Rhel/)).not.toBeInTheDocument();
+  });
+
+  it("offers OS-family catalog import instead of unavailable metrics when a catalog is missing", async () => {
     renderHostDetail(10, { configuration: {
       ...matchingConfiguration,
       reference: { kind: "none" },
+      selection: { ...matchingConfiguration.selection, status: "absent", reason: "no_matching_candidates", selected_revision: null },
       comparison: { ...matchingConfiguration.comparison, available: false }
     } });
 
-    expect((await screen.findAllByText("No reference available")).length).toBeGreaterThan(0);
+    expect(await screen.findByRole("link", { name: "Import a catalog for AlmaLinux 9" })).toHaveAttribute("href", "/catalogs/import");
+    expect(screen.getByText("No catalog reference is available for this host's OS family.")).toBeVisible();
+    expect(screen.queryByText("Booleans")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ports")).not.toBeInTheDocument();
+    expect(screen.queryByText("Effective permissive domains")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "View full comparison" })).not.toBeInTheDocument();
     expect(screen.queryByText("350 / 350 match")).not.toBeInTheDocument();
+  });
+
+  it.each(["ambiguous", "unavailable"] as const)("does not suggest catalog import for %s selection", async (status) => {
+    renderHostDetail(10, { configuration: { ...matchingConfiguration, reference: { kind: "none" },
+      selection: { ...matchingConfiguration.selection, status, selected_revision: null },
+      comparison: { ...matchingConfiguration.comparison, available: false }
+    } });
+    expect(await screen.findByText(status === "ambiguous" ? "Ambiguous reference" : "Reference unavailable")).toBeVisible();
+    expect(screen.queryByRole("link", { name: /Import a catalog/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View full comparison" })).toHaveAttribute("href", "/hosts/10/configuration");
+    expect(screen.queryByText("Booleans")).not.toBeInTheDocument();
+  });
+
+  it("does not suggest importing a catalog while the host comparison is stale", async () => {
+    renderHostDetail(10, { configuration: { ...matchingConfiguration, reference: { kind: "none" },
+      selection: { ...matchingConfiguration.selection, status: "absent", reason: "no_matching_candidates", selected_revision: null },
+      comparison: { ...matchingConfiguration.comparison, paused: true, available: false }
+    } });
+    expect((await screen.findAllByText("Comparison paused")).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("link", { name: /Import a catalog/ })).not.toBeInTheDocument();
   });
 
   it("shows empty activity counts without active issues", async () => {
@@ -549,7 +627,8 @@ describe("HostDetail", () => {
 
     await screen.findByRole("heading", { name: "Host health" });
     expect(screen.getByRole("region", { name: "Activity" })).toHaveTextContent("0");
-    expect(screen.getByRole("region", { name: "Activity" })).toHaveTextContent("Active Issues");
+    expect(screen.getByRole("region", { name: "Activity" })).toHaveTextContent("Active issues");
+    expect(screen.getByRole("link", { name: "Active issues 0" })).toHaveAttribute("href", "/issues?host_id=10&status=open");
   });
 
   it("keeps a long recent-activity list hostname-free and compact", async () => {

@@ -80,7 +80,7 @@ describe("Monitored-server SELinux activity", () => {
     expect(await screen.findByText(new RegExp(`/srv/test.* · any · ${operation}`))).toBeVisible();
     await openAudit();
     expect(screen.getByText(/USER_MAC_CONFIG_CHANGE/)).toBeVisible();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Technical Provenance & Hashes" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Earlier state & interpretation limits" }));
     expect(screen.getByText(/does not prove the value differed or any inode was relabeled/)).toBeVisible();
     if (operation === "delete") expect(screen.queryByText(/httpd_sys_content_t/)).not.toBeInTheDocument();
   });
@@ -98,7 +98,7 @@ describe("Monitored-server SELinux activity", () => {
     expect(await screen.findByText(new RegExp(`TCP/23451 · ${operation}`))).toBeVisible();
     await openAudit();
     expect(screen.getByText(/USER_MAC_CONFIG_CHANGE/)).toBeVisible();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Technical Provenance & Hashes" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Earlier state & interpretation limits" }));
     expect(screen.getByText(/no port delta is reconstructed/)).toBeVisible();
     expect(screen.queryByText(/unreserved_port_t/)).not.toBeInTheDocument();
   });
@@ -110,7 +110,7 @@ describe("Monitored-server SELinux activity", () => {
     expect(screen.getByText("Enforcement changed")).toBeVisible();
     expect(screen.getByText("Runtime host enforcement mode")).toBeVisible();
     expect(screen.getByText(/MAC_STATUS/)).toBeVisible();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Technical Provenance & Hashes" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Earlier state & interpretation limits" }));
     expect(screen.getByText(/Exact policy identity and boolean evidence remain valid/)).toBeVisible();
     expect(screen.queryByRole("switch")).not.toBeInTheDocument();
   });
@@ -139,12 +139,12 @@ describe("Monitored-server SELinux activity", () => {
     renderActivity(response([item({ transition_type: "policy_load", boolean_changes: [] })]));
     await openAudit();
     expect(screen.getAllByText("SELinux policy loaded").length).toBeGreaterThan(0);
-    await userEvent.setup().click(screen.getByRole("button", { name: "Technical Provenance & Hashes" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Earlier state & interpretation limits" }));
     expect(screen.getByText(/The load record does not identify the new policy SHA/)).toBeVisible();
     expect(screen.queryByText("SELinux state confirmed")).not.toBeInTheDocument();
   });
 
-  it("shows the separately observed refreshed checkpoint and discloses its exact provenance", async () => {
+  it("shows the separately observed refreshed checkpoint without exposing its policy hash", async () => {
     const { fetchMock } = renderActivity(response([item({ reconciliation: { status: "reconciled", checkpoint: checkpoint(false), next_transition: null } })]));
     await openAudit();
     expect(await screen.findByText("SELinux state confirmed")).toBeVisible();
@@ -152,8 +152,9 @@ describe("Monitored-server SELinux activity", () => {
     expect(screen.getByText(/: Off ·/)).toBeVisible();
     expect(screen.getByText("Observed at host checkpoint")).toBeVisible();
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    await userEvent.setup().click(screen.getByRole("button", { name: "Technical Provenance & Hashes" }));
-    expect(screen.getByText(`sha256:${"b".repeat(64)}`)).toBeVisible();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Earlier state & interpretation limits" }));
+    expect(screen.queryByText(`sha256:${"b".repeat(64)}`)).not.toBeInTheDocument();
+    expect(screen.getByText("Earlier historical checkpoint")).toBeVisible();
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -242,8 +243,9 @@ describe("Monitored-server SELinux activity", () => {
     expect(screen.queryByText("Checkpoint provenance")).not.toBeInTheDocument();
     expect(screen.queryByText(/Completion: eoe/)).not.toBeInTheDocument();
     expect(screen.queryByText("test-digest")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Technical Provenance & Hashes" }));
-    expect(screen.getByText("test-digest")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Earlier state & interpretation limits" }));
+    expect(screen.queryByText("test-digest")).not.toBeInTheDocument();
+    expect(screen.queryByText(/sha256:/)).not.toBeInTheDocument();
     expect(screen.getByText("Earlier historical checkpoint")).toBeVisible();
     expect(screen.getByText(/Command fields provide context, not the authority/)).toBeVisible();
     expect(await screen.findByText(RAW)).toBeVisible();
@@ -313,7 +315,7 @@ describe("Monitored-server SELinux activity", () => {
     await user.click(copy);
     expect(writeText).toHaveBeenLastCalledWith(RAW);
     expect(await within(copy).findByText("Copied")).toBeVisible();
-    const provenance = screen.getByRole("button", { name: "Technical Provenance & Hashes" });
+    const provenance = screen.getByRole("button", { name: "Earlier state & interpretation limits" });
     const provenancePath = provenance.querySelector("path")!.getAttribute("d");
     expect(provenance).toHaveAttribute("aria-expanded", "false");
     await user.click(provenance);

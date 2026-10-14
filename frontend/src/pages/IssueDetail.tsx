@@ -1,4 +1,4 @@
-import { Alert, Breadcrumb, BreadcrumbItem, Button, Label, Spinner, TextInput, Title } from "@patternfly/react-core";
+import { Alert, Breadcrumb, BreadcrumbItem, Button, ExpandableSection, Label, Spinner, TextInput, Title } from "@patternfly/react-core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
@@ -235,17 +235,20 @@ function BooleanCheckpointSummary({ diagnosis }: { diagnosis: Diagnosis }) {
 }
 
 function DiagnosisEvidence({ diagnosis }: { diagnosis: Diagnosis }) {
+  return <>
+    {diagnosis.kind === "file_context_mismatch" && <ContextComparison diagnosis={diagnosis} />}
+    {diagnosis.kind === "conditional_allow_inactive" && <BooleanCheckpointSummary diagnosis={diagnosis} />}
+  </>;
+}
+
+function DiagnosisTechnicalEvidence({ diagnosis }: { diagnosis: Diagnosis }) {
   const kind = diagnosis.kind;
   return (
-    <>
-      {kind === "file_context_mismatch" && <ContextComparison diagnosis={diagnosis} />}
-      {kind === "conditional_allow_inactive" && <BooleanCheckpointSummary diagnosis={diagnosis} />}
-      <details className="issue-selinux-explanation">
-        <summary>{kind === "file_context_mismatch" ? "Why these labels matter" : "SELinux explanation"}</summary>
+      <section className="issue-selinux-explanation" aria-label="SELinux explanation">
         {kind === "file_context_mismatch" && <section className="issue-context-evidence"><h3>Full labeling evidence</h3>
           {diagnosis.path && <p className="issue-context-path">Path <code>{diagnosis.path}</code>{diagnosis.file_type && <> · {diagnosis.file_type}</>}</p>}
-          <p>AVC context <code className="issue-full-context">{diagnosis.observed_context}</code></p>
-          <p>Expected context <code className="issue-full-context">{diagnosis.expected_context}</code></p>
+          <p>AVC context <code className="issue-full-context">{diagnosis.observed_context ?? "Not recorded"}</code></p>
+          <p>Expected context <code className="issue-full-context">{diagnosis.expected_context ?? "Not available"}</code></p>
           {diagnosis.expected_context_observed_at && <p>Exact inspection time <time dateTime={diagnosis.expected_context_observed_at}>{diagnosis.expected_context_observed_at}</time></p>}
         </section>}
         {kind === "conditional_allow_inactive" && <>
@@ -253,7 +256,7 @@ function DiagnosisEvidence({ diagnosis }: { diagnosis: Diagnosis }) {
           {diagnosis.operation === "read" && <p>Under the recorded checkpoint state, this conditional rule did not provide the denied read permission. That does not establish the expected filesystem label or the only reason for the workload failure.</p>}
           {diagnosis.operation === "name_connect" && <p><code>name_connect</code> controls connecting a socket to a labeled network port. Under the recorded checkpoint state, the matching conditional rules did not provide this permission. That does not establish workload intent or the only reason for the failure. Destination address and service identity are not established by this finding.</p>}
           <p className="issue-denial-tuple">
-            <code>{diagnosis.source_domain ?? "Source type"}</code> → <code>{diagnosis.operation ?? diagnosis.permissions?.[0] ?? "Denied permission"}</code> → <code>{diagnosis.target_type}:{diagnosis.target_class}</code>
+            <code>{diagnosis.source_domain ?? "Source type not recorded"}</code> → <code>{diagnosis.operation ?? diagnosis.permissions?.[0] ?? "Permission not recorded"}</code> → <code>{diagnosis.target_type ?? "Target type not recorded"}:{diagnosis.target_class ?? "Object class not recorded"}</code>
             {diagnosis.destination_port && <> · TCP destination <code>{diagnosis.destination_port}</code></>}
             {diagnosis.bind_port && <> · TCP bind <code>{diagnosis.bind_port}</code></>}
           </p>
@@ -263,8 +266,7 @@ function DiagnosisEvidence({ diagnosis }: { diagnosis: Diagnosis }) {
         <EvidenceFacts diagnosis={diagnosis} />
         <PolicyEvaluations diagnosis={diagnosis} />
         {(kind === "conditional_allow_inactive" || kind === "no_matching_allow") && <PolicyProvenance diagnosis={diagnosis} />}
-      </details>
-    </>
+      </section>
   );
 }
 
@@ -292,9 +294,9 @@ function FindingCard({ detail, onShowOccurrences }: { detail: IssueDetailRespons
       <Title headingLevel="h3" size="xl">{diagnosis.kind === "conditional_allow_inactive" ? diagnosis.operation === "name_connect" ? rows(diagnosis.conditional_rules).length > 1 ? "Matching conditional policy paths were inactive" : "A matching conditional policy path was inactive" : diagnosis.operation === "read" ? "A matching SELinux rule exists, but its condition was inactive" : "A relevant SELinux allow rule was inactive" : diagnosis.title}</Title>
       {lead && diagnosis.kind !== "conditional_allow_inactive" && <p className="issue-finding-lead">{lead}</p>}
       <DiagnosisEvidence diagnosis={diagnosis} />
+      <p className="issue-limitation"><strong>What remains unknown:</strong> {primaryLimitation(diagnosis)}</p>
       <details className="finding-followup"><summary>Check next · limitations & coverage</summary>
         <div className="issue-next-check"><h3>Check next</h3><p>{diagnosis.next_step}</p></div>
-        <p className="issue-limitation"><strong>What remains unknown:</strong> {primaryLimitation(diagnosis)}</p>
         {findings?.[0] && <small aria-label="Finding coverage">{diagnosis.operation === "name_connect" && finding_coverage && `Conditional-policy findings cover ${(finding_coverage[diagnosis.kind] ?? 0).toLocaleString()} of ${issue.occurrences_count.toLocaleString()} denials. `}{diagnosis.kind === "file_context_mismatch" ? "This path is evidenced in" : diagnosis.operation === "name_connect" ? "Shown destination finding covers" : "Supported for"} {findings[0].occurrence_count.toLocaleString()} of {issue.occurrences_count.toLocaleString()} denials.{diagnosis.kind === "file_context_mismatch" && ` Based on ${findings[0].observation_count} distinct inspection observation(s).`}{(findings[0].reused_observation_occurrences ?? 0) > 0 && ` ${findings[0].reused_observation_occurrences} denials reuse another event's inspection within the same checkpoint.`} </small>}
         <small>Based on a retained denial{findingHost ? ` on ${findingHost}` : ""}. {hostId ? <Link to={`/hosts/${hostId}/occurrences/${diagnosis.occurrence_id}`}>View source event</Link> : <a href="#issue-occurrences" onClick={onShowOccurrences}>View source event</a>}</small>
       </details>
@@ -500,6 +502,8 @@ export function IssueDetail() {
   const detailQuery = useQuery({ queryKey: ["issue", issueId], queryFn: () => fetchIssue(issueId), enabled: validId });
   const [showOccurrences, setShowOccurrences] = useState(() => searchParams.get("tab") === "occurrences");
   const [showRelatedFleet, setShowRelatedFleet] = useState(false);
+  const [technicalEvidenceIssueId, setTechnicalEvidenceIssueId] = useState<number | null>(null);
+  const showTechnicalEvidence = technicalEvidenceIssueId === issueId;
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const occurrencesQuery = useQuery({ queryKey: ["issue-occurrence-page", issueId, page], queryFn: () => fetchIssueOccurrencePage(issueId, page), enabled: validId && showOccurrences });
@@ -588,12 +592,12 @@ export function IssueDetail() {
 
       <ResolutionWorkflow issueId={issueId} stage="intent" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} />
       </div>
-      <ResolutionWorkflow issueId={issueId} stage="context" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} detail={detailQuery.data} />
+      <ResolutionWorkflow issueId={issueId} stage="context" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} detail={detailQuery.data} onShowTechnicalEvidence={() => setTechnicalEvidenceIssueId(issueId)} />
       </div>
 
       {((findings?.length ?? 0) > 1 || (issue.target_class === "file" && (intelligence.resource_summary?.without_absolute_path_occurrences ?? 0) > 0) || (additional_finding_count ?? 0) > 0 || policy_analysis.limitations.length > 0) && <details className="workbench-additional"><summary>Additional investigation</summary><section aria-label="Additional investigation" className="issue-section">
         <h2>Additional investigation</h2>
-        {findings?.slice(1).map((finding, index) => <details key={index}><summary>{finding.diagnosis.title} · {finding.occurrence_count.toLocaleString()} denials</summary><p>{primaryFindingLead(finding.diagnosis) ?? text(row(finding.diagnosis).finding)}</p><DiagnosisEvidence diagnosis={finding.diagnosis} /><p><strong>Check next:</strong> {finding.diagnosis.next_step}</p><p>{primaryLimitation(finding.diagnosis)}</p></details>)}
+        {findings?.slice(1).map((finding, index) => <details key={index}><summary>{finding.diagnosis.title} · {finding.occurrence_count.toLocaleString()} denials</summary><p>{primaryFindingLead(finding.diagnosis) ?? text(row(finding.diagnosis).finding)}</p><DiagnosisEvidence diagnosis={finding.diagnosis} /><p><strong>Check next:</strong> {finding.diagnosis.next_step}</p><p>{primaryLimitation(finding.diagnosis)}</p><details><summary>Technical evidence for this finding</summary><DiagnosisTechnicalEvidence diagnosis={finding.diagnosis} /></details></details>)}
         {issue.target_class === "file" && (intelligence.resource_summary?.without_absolute_path_occurrences ?? 0) > 0 && <div><h3>Path-based label check unavailable</h3><p>{intelligence.resource_summary!.without_absolute_path_occurrences.toLocaleString()} of {issue.occurrences_count.toLocaleString()} denials contain filenames but no complete filesystem path. SECentral cannot determine whether <code>{issue.target_type}</code> is the expected label for those files.</p></div>}
         {(additional_finding_count ?? 0) > 0 && <p>{additional_finding_count} additional finding variant(s). Inspect host and occurrence evidence for their coverage.</p>}
         {diagnosis && policy_analysis.limitations.map((limitation) => <p key={limitation}>{limitation}</p>)}
@@ -623,11 +627,14 @@ export function IssueDetail() {
               : <p>No occurrences are retained for this issue.</p>}
       </section>
 
-      <details id="issue-technical-evidence" className="issue-advanced-details"><summary>Technical evidence & issue history</summary>
+      <ExpandableSection id="issue-technical-evidence" className="issue-advanced-details" toggleText="Technical evidence & issue history" isExpanded={showTechnicalEvidence} onToggle={(_event, expanded) => setTechnicalEvidenceIssueId(expanded ? issueId : null)}>
+        {showTechnicalEvidence && <>
+        {diagnosis && <DiagnosisTechnicalEvidence diagnosis={diagnosis} />}
         <details><summary>SELinux types, class, and permission</summary><dl className="issue-technical-facts"><div><dt>Source type</dt><dd><code>{issue.source_type}</code></dd></div><div><dt>Target type</dt><dd><code>{issue.target_type}</code></dd></div><div><dt>Object class</dt><dd><code>{issue.target_class}</code></dd></div><div><dt>Denied permission set</dt><dd>{issue.permissions.map((permission) => <code key={permission}>{permission}</code>)}</dd></div></dl></details>
         <dl className="issue-technical-facts"><div><dt>Fingerprint version</dt><dd>{issue.fingerprint_version}</dd></div><div><dt>Fingerprint</dt><dd><code>{issue.fingerprint_digest}</code></dd></div><div><dt>First seen</dt><dd><time dateTime={issue.first_seen_at}>{formatUtc(issue.first_seen_at)}</time></dd></div><div><dt>Last seen</dt><dd><time dateTime={issue.last_seen_at}>{formatUtc(issue.last_seen_at)}</time></dd></div></dl>
         {issue.disposition_history.length > 0 && <ul>{issue.disposition_history.map((change) => <li key={change.changed_at}><time dateTime={change.changed_at}>{formatUtc(change.changed_at)}</time> {change.previous_disposition} → {change.disposition}{change.note ? ` — ${change.note}` : ""}</li>)}</ul>}
-      </details>
+        </>}
+      </ExpandableSection>
     </main>
   );
 }

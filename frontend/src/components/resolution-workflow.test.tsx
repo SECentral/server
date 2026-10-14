@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import type { PolicyDraft, ResolutionWorkflow as Workflow } from "../api/resolution";
 import { ResolutionWorkflow } from "./ResolutionWorkflow";
+import { TechnicalEvidenceDisclosure } from "./WorkbenchEvidence";
 
 const candidate: Workflow["candidates"][number] = {
   id: "boolean-path", kind: "enable_boolean", title: "Enable capability controlled by httpd_can_network_connect",
@@ -37,6 +38,25 @@ function mount() {
 }
 
 describe("Evidence-driven resolution UI", () => {
+  it("keeps hashes, policy conditions and nested provenance out of the default view but available on demand", async () => {
+    const basis = { policy_identity: "sha256:policy-identity", execution_fingerprint: "sha256:execution-identity",
+      evidence_digest: "sha256:evidence-identity", condition_ast: { operator: "and", operands: ["httpd_unified", "httpd_enable_cgi"] },
+      provenance: [{ checkpoint_id: 4432, policy_identity: "sha256:checkpoint-policy" }], missing_path: null };
+    const user = userEvent.setup();
+    render(<TechnicalEvidenceDisclosure basis={basis} title="Technical evidence" />);
+    expect(screen.getByRole("button", { name: "Technical evidence" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(/sha256:/)).not.toBeInTheDocument();
+    expect(screen.queryByText("httpd_unified")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Technical evidence" }));
+    expect(screen.getByText("sha256:evidence-identity")).toBeVisible();
+    expect(screen.getByText("sha256:execution-identity")).toBeVisible();
+    expect(screen.getByText("httpd_unified")).toBeVisible();
+    expect(screen.getByText("4432")).toBeVisible();
+    expect(screen.queryByText("missing path")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Technical evidence" }));
+    expect(screen.queryByText(/sha256:/)).not.toBeInTheDocument();
+  });
+
   it("gates commands by durable intent, restores after remount, and clears through the API", async () => {
     let state = initial();
     const requests: string[] = [];
@@ -51,12 +71,17 @@ describe("Evidence-driven resolution UI", () => {
     const view = mount();
     await screen.findByRole("button", { name: "Choose intent" });
     expect(screen.getByRole("region", { name: "Observed access" })).toHaveTextContent("TCP/12345");
+    expect(screen.getByText("Host-wide boolean")).toBeVisible();
+    expect(screen.getByText(/Can enable broader access/)).toBeVisible();
+    expect(screen.getByText(/Review this option to see copyable inspection and change commands/)).toBeVisible();
     expect(screen.queryByText("sudo setsebool httpd_can_network_connect on")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Choose intent" }));
     expect(screen.getByText(candidate.intent_prompt)).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Confirm intent" }));
     await screen.findByRole("region", { name: "Selected change plan" });
     expect(screen.getByRole("button", { name: "Copy sudo setsebool -P httpd_can_network_connect on" })).toBeInTheDocument();
+    screen.getAllByText("Runtime only").forEach((label) => expect(label).toBeVisible());
+    expect(screen.getByText("Persistent · optional")).toBeVisible();
     expect(screen.getByRole("region", { name: "Selected change plan" })).toHaveTextContent("Persistent rollback state unknown");
     view.unmount();
     mount();

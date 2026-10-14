@@ -415,21 +415,6 @@
   width: 100%;
 }
 
-.host-metric-card {
-  height: 100%;
-}
-
-.host-metric-card .pf-v6-c-card__title-text {
-  color: var(--pf-t--global--text--color--subtle);
-  font-size: var(--pf-t--global--font--size--body--sm);
-}
-
-.host-activity-facts strong {
-  color: var(--pf-t--global--text--color--regular);
-  font-variant-numeric: tabular-nums;
-  font-size: var(--pf-t--global--font--size--heading--lg);
-}
-
 .selinux-activity-item {
   padding-block: var(--pf-t--global--spacer--md);
   border-block-start: 1px solid var(--pf-t--global--border--color--default);
@@ -459,9 +444,12 @@
   border-inline-start: 2px solid var(--pf-t--global--border--color--default);
 }
 
-.selinux-activity-pagination {
+.host-table-pagination {
   display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: var(--pf-t--global--spacer--sm);
+  margin-block-start: var(--pf-t--global--spacer--sm);
 }
 
 /* All host-detail text palettes are >= 8:1 against the dark surfaces below. */
@@ -488,7 +476,6 @@
   --pf-t--global--icon--color--status--warning--default: var(--host-dark-warning);
   --pf-t--global--icon--color--status--danger--default: var(--host-dark-danger);
   color: var(--host-dark-text);
-  background: var(--host-dark-surface);
 }
 
 .pf-v6-theme-dark .host-detail-page .pf-v6-c-label {
@@ -965,27 +952,28 @@
   font-weight: var(--pf-t--global--font--weight--body--bold);
 }
 
-.overview-metric-card,
-.overview-metric-card:hover,
-.overview-metric-card:focus {
+.metric-card,
+.metric-card:hover,
+.metric-card:focus {
   height: 100%;
   color: inherit;
   text-decoration: none;
 }
 
-.overview-metric-card .pf-v6-c-card__title {
+.metric-card .pf-v6-c-card__title {
   color: var(--pf-t--global--text--color--subtle);
   font-size: var(--pf-t--global--font--size--body--sm);
 }
 
-.overview-metric-value {
+.metric-value {
   margin-block: 0;
   color: var(--pf-t--global--text--color--regular);
   font-weight: var(--pf-t--global--font--weight--heading--bold);
   line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
-.overview-metric-detail {
+.metric-detail {
   font-size: var(--pf-t--global--font--size--body--sm);
 }
 
@@ -1010,7 +998,7 @@
   text-decoration: none;
 }
 
-.overview-metric-card:focus-visible,
+.metric-card:focus-visible,
 .overview-status-card:focus-visible {
   outline: 2px solid var(--pf-t--global--border--color--brand--default);
   outline-offset: 2px;
@@ -1698,7 +1686,6 @@
 .candidate-muted { background: var(--pf-t--global--background--color--secondary--default); }
 .resolution-selected { border: 2px solid var(--pf-t--global--border--color--brand--default); background: var(--pf-t--global--background--color--primary--default); }
 .resolution-selected > header .pf-v6-c-label { margin-inline-start: auto; }
-.resolution-selected .candidate-breadth { display: none; }
 .resolution-selected .candidate-relevance, .resolution-selected .selected-association { display: none; }
 .resolution-selected { padding-block: .65rem; }
 .resolution-selected .workbench-technical { margin-block: .3rem; }
@@ -1736,7 +1723,6 @@
 .stale-plan h3 { display: flex; align-items: center; gap: .5rem; font-size: 1.125rem; font-weight: 650; margin: 0; }
 .stale-plan p, .stale-plan strong { font-size: .9375rem; }
 .workbench-technical { font-size: .8125rem; margin-block: .6rem; }
-.workbench-technical > summary { color: var(--pf-t--global--text--color--link--default); cursor: pointer; }
 .workbench-evidence-fields { display: grid; gap: .5rem; font-size: .8125rem; }
 .workbench-evidence-fields dt { color: var(--pf-t--global--text--color--subtle); text-transform: capitalize; }
 .workbench-evidence-fields dd { margin: .2rem 0 0; overflow-wrap: anywhere; }

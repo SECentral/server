@@ -3,7 +3,6 @@ import {
   AlertGroup,
   Card,
   CardBody,
-  CardTitle,
   Flex,
   FlexItem,
   Grid,
@@ -16,6 +15,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { fetchOverview, type OverviewAttentionHost, type OverviewResponse } from "../api/overview";
 import { SeriesChart } from "../components/SeriesChart";
+import { MetricCard } from "../components/MetricCard";
 
 const AGENT_STATES = [
   { key: "reporting", label: "Reporting", status: "success" },
@@ -42,18 +42,6 @@ function timeAgo(iso: string): string {
 function hostNames(hosts: OverviewAttentionHost[], total: number): string {
   const names = hosts.map((host) => host.hostname ?? "Unknown hostname").join(", ");
   return total > hosts.length ? `${names}, …` : names;
-}
-
-function MetricCard({ label, value, detail, href }: { label: string; value: number; detail: string; href: string }) {
-  return (
-    <Card isClickable isCompact className="overview-metric-card" component="a" href={href} aria-label={`${label} ${value}`}>
-      <CardTitle>{label}</CardTitle>
-      <CardBody>
-        <Title headingLevel="h3" size="3xl" className="overview-metric-value">{value}</Title>
-        <span className="pf-v6-u-color-200 overview-metric-detail">{detail}</span>
-      </CardBody>
-    </Card>
-  );
 }
 
 function AttentionAlert({

@@ -34,7 +34,7 @@ function optionTitle(basis: Record<string, unknown>, title: string) {
 function ChangePlanStep({ step, number }: { step: PlanData["preview_steps"][number]; number?: number }) {
   return <article className="change-plan-step"><header>{number != null && <span className="step-number">{number}</span>}<h3>{step.title}</h3>
     <Label color={step.persistence === "persistent" ? "orange" : "blue"} isCompact>{step.persistence === "persistent" ? "Persistent · optional" : step.persistence === "temporary" ? "Runtime only" : step.title.toLowerCase().includes("preview") ? "Non-mutating preview" : step.persistence === "inspection" ? "Inspect" : "Single object"}</Label></header>
-    <CopyCommand command={step.command} /><details className="step-detail"><summary>Step details</summary><p>{step.explanation}</p></details></article>;
+    <CopyCommand command={step.command} /><p className="step-detail">{step.explanation}</p></article>;
 }
 
 function ChangePlan({ plan }: { plan: PlanData }) {
@@ -43,7 +43,8 @@ function ChangePlan({ plan }: { plan: PlanData }) {
     <h3 className="plan-title">{optionTitle(plan.evidence_basis, plan.title)}</h3>
     <div className="plan-scope"><ShieldAltIcon aria-hidden="true" /><strong>{file ? "Single evidenced object · no recursion" : "Host-wide SELinux boolean"}</strong><a href="#plan-rollback">Rollback ↓</a></div>
     <p className="plan-warning"><ExclamationTriangleIcon aria-hidden="true" /> {file ? "Current object has not been verified. Inspect it and its configured label before proceeding." : "May affect other policy rules beyond this occurrence."}</p>
-    <details className="plan-mechanism"><summary>Why this affects the denial · scope & expected effect</summary><p>{plan.explanation}</p><p>{plan.expected_effect}</p><p>{plan.scope_description}</p><p>{plan.scope_warning}</p><p>{plan.persistence}</p></details>
+    <p>{plan.expected_effect}</p><p>{plan.persistence}</p>
+    <details className="plan-mechanism"><summary>Why this affects the denial</summary><p>{plan.explanation}</p><p>{plan.scope_description}</p><p>{plan.scope_warning}</p></details>
     <div className="plan-steps" id="plan-inspection">{plan.preview_steps.map((step, i) => <ChangePlanStep key={step.command} step={step} number={i + 1} />)}
       {file ? <details className="file-apply-disclosure"><summary>Apply — only after successful inspection</summary><p>Stop if the object is missing, replaced, or not the intended resource.</p>{plan.apply_steps.map((step, i) => <ChangePlanStep key={step.command} step={step} number={plan.preview_steps.length + i + 1} />)}</details>
         : plan.apply_steps.map((step, i) => <ChangePlanStep key={step.command} step={step} number={plan.preview_steps.length + i + 1} />)}</div>
@@ -69,12 +70,12 @@ function ResolutionCandidateCard({ candidate, selected, freshness, busy, onSelec
     <header><ShieldAltIcon aria-hidden="true" /><h3>{path ?? (unavailable && valueText(basis.boolean) ? String(basis.boolean) : optionTitle(basis, candidate.title))}</h3>{selected && <Label color={current ? "blue" : "orange"} icon={<CheckCircleIcon />}>{current ? "Selected · current" : "Selected · review required"}</Label>}</header>
     {path ? <p className="candidate-label-change"><code>{valueText(basis.observed_context)?.split(":")[2] ?? "Observed label"}</code><span aria-label="to">→</span><code>{valueText(basis.expected_context)?.split(":")[2] ?? "Expected label"}</code></p>
       : <p className="candidate-relevance">{unavailable && state === "On" ? "This capability is already enabled." : "Matching independent policy path"}</p>}
-    <dl className="candidate-facts">{!path && <div><dt>Current state</dt><dd><Label color={state === "Off" ? "orange" : "grey"} isCompact>{state}</Label></dd></div>}<div><dt>Scope</dt><dd>{candidate.scope_kind === "host_boolean" ? "Host-wide" : "Single object"}</dd></div></dl>
-    <p className="candidate-breadth">{candidate.scope_kind === "host_boolean" ? "Broader than this occurrence / destination" : "Inspect before applying · no recursion"}</p>
+    <dl className="candidate-facts">{!path && <div><dt>Current state</dt><dd><Label color={state === "Off" ? "orange" : "grey"} isCompact>{state}</Label></dd></div>}<div><dt>Scope</dt><dd>{candidate.scope_kind === "host_boolean" ? "Host-wide boolean" : "Targeted path relabel"}</dd></div><div><dt>Host</dt><dd>{candidate.hostname ?? "Host not recorded"}</dd></div></dl>
+    <p className="candidate-breadth">{candidate.scope_kind === "host_boolean" ? "Can enable broader access through other policy rules; not limited to this occurrence or destination." : "Inspect the object and configured label before applying. This changes one object, without recursion."}</p>
     {unavailable ? <p className="candidate-unavailable">{state === "On" ? "Enabling it is not a current resolution option." : "Current retained evidence does not support an actionable plan."}</p>
       : current ? <span className="selected-association"><CheckCircleIcon aria-hidden="true" /> Selected plan below</span>
         : confirming ? <div className="intent-confirmation"><p>{candidate.intent_prompt}</p><Button variant="primary" isDisabled={busy} onClick={() => onSelect(candidate)}>Confirm intent</Button><Button variant="link" onClick={() => setConfirming(false)}>Cancel</Button></div>
-          : <Button variant="primary" isDisabled={busy} onClick={() => setConfirming(true)}>{selected ? "Review updated option" : path ? "Choose this path" : "Choose intent"}</Button>}
+          : <><Button variant="primary" isDisabled={busy} onClick={() => setConfirming(true)}>{selected ? "Review updated option" : path ? "Choose this path" : "Choose intent"}</Button><p className="workbench-caption">Review this option to see copyable inspection and change commands.</p></>}
     <TechnicalEvidenceDisclosure basis={{ explanation: candidate.explanation, scope: candidate.scope_description, breadth: candidate.scope_warning, ...basis, limitations: candidate.limitations }} title={unavailable ? "Why is this shown?" : "Evidence supporting this option"} />
   </article>;
 }
@@ -137,7 +138,7 @@ function DraftWorkspace({ issueId, occurrenceId }: { issueId: number; occurrence
   </section>;
 }
 
-export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpdatedAt, detail }: { issueId: number; stage: "observed" | "intent" | "context"; initialData?: Workflow; initialDataUpdatedAt?: number; detail?: IssueDetailResponse }) {
+export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpdatedAt, detail, onShowTechnicalEvidence }: { issueId: number; stage: "observed" | "intent" | "context"; initialData?: Workflow; initialDataUpdatedAt?: number; detail?: IssueDetailResponse; onShowTechnicalEvidence?: () => void }) {
   const client = useQueryClient();
   const query = useQuery({ queryKey: ["issue-resolutions", issueId], queryFn: () => fetchResolutions(issueId), initialData, initialDataUpdatedAt, staleTime: 30_000 });
   const [busy, setBusy] = useState(false);
@@ -157,12 +158,13 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
     const access = workflow.observed_access;
     return access ? <ObservedAccessFlow access={access} /> : null;
   }
-  if (stage === "context") return detail ? <ContextSidebar detail={detail} workflow={workflow} /> : null;
+  if (stage === "context") return detail ? <ContextSidebar detail={detail} workflow={workflow} onShowTechnicalEvidence={onShowTechnicalEvidence} /> : null;
   const selected = workflow.candidates.find((c) => c.id === workflow.intent?.candidate_id);
   const alternatives = workflow.candidates.filter((c) => c.id !== selected?.id);
   const choose = (c: Candidate) => void run(() => selectIntent(issueId, c.id, c.evidence_version));
   return <>
     <section className="resolution-options" aria-label="Resolution options"><header className="workbench-section-header"><h2>Resolution options</h2>{workflow.intent && <Button variant="link" isDisabled={busy} onClick={() => void run(() => clearIntent(issueId))}>Clear selected intent</Button>}</header>
+      <p className="workbench-caption">Commands are for operator review and configuration management. SECentral does not apply changes.</p>
       {error && <Alert variant="danger" isInline title="Intent update failed">{error}</Alert>}
       {workflow.freshness && workflow.freshness !== "current" && <div className="stale-plan" role="alert"><h3><ExclamationTriangleIcon aria-hidden="true" /> {workflow.freshness === "no_longer_supported" ? "Plan no longer supported" : "Evidence changed"}</h3><p>This plan was reviewed against older SELinux state. Commands are hidden until the updated evidence is reviewed.</p><EvidenceChangeSummary workflow={workflow} /><strong>Review this option again before using its commands.</strong></div>}
       {!workflow.candidates.length && <p>No mechanically supported resolution candidate is available from retained evidence.</p>}
