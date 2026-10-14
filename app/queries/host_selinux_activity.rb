@@ -213,5 +213,4 @@ class HostSelinuxActivity
         { id: id, issue_id: issue, event_time: occurred_at }
       end
   end
-
 end

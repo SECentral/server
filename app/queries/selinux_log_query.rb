@@ -88,7 +88,7 @@ class SelinuxLogQuery
   end
 
   def filtered(relation, table)
-    relation = relation.where("#{table}.host_id IN (?) AND raw_events.host_id IN (?)", @host_ids, @host_ids) if @host_ids.any?
+    relation = relation.where(table => { host_id: @host_ids }).where(raw_events: { host_id: @host_ids }) if @host_ids.any?
     relation = relation.where("raw_events.audit_timestamp >= ?", @start) if @start
     relation = relation.where("raw_events.audit_timestamp < ?", @end) if @end
     relation
@@ -96,7 +96,10 @@ class SelinuxLogQuery
 
   def branch(relation, table, kind)
     relation = filtered(relation, table)
-    relation = relation.where("(raw_events.audit_timestamp, #{kind}, #{table}.id) < (?, ?, ?)", *@cursor) if @cursor
+    if @cursor
+      predicate = kind == 0 ? "(raw_events.audit_timestamp, 0, occurrences.id) < (?, ?, ?)" : "(raw_events.audit_timestamp, 1, raw_events.id) < (?, ?, ?)"
+      relation = relation.where(predicate, *@cursor)
+    end
     relation.select("raw_events.audit_timestamp AS event_time, #{kind} AS source_kind, #{table}.id AS source_id")
       .order(Arel.sql("raw_events.audit_timestamp DESC, #{table}.id DESC")).limit(@page ? @page * @limit : @limit + 1).to_sql
   end
