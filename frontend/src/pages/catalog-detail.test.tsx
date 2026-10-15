@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -64,32 +64,48 @@ function renderCatalogDetail(fetchBody: unknown = detailPayload, status = 200, i
 }
 
 describe("CatalogDetail", () => {
-  it("shows identity, provenance, and structured families", async () => {
+  it("leads with reference facts and inventories, and reveals copyable verification details only on request", async () => {
+    const user = userEvent.setup();
+    const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
     renderCatalogDetail();
 
     expect(await screen.findByText("AlmaLinux 9 SELinux policy")).toBeInTheDocument();
-    expect(screen.getByText("targeted / x86_64 · kernel policy 33")).toBeInTheDocument();
+    expect(screen.getByText("targeted / x86_64 · kernel policy format 33")).toBeVisible();
     expect(screen.getByText("selinux-policy-targeted-38.1.75-2.el9_8")).toBeInTheDocument();
-    expect(screen.getByText(loadedPolicyDigest, { selector: "code" })).toBeInTheDocument();
+    expect(screen.queryByText(loadedPolicyDigest)).not.toBeInTheDocument();
     expect(screen.getByText("Booleans: complete · Ports: incomplete")).toBeInTheDocument();
     expect(screen.getByText("2026-09-20 12:00:00 UTC")).toBeInTheDocument();
-    expect(screen.getByText(/artifacts\/almalinux-9.json/)).toBeInTheDocument();
-    expect(screen.getByText(/"source":"distribution-release"/)).toBeInTheDocument();
+    expect(screen.queryByText(/artifacts\/almalinux-9.json/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Display name" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rename catalog" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "Archive catalog" }).closest("header")).not.toBeNull();
+    expect(screen.getByText("Active").closest(".pf-v6-c-label")).not.toHaveClass("pf-m-green");
+    expect(screen.getByRole("table", { name: "Catalog boolean defaults" })).toHaveClass("pf-m-compact", "pf-m-grid-lg");
 
     expect(screen.getByText("httpd_can_network_connect")).toBeInTheDocument();
     expect(screen.getByText("Off")).toBeInTheDocument();
     expect(screen.getByText("Allow httpd network connections")).toBeInTheDocument();
-    expect(screen.getByText("80-90")).toBeInTheDocument();
-    expect(screen.getByText("http_port_t")).toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Catalog port mappings" })).not.toBeInTheDocument();
 
     expect(screen.getByRole("link", { name: "Compare booleans in configuration" })).toHaveAttribute(
       "href",
       `/configuration?family=booleans&policy_identity=${encodeURIComponent(loadedPolicyDigest)}`
     );
+    await user.click(screen.getByRole("tab", { name: "Ports (1)" }));
+    expect(screen.getByText("80-90")).toBeVisible();
+    expect(screen.getByText("http_port_t")).toBeVisible();
     expect(screen.getByRole("link", { name: "Compare ports in configuration" })).toHaveAttribute(
       "href",
       `/configuration?family=ports&policy_identity=${encodeURIComponent(loadedPolicyDigest)}`
     );
+    await user.click(screen.getByRole("button", { name: "Technical details & policy digests" }));
+    expect(screen.getByText(/artifacts\/almalinux-9.json/)).toBeVisible();
+    expect(screen.getByText(/"source":"distribution-release"/)).toBeVisible();
+    expect(screen.getByText(loadedPolicyDigest)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Copy loaded-policy digest" }));
+    expect(write).toHaveBeenCalledWith(loadedPolicyDigest);
+    await user.click(screen.getByRole("button", { name: "Technical details & policy digests" }));
+    expect(screen.queryByText(loadedPolicyDigest)).not.toBeInTheDocument();
   });
 
   it("surfaces API failures", async () => {
@@ -103,6 +119,7 @@ describe("CatalogDetail", () => {
     const user = userEvent.setup();
     const { fetchMock } = renderCatalogDetail();
     await screen.findByText("AlmaLinux 9 SELinux policy");
+    await user.click(screen.getByRole("button", { name: "Rename catalog" }));
     let current = structuredClone(detailPayload);
     fetchMock.mockImplementation(async (path: string, options: RequestInit) => {
       if (path.endsWith("/name")) {
@@ -119,14 +136,15 @@ describe("CatalogDetail", () => {
     await user.click(screen.getByRole("button", { name: "Save name" }));
     expect(await screen.findByText("Oracle reference SELinux policy")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/catalogs/7/name", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ display_name: "Oracle reference" }) }));
-    await user.click(screen.getByRole("button", { name: "Archive" }));
+    await user.click(screen.getByRole("button", { name: "Archive catalog" }));
     expect(await screen.findByText("Archived reference")).toBeInTheDocument();
     expect(screen.getByText("Archived", { exact: true })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Compare booleans in configuration" })).not.toBeInTheDocument();
-    expect(screen.getByText(detailPayload.catalog.content_digest, { selector: "code" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Technical details & policy digests" }));
+    expect(screen.getByText(detailPayload.catalog.content_digest)).toBeVisible();
     expect(screen.getByText(/"source":"distribution-release"/)).toBeInTheDocument();
     expect(screen.getByText(/Import and a valid digest do not establish review/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Unarchive" }));
+    await user.click(screen.getByRole("button", { name: "Unarchive catalog" }));
     await waitFor(() => expect(screen.queryByText("Archived reference")).not.toBeInTheDocument());
     expect(screen.getByText("Active", { exact: true })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Compare booleans in configuration" })).toBeInTheDocument();
@@ -136,6 +154,7 @@ describe("CatalogDetail", () => {
     const user = userEvent.setup();
     const { fetchMock } = renderCatalogDetail();
     await screen.findByText("AlmaLinux 9 SELinux policy");
+    await user.click(screen.getByRole("button", { name: "Rename catalog" }));
     const input = screen.getByRole("textbox", { name: "Display name" });
     expect(input).toHaveAttribute("maxlength", "120");
     await user.clear(input);
@@ -154,6 +173,64 @@ describe("CatalogDetail", () => {
     renderCatalogDetail(data, 200, { pathname: "/catalogs/7", state: { catalogImportOutcome: "reuse_existing_revision" } });
     expect(await screen.findByText("Existing revision reused; import evidence appended")).toBeInTheDocument();
     expect(screen.getByText(/This revision remains archived. Import did not change/)).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Technical details & policy digests" }));
     expect(screen.getByText(/Operator upload · Imported by operator/)).toBeInTheDocument();
+  });
+
+  it("pairs each import's source, importer, timestamp and metadata in its own description-list group", async () => {
+    renderCatalogDetail({ catalog: { ...detailPayload.catalog, imports: [...detailPayload.catalog.imports,
+      { id: 4, source_path: null, source_kind: "operator_upload", imported_by: "operator", imported_at: "2026-09-21T12:00:00Z", acquisition_metadata: { note: "second import" } }
+    ] } });
+    await screen.findByText("AlmaLinux 9 SELinux policy");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Technical details & policy digests" }));
+    const history = screen.getByRole("region", { name: "Import history" });
+    const first = within(history).getByText("Import #3").closest(".pf-v6-c-description-list__group")!;
+    const second = within(history).getByText("Import #4").closest(".pf-v6-c-description-list__group")!;
+    expect(first).toHaveTextContent("artifacts/almalinux-9.json");
+    expect(first).toHaveTextContent("2026-09-20 12:00:05 UTC");
+    expect(first).not.toHaveTextContent("operator");
+    expect(second).toHaveTextContent("Operator upload · Imported by operator");
+    expect(second).toHaveTextContent("2026-09-21 12:00:00 UTC");
+    expect(second).toHaveTextContent('"note":"second import"');
+  });
+
+  it("bounds inventory rows, restores independent URL pages, and clamps out-of-range pages", async () => {
+    const catalog = { ...detailPayload.catalog,
+      booleans: Array.from({ length: 55 }, (_, index) => ({ name: `boolean_${index}`, default_value: false, description: "" })),
+      port_mappings: Array.from({ length: 58 }, (_, index) => ({ protocol: "tcp", start: index, end: index, type: `port_${index}_t` }))
+    };
+    renderCatalogDetail({ catalog }, 200, "/catalogs/7?boolean_page=99&port_page=2");
+    const booleans = await screen.findByRole("region", { name: "Boolean reference" });
+    expect(within(booleans).getByRole("table").querySelectorAll("tbody tr")).toHaveLength(5);
+    expect(within(booleans).getByRole("spinbutton", { name: "Current page" })).toHaveValue(3);
+    const user = userEvent.setup();
+    await user.click(within(booleans).getByRole("button", { name: "Go to first page" }));
+    expect(within(booleans).getByRole("table").querySelectorAll("tbody tr")).toHaveLength(25);
+    expect(within(booleans).queryByText("boolean_50")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Ports (58)" }));
+    const ports = screen.getByRole("region", { name: "Port reference" });
+    expect(within(ports).getByRole("table").querySelectorAll("tbody tr")).toHaveLength(25);
+    expect(within(ports).getByRole("spinbutton", { name: "Current page" })).toHaveValue(2);
+    await user.click(screen.getByRole("tab", { name: "Booleans (55)" }));
+    const booleanView = screen.getByRole("region", { name: "Boolean reference" });
+    await user.click(within(booleanView).getByRole("button", { name: "Go to last page" }));
+    expect(within(booleanView).getByText("boolean_50")).toBeVisible();
+    await user.type(screen.getByRole("textbox", { name: "Search catalog booleans" }), "boolean_50");
+    expect(within(booleanView).getByRole("spinbutton", { name: "Current page" })).toHaveValue(1);
+    expect(within(booleanView).getByRole("table").querySelectorAll("tbody tr")).toHaveLength(1);
+    expect(screen.queryByRole("tab", { name: /Permissive|File contexts/ })).not.toBeInTheDocument();
+  });
+
+  it("offers full-page sizes and resets only the resized family's page", async () => {
+    const catalog = { ...detailPayload.catalog, booleans: Array.from({ length: 55 }, (_, index) => ({ name: `boolean_${index}`, default_value: false, description: "" })) };
+    renderCatalogDetail({ catalog }, 200, "/catalogs/7?boolean_page=2&port_q=http");
+    await screen.findByRole("table", { name: "Catalog boolean defaults" });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "26 - 50 of 55" }));
+    await user.click(screen.getByRole("menuitem", { name: "100 per page" }));
+    expect(screen.getByRole("table", { name: "Catalog boolean defaults" }).querySelectorAll("tbody tr")).toHaveLength(55);
+    expect(screen.getByRole("spinbutton", { name: "Current page" })).toHaveValue(1);
+    await user.click(screen.getByRole("tab", { name: "Ports (1)" }));
+    expect(screen.getByRole("textbox", { name: "Search catalog ports" })).toHaveValue("http");
   });
 });

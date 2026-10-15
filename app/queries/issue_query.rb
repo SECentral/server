@@ -1,19 +1,19 @@
 class IssueQuery
-  PAGE_SIZE = 50
   FILTER_KEYS = %w[q source_type target_type target_class permission path name target status new multiple_hosts os_id policy_version].freeze
 
-  Result = Struct.new(:issues, :total_count, :page, keyword_init: true)
+  Result = Struct.new(:issues, :total_count, :page, :page_size, keyword_init: true)
 
-  def initialize(filters: {}, host_id: nil, page: 1)
+  def initialize(filters: {}, host_id: nil, page: 1, limit: nil)
     @filters = filters.transform_keys(&:to_s)
     @filters["status"] = "open" if @filters["status"].to_s.blank?
     @host_id = host_id.presence
     @page = [page.to_i, 1].max
+    @page_size = PageSize.parse(limit)
   end
 
   def call
     relation = scoped
-    Result.new(issues: relation.offset((@page - 1) * PAGE_SIZE).limit(PAGE_SIZE).to_a, total_count: relation.count, page: @page)
+    Result.new(issues: relation.offset((@page - 1) * @page_size).limit(@page_size).to_a, total_count: relation.count, page: @page, page_size: @page_size)
   end
 
   def count
@@ -23,7 +23,7 @@ class IssueQuery
   private
 
   def scoped
-    issues = Issue.includes(occurrences: [:host, :normalized_denial]).order(last_seen_at: :desc)
+    issues = Issue.includes(occurrences: [:host, :normalized_denial]).order(last_seen_at: :desc, id: :desc)
     issues = issues.joins(:occurrences).where(occurrences: { host_id: @host_id }).distinct if @host_id
     apply_filters(issues)
   end

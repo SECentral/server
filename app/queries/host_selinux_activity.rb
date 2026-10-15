@@ -6,17 +6,19 @@ class HostSelinuxActivity
     @host = host
   end
 
-  def page(before: nil, occurrence_id: nil, event_id: nil, page: nil)
+  def page(before: nil, occurrence_id: nil, event_id: nil, page: nil, limit: nil)
     relation = supported_events
     unless page.nil?
       raise ArgumentError, "Invalid activity page" unless page.to_s.match?(/\A[1-9]\d*\z/) && [before, occurrence_id, event_id].all?(&:blank?)
 
+      page_size = PageSize.parse(limit, default: 10, max: 50)
       total = relation.count
-      total_pages = (total / 10.0).ceil
+      total_pages = (total / page_size.to_f).ceil
       number = [page.to_i, [total_pages, 1].max].min
-      items = project(relation.order(audit_timestamp: :desc, boot_id: :desc, audit_sequence: :desc).limit(10).offset((number - 1) * 10))
-      return response(items, page: number, page_size: 10, total: total, total_pages: total_pages)
+      items = project(relation.order(audit_timestamp: :desc, boot_id: :desc, audit_sequence: :desc).limit(page_size).offset((number - 1) * page_size))
+      return response(items, page: number, page_size: page_size, total: total, total_pages: total_pages)
     end
+    raise ArgumentError, "limit requires numbered pagination" unless limit.nil?
     return response(project(relation.where(id: relation.find(event_id).id))) if event_id
     if occurrence_id
       occurrence = @host.occurrences.includes(:raw_event).find(occurrence_id)

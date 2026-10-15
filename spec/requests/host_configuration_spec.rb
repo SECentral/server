@@ -178,7 +178,7 @@ RSpec.describe "Host SELinux configuration API", type: :request do
     get "/api/v1/hosts/#{record.id}/configuration", params: { view: "booleans" }
 
     booleans = JSON.parse(response.body).fetch("booleans")
-    expect(booleans).to include("total" => 3, "page" => 1, "page_size" => 50, "pages" => 1)
+    expect(booleans).to include("total" => 3, "page" => 1, "page_size" => 25, "pages" => 1)
     expect(booleans.fetch("rows")).to eq([
       { "name" => "httpd_can_network_connect", "current" => true, "host_default" => false, "reference_default" => false, "description" => "Allow network", "catalog_status" => "defined", "status" => "observed" },
       { "name" => "extra_local_boolean", "current" => true, "host_default" => true, "reference_default" => nil, "description" => nil, "catalog_status" => "not_defined", "status" => "observed" },
@@ -203,14 +203,15 @@ RSpec.describe "Host SELinux configuration API", type: :request do
 
     get "/api/v1/hosts/#{record.id}/configuration", params: { view: "booleans" }
     page = JSON.parse(response.body).fetch("booleans")
-    expect(page).to include("total" => 57, "pages" => 2, "page" => 1)
+    expect(page).to include("total" => 57, "pages" => 3, "page" => 1)
     expect(page.dig("rows", 0, "name")).to eq("httpd_can_network_connect")
     expect(page.fetch("rows").map { |row| row["name"] }).not_to include("padding_bool_50")
 
     get "/api/v1/hosts/#{record.id}/configuration", params: { view: "booleans", page: 2 }
     page = JSON.parse(response.body).fetch("booleans")
-    expect(page).to include("total" => 57, "pages" => 2, "page" => 2)
-    expect(page.fetch("rows").map { |row| row["name"] }).to include("padding_bool_50")
+    expect(page).to include("total" => 57, "pages" => 3, "page" => 2)
+    expect(page.fetch("rows").map { |row| row["name"] }).to include("padding_bool_25")
+    expect(page.fetch("rows").map { |row| row["name"] }).not_to include("padding_bool_50")
 
     get "/api/v1/hosts/#{record.id}/configuration", params: { view: "booleans", q: "padding_bool_5" }
     page = JSON.parse(response.body).fetch("booleans")

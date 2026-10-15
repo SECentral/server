@@ -33,8 +33,9 @@ function TestPage() {
   const before = params.get("activity_before") ?? undefined;
   const selected = Number(params.get("selinux_activity")) || undefined;
   const page = Number(params.get("activity_page") ?? 1);
-  const activity = useQuery({ queryKey: ["host-selinux-activity", 10, before, selected, page],
-    queryFn: () => fetchHostSelinuxActivity(10, { before, eventId: selected, page: before || selected ? undefined : page }) });
+  const size = Number(params.get("activity_page_size") ?? 10);
+  const activity = useQuery({ queryKey: ["host-selinux-activity", 10, before, selected, page, size],
+    queryFn: () => fetchHostSelinuxActivity(10, { before, eventId: selected, page: before || selected ? undefined : page, limit: before || selected ? undefined : size }) });
   return <HostSelinuxActivity activity={activity} />;
 }
 
@@ -50,8 +51,9 @@ function renderActivity(first: SelinuxActivityResponse, older = response([]), en
     const params = new URL(url, "http://localhost").searchParams;
     if (params.has("page")) {
       const page = Number(params.get("page"));
+      const size = Number(params.get("limit") ?? 10);
       const items = [...first.items, ...older.items];
-      body = { ...first, items: items.slice((page - 1) * 10, page * 10), meta: { page, page_size: 10, total: items.length, total_pages: Math.ceil(items.length / 10), next_cursor: null } };
+      body = { ...first, items: items.slice((page - 1) * size, page * size), meta: { page, page_size: size, total: items.length, total_pages: Math.ceil(items.length / size), next_cursor: null } };
     }
     return Promise.resolve({ ok: true, status: 200, headers: new Headers(), json: async () => body } as Response);
   });
@@ -267,9 +269,22 @@ describe("Monitored-server SELinux activity", () => {
     expect(await screen.findByRole("row", { name: "SELinux activity 80" })).toBeVisible();
     expect(screen.getAllByRole("button", { name: "View Audit" })).toHaveLength(1);
     expect(screen.queryByRole("row", { name: "SELinux activity 100" })).not.toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith("/api/v1/hosts/10/selinux-activity?page=3", expect.anything());
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/hosts/10/selinux-activity?page=3&limit=10", expect.anything());
     await user.click(screen.getByRole("button", { name: "Go to first page" }));
     expect(await screen.findByRole("row", { name: "SELinux activity 100" })).toBeVisible();
+  });
+
+  it("uses embedded page sizes and resets to page one when resized", async () => {
+    const { fetchMock } = renderActivity(response(Array.from({ length: 26 }, (_, index) => item({ id: 100 + index }))));
+    await screen.findByRole("row", { name: "SELinux activity 100" });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Go to next page" }));
+    await screen.findByRole("row", { name: "SELinux activity 110" });
+    await user.click(screen.getByRole("button", { name: "11 - 20 of 26" }));
+    expect(screen.queryByRole("menuitem", { name: "100 per page" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: "25 per page" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/hosts/10/selinux-activity?page=1&limit=25", expect.anything()));
+    expect(screen.getAllByRole("button", { name: "View Audit" })).toHaveLength(25);
   });
 
   it("selects older activity through a stable cross-navigation address", async () => {

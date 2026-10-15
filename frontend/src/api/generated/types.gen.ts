@@ -1900,7 +1900,7 @@ export type SelinuxActivityResponse = {
     items: Array<SelinuxActivityItem>;
     coverage: string;
     meta: {
-        page_size: 10 | 20;
+        page_size: number;
         next_cursor: string | null;
         page?: number;
         total_pages?: number;
@@ -1990,6 +1990,9 @@ export type ListSelinuxLogData = {
          */
         end?: string;
         before?: string;
+        /**
+         * Numbered pages default to 25 and accept up to 100. Cursor mode retains its default and maximum of 50.
+         */
         limit?: number;
         /**
          * Positive page number, with filtered totals; cannot be combined with before.
@@ -2403,6 +2406,10 @@ export type ListIssuesData = {
          * One-based page number.
          */
         page?: number;
+        /**
+         * Number of issues per page. Omit for 25; explicit 50 preserves the previous page size.
+         */
+        limit?: number;
     };
     url: '/api/v1/issues';
 };
@@ -2412,6 +2419,10 @@ export type ListIssuesErrors = {
      * Unauthenticated
      */
     401: Error;
+    /**
+     * Validation or forgery-protection failure
+     */
+    422: Error;
 };
 
 export type ListIssuesError = ListIssuesErrors[keyof ListIssuesErrors];
@@ -2538,7 +2549,7 @@ export type ListIssueOccurrencesData = {
     };
     query?: {
         /**
-         * Page size, capped at 50.
+         * Page size capped at 50; defaults to 10 for summary pages and 50 for the legacy cursor response.
          */
         limit?: number;
         /**
@@ -2655,6 +2666,10 @@ export type ListHostsData = {
         status?: 'reporting' | 'stale' | 'offline';
         host_id?: number;
         page?: number;
+        /**
+         * Number of hosts per page. Omit for 25; explicit 50 preserves the previous page size.
+         */
+        limit?: number;
     };
     url: '/api/v1/hosts';
 };
@@ -2664,6 +2679,10 @@ export type ListHostsErrors = {
      * Unauthenticated
      */
     401: Error;
+    /**
+     * Validation or forgery-protection failure
+     */
+    422: Error;
 };
 
 export type ListHostsError = ListHostsErrors[keyof ListHostsErrors];
@@ -2715,7 +2734,7 @@ export type ListHostOccurrencesData = {
     };
     query?: {
         /**
-         * Page size, capped at 50.
+         * Page size capped at 50; numbered pages default to 10, while the legacy cursor response defaults to 50.
          */
         limit?: number;
         /**
@@ -2767,9 +2786,13 @@ export type ListHostSelinuxActivityData = {
          */
         before?: string;
         /**
-         * Positive page number for 10-row numbered pagination. Omit for cursor or selected-event navigation.
+         * Positive page number for numbered pagination. Omit for cursor or selected-event navigation.
          */
         page?: number;
+        /**
+         * Numbered page size only; requires page. Cursor navigation remains fixed at 20 identities.
+         */
+        limit?: number;
         /**
          * Select one supported administrative identity for cross-navigation, including older evidence.
          */
@@ -2891,6 +2914,10 @@ export type GetHostConfigurationData = {
          */
         q?: string;
         page?: number;
+        /**
+         * Page size for the booleans and ports views; does not truncate the differences summary.
+         */
+        limit?: number;
     };
     url: '/api/v1/hosts/{id}/configuration';
 };

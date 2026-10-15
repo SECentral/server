@@ -30,6 +30,7 @@ import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { fetchIssues, fetchUngroupableEvents } from "../api/issues";
 import { MetricCard } from "../components/MetricCard";
+import { PAGE_SIZES } from "../pagination";
 
 const ATTRIBUTE_FILTERS = [
   { key: "q", label: "Any field", placeholder: "Search source, target, path, host..." },
@@ -123,7 +124,7 @@ export function Issues() {
   const selectedHostLabel = selectedHost ? (selectedHost.hostname ?? `Host ${selectedHost.id}`) : hostId ? `Host ${hostId}` : "All servers";
   const selectedStatusLabel = STATUS_OPTIONS.find((option) => option.value === status)?.label ?? STATUS_OPTIONS[0].label;
 
-  const hasFilters = [...searchParams.keys()].some((key) => key !== "page");
+  const hasFilters = [...searchParams.keys()].some((key) => !["page", "limit"].includes(key));
   const selectedAttribute = ATTRIBUTE_FILTERS.find((filter) => filter.key === attribute)!;
   const activeAttributes = ATTRIBUTE_FILTERS.filter((filter) => searchParams.get(filter.key));
   const newOnly = ["1", "true"].includes(searchParams.get("new") ?? "");
@@ -220,7 +221,7 @@ export function Issues() {
           </ToolbarItem>
           </ToolbarGroup>
         </ToolbarContent>
-        {hasFilters && <ToolbarContent aria-label="Active issue filters" className="pf-v6-u-mt-md">
+        {hasFilters && <ToolbarContent aria-label="Active issue filters">
           <ToolbarGroup gap={{ default: "gapSm" }} rowWrap={{ default: "wrap" }}>
           {activeAttributes.map((filter) => <ToolbarItem key={filter.key}><Label isCompact closeBtnAriaLabel={`Remove ${filter.label} filter`} onClose={() => { setParams({ [filter.key]: null }); if (attribute === filter.key) setFilterValue(""); }}>{filter.label}: {searchParams.get(filter.key)}</Label></ToolbarItem>)}
           {hostId && <ToolbarItem><Label isCompact closeBtnAriaLabel="Remove server filter" onClose={() => setParams({ host_id: null })}>Server: {selectedHostLabel}</Label></ToolbarItem>}
@@ -330,14 +331,13 @@ export function Issues() {
                   );
                 })}
               </Table>
-              {data.meta.total > data.meta.page_size && (
                 <div className="table-pagination">
                   <Pagination itemCount={data.meta.total} page={data.meta.page} perPage={data.meta.page_size}
-                    perPageOptions={[{ title: String(data.meta.page_size), value: data.meta.page_size }]}
+                    perPageOptions={PAGE_SIZES.map((value) => ({ title: String(value), value }))}
                     titles={{ paginationAriaLabel: "Grouped issues pagination" }} isDisabled={issuesQuery.isFetching}
-                    onSetPage={(_event, page) => setParams({ page: String(page) })} />
+                    onSetPage={(_event, page) => setParams({ page: String(page) })}
+                    onPerPageSelect={(_event, size) => setParams({ limit: String(size) })} />
                 </div>
-              )}
         </>
       ) : (
         <EmptyState titleText={hasFilters ? "No issues match the filters." : "No grouped issues to show."}>

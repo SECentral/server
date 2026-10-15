@@ -1,12 +1,12 @@
 class HostConfigurationQuery
-  PAGE_SIZE = 50
   VIEWS = %w[differences booleans ports].freeze
 
-  def self.call(host, view: "differences", q: nil, page: 1, reference_revision_id: nil)
-    new(host, view: view, q: q, page: page, reference_revision_id: reference_revision_id).call
+  def self.call(host, view: "differences", q: nil, page: 1, reference_revision_id: nil, limit: nil)
+    new(host, view: view, q: q, page: page, reference_revision_id: reference_revision_id, limit: limit).call
   end
 
-  def initialize(host, view:, q: nil, page: 1, reference_revision_id: nil)
+  def initialize(host, view:, q: nil, page: 1, reference_revision_id: nil, limit: nil)
+    @page_size = PageSize.parse(limit)
     @host = host
     @comparison = HostConfigurationComparison.call(host, reference_revision_id: reference_revision_id)
     @view = VIEWS.include?(view) ? view : "differences"
@@ -164,7 +164,7 @@ class HostConfigurationQuery
       end
     end
     page = page_window(rows)
-    { rows: page[:current], total: page[:total], page: page[:page], page_size: PAGE_SIZE, pages: page[:pages] }
+    { rows: page[:current], total: page[:total], page: page[:page], page_size: @page_size, pages: page[:pages] }
   end
 
   def flat_boolean_row(row)
@@ -249,13 +249,13 @@ class HostConfigurationQuery
       end
     end
     page = page_window(segments)
-    { segments: page[:current], total: page[:total], page: page[:page], page_size: PAGE_SIZE, pages: page[:pages] }
+    { segments: page[:current], total: page[:total], page: page[:page], page_size: @page_size, pages: page[:pages] }
   end
 
   def page_window(items)
     total = items.size
-    pages = (total / PAGE_SIZE.to_f).ceil
+    pages = (total / @page_size.to_f).ceil
     page = @page.clamp(1, [pages, 1].max)
-    { current: items.slice((page - 1) * PAGE_SIZE, PAGE_SIZE) || [], total: total, page: page, pages: pages }
+    { current: items.slice((page - 1) * @page_size, @page_size) || [], total: total, page: page, pages: pages }
   end
 end

@@ -16,7 +16,7 @@ export function fetchConfiguration(family: ConfigurationFamily, policyIdentity?:
 
 export function fetchHostConfiguration(
   id: number,
-  params: { view?: string; q?: string; page?: number; referenceRevisionId?: string } = {}
+  params: { view?: string; q?: string; page?: number; referenceRevisionId?: string; limit?: number } = {}
 ): Promise<HostConfigurationResponse> {
   const query = new URLSearchParams();
   if (params.referenceRevisionId !== undefined) query.set("reference_revision_id", params.referenceRevisionId);
@@ -29,6 +29,7 @@ export function fetchHostConfiguration(
   if (params.page !== undefined && params.page > 1) {
     query.set("page", String(params.page));
   }
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
   const suffix = query.toString();
   return apiFetch<HostConfigurationResponse>(`/api/v1/hosts/${id}/configuration${suffix ? `?${suffix}` : ""}`);
 }

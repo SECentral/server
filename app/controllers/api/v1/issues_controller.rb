@@ -3,7 +3,7 @@ class Api::V1::IssuesController < Api::V1::BaseController
     query = IssueQuery.new(
       filters: params.permit(IssueQuery::FILTER_KEYS.map(&:to_sym)).to_h,
       host_id: params[:host_id].presence,
-      page: params[:page]
+      page: params[:page], limit: params[:limit]
     ).call
     hosts = Host.includes(:host_snapshots).order(:hostname, :external_id).to_a
     enforcing = hosts.count { |host| enforcing?(host) }
@@ -13,9 +13,9 @@ class Api::V1::IssuesController < Api::V1::BaseController
       host_options: hosts.map { |host| { id: host.id, hostname: host.hostname } },
       meta: {
         page: query.page,
-        page_size: IssueQuery::PAGE_SIZE,
+        page_size: query.page_size,
         total: query.total_count,
-        total_pages: (query.total_count / IssueQuery::PAGE_SIZE.to_f).ceil
+        total_pages: (query.total_count / query.page_size.to_f).ceil
       },
       summary: {
         total_count: query.total_count,

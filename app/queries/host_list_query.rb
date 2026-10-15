@@ -1,19 +1,19 @@
 class HostListQuery
-  PAGE_SIZE = 50
+  Result = Struct.new(:hosts, :total_count, :page, :page_size, :agent_state_counts, keyword_init: true)
 
-  Result = Struct.new(:hosts, :total_count, :page, :agent_state_counts, keyword_init: true)
-
-  def initialize(filters: {}, page: 1)
+  def initialize(filters: {}, page: 1, limit: nil)
     @filters = filters.transform_keys(&:to_s)
     @page = [page.to_i, 1].max
+    @page_size = PageSize.parse(limit)
   end
 
   def call
     hosts = filtered_hosts
     Result.new(
-      hosts: hosts.slice((@page - 1) * PAGE_SIZE, PAGE_SIZE) || [],
+      hosts: hosts.slice((@page - 1) * @page_size, @page_size) || [],
       total_count: hosts.size,
       page: @page,
+      page_size: @page_size,
       agent_state_counts: self.class.agent_state_counts(hosts)
     )
   end

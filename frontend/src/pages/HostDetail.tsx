@@ -31,6 +31,7 @@ import { osDisplayName } from "../platform";
 import { StatusLabel } from "../components/StatusLabel";
 import { fetchHostConfiguration, type HostConfigurationResponse } from "../api/configuration";
 import { fetchHost, fetchHostOccurrences, fetchHostSelinuxActivity } from "../api/hosts";
+import { EMBEDDED_PAGE_SIZES, pageSize } from "../pagination";
 
 const AGENT_COLORS: Record<string, "green" | "orange" | "red" | "grey"> = {
   reporting: "green",
@@ -96,8 +97,7 @@ export function HostDetail() {
   const validId = Number.isInteger(hostId) && hostId > 0;
   const requestedPage = Number(queryParams.get("occurrence_page") ?? 1);
   const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
-  const requestedSize = Number(queryParams.get("occurrence_page_size") ?? 10);
-  const perPage = [10, 25, 50].includes(requestedSize) ? requestedSize : 10;
+  const perPage = pageSize(queryParams.get("occurrence_page_size"), EMBEDDED_PAGE_SIZES, 10);
   function setOccurrencePage(nextPage: number, size = perPage) {
     setQueryParams((previous) => {
       const next = new URLSearchParams(previous);
@@ -127,9 +127,10 @@ export function HostDetail() {
   const selectedActivity = Number(queryParams.get("selinux_activity")) || undefined;
   const requestedActivityPage = Number(queryParams.get("activity_page") ?? 1);
   const activityPage = Number.isSafeInteger(requestedActivityPage) && requestedActivityPage > 0 ? requestedActivityPage : 1;
+  const activitySize = pageSize(queryParams.get("activity_page_size"), EMBEDDED_PAGE_SIZES, 10);
   const activityQuery = useQuery({
-    queryKey: ["host-selinux-activity", hostId, activityBefore, selectedActivity, activityPage],
-    queryFn: () => fetchHostSelinuxActivity(hostId, { before: activityBefore, eventId: selectedActivity, page: activityBefore || selectedActivity ? undefined : activityPage }),
+    queryKey: ["host-selinux-activity", hostId, activityBefore, selectedActivity, activityPage, activitySize],
+    queryFn: () => fetchHostSelinuxActivity(hostId, { before: activityBefore, eventId: selectedActivity, page: activityBefore || selectedActivity ? undefined : activityPage, limit: activityBefore || selectedActivity ? undefined : activitySize }),
     enabled: validId
   });
 
@@ -298,8 +299,8 @@ export function HostDetail() {
               </Table>
             )}
             {occurrences.length === 0 && <p className="pf-v6-u-color-200">No occurrences recorded for this host.</p>}
-            <div className="host-table-pagination"><Pagination itemCount={occurrencesQuery.data?.meta.total ?? host.counts.total_events} page={occurrencesQuery.data?.meta.page ?? page} perPage={perPage} titles={{ paginationAriaLabel: "Recent occurrences pagination" }}
-              perPageOptions={[10, 25, 50].map((value) => ({ title: String(value), value }))}
+            <div className="host-table-pagination"><Pagination widgetId="host-occurrences-pagination" itemCount={occurrencesQuery.data?.meta.total ?? host.counts.total_events} page={occurrencesQuery.data?.meta.page ?? page} perPage={perPage} titles={{ paginationAriaLabel: "Recent occurrences pagination" }}
+              perPageOptions={EMBEDDED_PAGE_SIZES.map((value) => ({ title: String(value), value }))}
               onSetPage={(_event, nextPage) => setOccurrencePage(nextPage)} onPerPageSelect={(_event, size) => setOccurrencePage(1, size)}
               isDisabled={occurrencesQuery.isFetching} aria-label="Recent occurrences pagination" /></div>
           </>

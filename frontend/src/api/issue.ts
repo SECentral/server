@@ -9,8 +9,8 @@ export type IssueOccurrencesResponse = Types.IssueOccurrencesResponse;
 export type IssueAnalysisResponse = Types.IssueAnalysisResponse;
 export type OccurrencePage = Types.OccurrenceSummaryPage;
 
-export function fetchIssueOccurrencePage(id: number, page: number): Promise<OccurrencePage> {
-  return apiFetch<OccurrencePage>(`/api/v1/issues/${id}/occurrences?view=summary&page=${page}`);
+export function fetchIssueOccurrencePage(id: number, page: number, limit = 10): Promise<OccurrencePage> {
+  return apiFetch<OccurrencePage>(`/api/v1/issues/${id}/occurrences?view=summary&page=${page}&limit=${limit}`);
 }
 
 export function fetchIssueOccurrence(id: number, occurrenceId: number): Promise<OccurrenceDetail> {

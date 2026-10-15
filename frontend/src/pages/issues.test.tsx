@@ -28,7 +28,7 @@ const issuesPayload: IssueListResponse = {
     }
   ],
   host_options: [{ id: 10, hostname: "web-1" }],
-  meta: { page: 1, page_size: 50, total: 1, total_pages: 1 },
+  meta: { page: 1, page_size: 25, total: 1, total_pages: 1 },
   summary: {
     total_count: 1,
     open_count: 1,
@@ -65,7 +65,9 @@ function jsonResponse(status: number, body: unknown): Response {
 function mockApi(fetchMock: ReturnType<typeof vi.fn>, issues: IssueListResponse = issuesPayload, events: UngroupableEventsResponse = eventsPayload) {
   fetchMock.mockImplementation((url: string) => {
     if (url.startsWith("/api/v1/issues")) {
-      return Promise.resolve(jsonResponse(200, issues));
+      const params = new URL(url, "http://localhost").searchParams;
+      const size = Number(params.get("limit") ?? issues.meta.page_size);
+      return Promise.resolve(jsonResponse(200, { ...issues, meta: { ...issues.meta, page: Number(params.get("page") ?? 1), page_size: size, total_pages: Math.ceil(issues.meta.total / size) } }));
     }
     if (url.startsWith("/api/v1/ungroupable-events")) {
       return Promise.resolve(jsonResponse(200, events));
@@ -108,7 +110,7 @@ describe("Issues", () => {
     expect(grouped).toHaveClass("pf-v6-c-card");
     expect(within(grouped).getByRole("heading", { name: "Grouped issues" })).toBeVisible();
     expect(within(grouped).getByRole("grid", { name: "Grouped issues" })).toHaveClass("pf-m-compact", "pf-m-grid-lg");
-    expect(within(grouped).queryByRole("navigation", { name: "Grouped issues pagination" })).not.toBeInTheDocument();
+    expect(within(grouped).getByRole("button", { name: "Go to next page" })).toBeDisabled();
     const unclassified = screen.getByRole("region", { name: "Unclassified events" });
     expect(unclassified).toHaveClass("pf-v6-c-card");
     expect(within(unclassified).getByRole("table", { name: "Unclassified events" })).toHaveClass("pf-m-compact", "pf-m-grid-lg");
@@ -184,7 +186,7 @@ describe("Issues", () => {
       if (url.startsWith("/api/v1/issues")) {
         const page = Number(new URL(url, "http://localhost").searchParams.get("page") ?? 1);
         const issue = { ...issuesPayload.issues[0], id: page, source_type: page === 1 ? "httpd_t" : "sshd_t" };
-        return Promise.resolve(jsonResponse(200, { ...issuesPayload, issues: [issue], meta: { page, page_size: 50, total: 51, total_pages: 2 } }));
+        return Promise.resolve(jsonResponse(200, { ...issuesPayload, issues: [issue], meta: { page, page_size: 25, total: 26, total_pages: 2 } }));
       }
       if (url.startsWith("/api/v1/ungroupable-events")) {
         return Promise.resolve(jsonResponse(200, eventsPayload));
@@ -212,6 +214,19 @@ describe("Issues", () => {
     expect(within(updatedPager).getByRole("button", { name: "Go to next page" })).toBeDisabled();
     await user.click(within(updatedPager).getByRole("button", { name: "Go to first page" }));
     expect(await screen.findByText("httpd_t")).toBeVisible();
+  });
+
+  it("offers full-page size choices and resets the page without discarding filters", async () => {
+    const fetchMock = vi.fn();
+    mockApi(fetchMock, { ...issuesPayload, meta: { page: 2, page_size: 25, total: 60, total_pages: 3 } });
+    vi.stubGlobal("fetch", fetchMock);
+    renderIssues("/issues?host_id=10&status=all&page=2");
+    await screen.findByText("httpd_t");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "26 - 50 of 60" }));
+    await user.click(screen.getByRole("menuitem", { name: "100 per page" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues?host_id=10&status=all&limit=100", expect.anything()));
+    expect(screen.getByRole("spinbutton", { name: "Current page" })).toHaveValue(1);
   });
 
   it("preserves filters on page jumps and resets the page when a filter changes", async () => {

@@ -165,6 +165,10 @@
   text-decoration: none;
 }
 
+.catalog-reference-details {
+  --pf-v6-c-description-list--m-horizontal__term--width: 12rem;
+}
+
 .catalog-primary-link:hover,
 .catalog-primary-link:focus-visible {
   text-decoration: underline;

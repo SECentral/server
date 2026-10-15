@@ -5,7 +5,7 @@ import type * as Types from "../api/generated/types.gen";
 export function CatalogImportComparison({ report }: { report: Types.CatalogImportComparison | null | undefined }) {
   if (!report) return null;
   return (
-    <Card isCompact className="pf-v6-u-my-md">
+    <Card isCompact>
       <CardTitle>Recorded import comparison</CardTitle>
       <CardBody>
         <p>Result: {report.status.replaceAll("_", " ")}. {report.reason?.replaceAll("_", " ")}</p>

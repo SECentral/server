@@ -6,6 +6,7 @@ import {
   EmptyState,
   EmptyStateBody,
   Label,
+  Pagination,
   Select,
   SelectOption,
   Spinner,
@@ -21,6 +22,7 @@ import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { fetchHosts } from "../api/hosts";
 import { osDisplayName } from "../platform";
+import { PAGE_SIZES } from "../pagination";
 
 const TEXT_FILTERS = [
   { key: "os_id", label: "OS", placeholder: "OS" },
@@ -141,7 +143,7 @@ export function Hosts() {
   const enforcementLabel = ENFORCEMENT_OPTIONS.find((option) => option.value === enforcement)?.label ?? "Any mode";
   const statusLabel = STATUS_OPTIONS.find((option) => option.value === status)?.label ?? "All agent states";
   const counts = data?.summary.agent_state_counts;
-  const activeFilters = [...searchParams.entries()].filter(([key, value]) => key !== "page" && value !== "");
+  const activeFilters = [...searchParams.entries()].filter(([key, value]) => !["page", "limit"].includes(key) && value !== "");
 
   return (
     <div className="app-resource-page">
@@ -345,27 +347,11 @@ export function Hosts() {
                   ))}
                 </Tbody>
               </Table>
-              {data.meta.total > data.meta.page_size && (
-                <nav aria-label="Host pages" className="pf-v6-u-mt-md">
-                  <Button
-                    variant="link"
-                    isDisabled={data.meta.page === 1}
-                    onClick={() => setParams({ page: String(data.meta.page - 1) })}
-                  >
-                    Previous
-                  </Button>{" "}
-                  <span>
-                    Page {data.meta.page} of {data.meta.total_pages}
-                  </span>{" "}
-                  <Button
-                    variant="link"
-                    isDisabled={data.meta.page >= data.meta.total_pages}
-                    onClick={() => setParams({ page: String(data.meta.page + 1) })}
-                  >
-                    Next
-                  </Button>
-                </nav>
-              )}
+              <div className="table-pagination"><Pagination itemCount={data.meta.total} page={data.meta.page} perPage={data.meta.page_size}
+                perPageOptions={PAGE_SIZES.map((value) => ({ title: String(value), value }))}
+                titles={{ paginationAriaLabel: "Host pagination" }} isDisabled={hostsQuery.isFetching}
+                onSetPage={(_event, page) => setParams({ page: String(page) })}
+                onPerPageSelect={(_event, size) => setParams({ limit: String(size) })} /></div>
             </section>
           )}
           {hosts.length === 0 && (

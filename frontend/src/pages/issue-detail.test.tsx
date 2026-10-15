@@ -604,7 +604,7 @@ describe("issue investigation", () => {
     renderDetail("/issues/7?tab=occurrences");
 
     expect((await screen.findAllByText("secentral-agent-test")).length).toBeGreaterThan(0);
-    expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain("/api/v1/issues/7/occurrences?view=summary&page=1");
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain("/api/v1/issues/7/occurrences?view=summary&page=1&limit=10");
   });
 
   it("replaces occurrence pages instead of appending rows and never requests raw evidence for the table", async () => {
@@ -622,11 +622,11 @@ describe("issue investigation", () => {
     const user = userEvent.setup();
     renderDetail("/issues/7?tab=occurrences");
     expect(await screen.findByText("page-1.txt")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("button", { name: "Go to previous page" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Go to next page" }));
     expect(await screen.findByText("page-2.txt")).toBeInTheDocument();
     expect(screen.queryByText("page-1.txt")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Previous" }));
+    await user.click(screen.getByRole("button", { name: "Go to previous page" }));
     expect(await screen.findByText("page-1.txt")).toBeInTheDocument();
     expect(fetchMock.mock.calls.map(([url]) => String(url)).some((url) => /occurrences\/\d+$/.test(url))).toBe(false);
   });
@@ -661,9 +661,9 @@ describe("issue investigation", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderDetail();
     await screen.findByRole("heading", { name: "Potential file-context mismatch" });
-    expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContain("/api/v1/issues/7/occurrences?view=summary&page=1");
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContain("/api/v1/issues/7/occurrences?view=summary&page=1&limit=10");
     await userEvent.setup().click(screen.getByRole("button", { name: "Show recent occurrences" }));
-    await waitFor(() => expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain("/api/v1/issues/7/occurrences?view=summary&page=1"));
+    await waitFor(() => expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain("/api/v1/issues/7/occurrences?view=summary&page=1&limit=10"));
 
     const notFoundFetch = vi.fn().mockResolvedValue(response(404, { error: { code: "not_found", message: "Resource not found" } }));
     vi.stubGlobal("fetch", notFoundFetch);

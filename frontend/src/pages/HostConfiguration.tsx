@@ -28,6 +28,7 @@ import { fetchHost, type HostDetailResponse } from "../api/hosts";
 import { EffectivePermissiveDomains } from "../components/EffectivePermissiveDomains";
 import { EffectivePermissiveComparison } from "../components/EffectivePermissiveComparison";
 import { CatalogReferenceSelection } from "../components/CatalogReferenceSelection";
+import { PAGE_SIZES, pageSize } from "../pagination";
 
 function comparisonLimited(data: HostConfigurationResponse): boolean {
   return Object.values(data.selection.families).some((family) => family.status !== "comparable") ||
@@ -313,7 +314,8 @@ function ConfigurationViewToolbar({
   pageSize,
   paginationLabel,
   onSearch,
-  onPage
+  onPage,
+  onPageSize
 }: {
   query: string;
   placeholder: string;
@@ -324,6 +326,7 @@ function ConfigurationViewToolbar({
   paginationLabel: string;
   onSearch: (value: string) => void;
   onPage: (page: number) => void;
+  onPageSize: (size: number) => void;
 }) {
   return (
     <Toolbar className="configuration-view-toolbar">
@@ -344,14 +347,13 @@ function ConfigurationViewToolbar({
         </ToolbarItem>
         <ToolbarItem align={{ default: "alignEnd" }}>
           <Pagination
-            isCompact
-            isStatic
             variant="top"
             className="pf-m-display-full"
             itemCount={total}
             page={page}
             perPage={pageSize}
-            perPageOptions={[]}
+            perPageOptions={PAGE_SIZES.map((value) => ({ title: String(value), value }))}
+            onPerPageSelect={(_event, size) => onPageSize(size)}
             onSetPage={(_event, nextPage) => onPage(nextPage)}
             titles={{ paginationAriaLabel: `${paginationLabel} pagination` }}
             widgetId={`${paginationLabel.replaceAll(" ", "-")}-pagination`}
@@ -362,11 +364,12 @@ function ConfigurationViewToolbar({
   );
 }
 
-function BooleansView({ data, query, onSearch, onPage }: {
+function BooleansView({ data, query, onSearch, onPage, onPageSize }: {
   data: HostConfigurationResponse;
   query: string;
   onSearch: (value: string) => void;
   onPage: (page: number) => void;
+  onPageSize: (size: number) => void;
 }) {
   const booleans = data.booleans;
   if (!booleans) return null;
@@ -377,6 +380,7 @@ function BooleansView({ data, query, onSearch, onPage }: {
         query={query}
         onSearch={onSearch}
         onPage={onPage}
+        onPageSize={onPageSize}
         searchLabel="Search booleans"
         placeholder="Search by name or description"
         total={booleans.total}
@@ -409,11 +413,12 @@ function BooleansView({ data, query, onSearch, onPage }: {
   );
 }
 
-function PortsView({ data, query, onSearch, onPage }: {
+function PortsView({ data, query, onSearch, onPage, onPageSize }: {
   data: HostConfigurationResponse;
   query: string;
   onSearch: (value: string) => void;
   onPage: (page: number) => void;
+  onPageSize: (size: number) => void;
 }) {
   const ports = data.ports;
   if (!ports) return null;
@@ -424,6 +429,7 @@ function PortsView({ data, query, onSearch, onPage }: {
         query={query}
         onSearch={onSearch}
         onPage={onPage}
+        onPageSize={onPageSize}
         searchLabel="Search ports"
         placeholder="Search by port number, protocol, or type"
         total={ports.total}
@@ -467,11 +473,12 @@ export function HostConfiguration() {
   const view: View = VIEWS.some((entry) => entry.value === requestedView) ? (requestedView as View) : "differences";
   const q = searchParams.get("q") ?? "";
   const page = Number(searchParams.get("page") ?? "1");
+  const perPage = pageSize(searchParams.get("limit"));
   const referenceRevisionId = searchParams.get("reference_revision_id");
 
   const configQuery = useQuery({
-    queryKey: ["host-configuration", Number(id), view, q, page, referenceRevisionId],
-    queryFn: () => fetchHostConfiguration(Number(id), { view, q: q || undefined, page, referenceRevisionId: referenceRevisionId ?? undefined }),
+    queryKey: ["host-configuration", Number(id), view, q, page, referenceRevisionId, perPage],
+    queryFn: () => fetchHostConfiguration(Number(id), { view, q: q || undefined, page, referenceRevisionId: referenceRevisionId ?? undefined, limit: searchParams.has("limit") ? perPage : undefined }),
     refetchInterval: (query) => query.state.data?.selinux.effective_permissive_domains?.status === "pending" || query.state.data?.comparison.effective_permissive_domains.reference?.status === "pending" ? 2000 : false,
     placeholderData: (previousData, previousQuery) => previousQuery?.queryKey[1] === Number(id) && previousQuery.queryKey[5] === referenceRevisionId ? previousData : undefined
   });
@@ -508,6 +515,13 @@ export function HostConfiguration() {
     const next = new URLSearchParams(searchParams);
     if (nextPage > 1) next.set("page", String(nextPage));
     else next.delete("page");
+    setSearchParams(next);
+  };
+
+  const setPageSize = (size: number) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("limit", String(size));
+    next.delete("page");
     setSearchParams(next);
   };
 
@@ -582,8 +596,8 @@ export function HostConfiguration() {
                 data && (
                   <>
                     {view === "differences" && (comparisonPaused ? <p>Current differences cannot be determined from a stale observation. Inspect the Booleans or Ports view for retained inventory state.</p> : <Differences data={data} />)}
-                    {view === "booleans" && <BooleansView data={data} query={q} onSearch={commitViewSearch} onPage={setPage} />}
-                    {view === "ports" && <PortsView data={data} query={q} onSearch={commitViewSearch} onPage={setPage} />}
+                    {view === "booleans" && <BooleansView data={data} query={q} onSearch={commitViewSearch} onPage={setPage} onPageSize={setPageSize} />}
+                    {view === "ports" && <PortsView data={data} query={q} onSearch={commitViewSearch} onPage={setPage} onPageSize={setPageSize} />}
                   </>
                 )
               )}

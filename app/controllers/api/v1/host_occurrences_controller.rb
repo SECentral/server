@@ -1,7 +1,7 @@
 class Api::V1::HostOccurrencesController < Api::V1::BaseController
   def index
     host = current_organization.hosts.find(params[:id])
-    limit = params.fetch(:limit, 50).to_i
+    limit = params.key?(:page) ? PageSize.parse(params[:limit], default: 10, max: 50) : params.fetch(:limit, 50).to_i
     limit = 50 if limit > 50 || limit < 1
 
     relation = host.occurrences

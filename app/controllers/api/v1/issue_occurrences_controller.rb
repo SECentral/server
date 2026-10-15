@@ -43,7 +43,7 @@ class Api::V1::IssueOccurrencesController < Api::V1::BaseController
 
   def render_summary_page(issue)
     # ponytail: offset pages can shift during ingestion; use snapshot cursors if stable browsing under sustained writes is needed.
-    page_size = 25
+    page_size = PageSize.parse(params[:limit], default: 10, max: 50)
     total = issue.occurrences.count
     pages = [ (total / page_size.to_f).ceil, 1 ].max
     page = params.fetch(:page, 1).to_i.clamp(1, pages)

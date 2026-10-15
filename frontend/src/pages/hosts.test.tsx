@@ -39,7 +39,7 @@ const hostsPayload: HostListResponse = {
     }
   ],
   summary: { agent_state_counts: { reporting: 1, stale: 1, offline: 0 }, total: 2 },
-  meta: { page: 1, page_size: 50, total: 2, total_pages: 1 }
+  meta: { page: 1, page_size: 25, total: 2, total_pages: 1 }
 };
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -56,7 +56,9 @@ function renderHosts(payload: HostListResponse = hostsPayload, initialEntry = "/
   const fetchMock = vi.fn();
   fetchMock.mockImplementation((url: string) => {
     if (url.startsWith("/api/v1/hosts")) {
-      return Promise.resolve(jsonResponse(200, payload));
+      const params = new URL(url, "http://localhost").searchParams;
+      const size = Number(params.get("limit") ?? payload.meta.page_size);
+      return Promise.resolve(jsonResponse(200, { ...payload, meta: { ...payload.meta, page: Number(params.get("page") ?? 1), page_size: size, total_pages: Math.ceil(payload.meta.total / size) } }));
     }
     return Promise.reject(new Error(`unexpected url ${url}`));
   });
@@ -130,14 +132,25 @@ describe("Hosts", () => {
   });
 
   it("paginates the host list", async () => {
-    const { fetchMock } = renderHosts({ ...hostsPayload, meta: { page: 1, page_size: 50, total: 51, total_pages: 2 } });
+    const { fetchMock } = renderHosts({ ...hostsPayload, meta: { page: 1, page_size: 25, total: 51, total_pages: 3 } });
     await screen.findByRole("link", { name: "web-1" });
-    expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: "Current page" })).toHaveValue(1);
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Go to next page" }));
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith("/api/v1/hosts?page=2", expect.objectContaining({ method: "GET" }))
     );
+  });
+
+  it("offers full-page size choices and preserves filters when resizing", async () => {
+    const { fetchMock } = renderHosts({ ...hostsPayload, meta: { page: 2, page_size: 25, total: 60, total_pages: 3 } }, "/hosts?status=stale&page=2");
+    await screen.findByRole("link", { name: "web-1" });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "26 - 50 of 60" }));
+    await user.click(screen.getByRole("menuitem", { name: "100 per page" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/hosts?status=stale&limit=100", expect.anything()));
+    expect(screen.getByRole("spinbutton", { name: "Current page" })).toHaveValue(1);
+    expect(screen.queryByText("limit: 100")).not.toBeInTheDocument();
   });
 });

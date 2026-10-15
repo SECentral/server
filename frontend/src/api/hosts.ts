@@ -40,12 +40,13 @@ export function fetchHostOccurrences(
   return apiFetch<HostOccurrencesResponse>(`/api/v1/hosts/${id}/occurrences${suffix ? `?${suffix}` : ""}`);
 }
 
-export function fetchHostSelinuxActivity(id: number, params: { before?: string; eventId?: number; occurrenceId?: number; page?: number } = {}): Promise<SelinuxActivityResponse> {
+export function fetchHostSelinuxActivity(id: number, params: { before?: string; eventId?: number; occurrenceId?: number; page?: number; limit?: number } = {}): Promise<SelinuxActivityResponse> {
   const query = new URLSearchParams();
   if (params.before) query.set("before", params.before);
   if (params.eventId) query.set("event_id", String(params.eventId));
   if (params.occurrenceId) query.set("occurrence_id", String(params.occurrenceId));
   if (params.page !== undefined) query.set("page", String(params.page));
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
   const suffix = query.toString();
   return apiFetch<SelinuxActivityResponse>(`/api/v1/hosts/${id}/selinux-activity${suffix ? `?${suffix}` : ""}`);
 }

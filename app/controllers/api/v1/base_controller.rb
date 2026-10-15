@@ -20,6 +20,10 @@ class Api::V1::BaseController < OperatorApiController
     render json: { error: { code: "not_found", message: "Resource not found" } }, status: :not_found
   end
 
+  rescue_from PageSize::Invalid do |error|
+    render json: { error: { code: "invalid_value", message: error.message } }, status: :unprocessable_content
+  end
+
   rescue_from ActiveRecord::SoleRecordExceeded do
     render json: { error: { code: "organization_unavailable", message: "Operator access requires exactly one organization" } }, status: :service_unavailable
   end

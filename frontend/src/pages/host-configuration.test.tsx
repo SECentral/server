@@ -77,8 +77,8 @@ const booleansPage: HostConfigurationResponse["booleans"] = {
   ],
   total: 57,
   page: 1,
-  page_size: 50,
-  pages: 2
+  page_size: 25,
+  pages: 3
 };
 
 const portsView: HostConfigurationResponse = {
@@ -91,7 +91,7 @@ const portsView: HostConfigurationResponse = {
     ],
     total: 2,
     page: 1,
-    page_size: 50,
+    page_size: 25,
     pages: 1
   },
   differences: undefined
@@ -149,10 +149,11 @@ function renderHostConfiguration(payload: HostConfigurationResponse, initialEntr
       }
       const query = search.get("q")?.toLowerCase();
       const requestedPage = Number(search.get("page") ?? "1");
+      const pageSize = Number(search.get("limit") ?? 25);
       if (body.booleans) {
         const rows = query ? body.booleans.rows.filter((row) => row.name.toLowerCase().includes(query)) : body.booleans.rows;
         const total = query ? rows.length : body.booleans.total;
-        body = { ...body, booleans: { ...body.booleans, rows, total, page: requestedPage, pages: Math.ceil(total / body.booleans.page_size) } };
+        body = { ...body, booleans: { ...body.booleans, rows, total, page: requestedPage, page_size: pageSize, pages: Math.ceil(total / pageSize) } };
       }
       if (body.ports && query) {
         const segments = body.ports.segments.filter((segment) => `${segment.protocol}/${segment.start}-${segment.end} ${(segment.observed_types ?? []).join(" ")} ${(segment.catalog_types ?? []).join(" ")}`.toLowerCase().includes(query));
@@ -305,7 +306,7 @@ describe("HostConfiguration", () => {
     const pagination = await screen.findByRole("navigation", { name: "booleans pagination" });
     expect(pagination).toBeInTheDocument();
     expect(pagination.closest(".pf-v6-c-pagination")).toHaveClass("pf-m-display-full");
-    const paginationStatus = screen.getByText("1–50 of 57");
+    const paginationStatus = screen.getByText("1–25 of 57");
     expect(paginationStatus).toHaveAttribute("aria-live", "polite");
     expect(paginationStatus.closest(".configuration-view-toolbar")).not.toBeNull();
     expect(paginationStatus.closest(".configuration-view-pagination-status")).toHaveClass("pf-m-align-self-center");
@@ -325,9 +326,25 @@ describe("HostConfiguration", () => {
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith("/api/v1/hosts/10/configuration?view=booleans&page=2", expect.objectContaining({ method: "GET" }))
     );
-    expect(await screen.findByText("51–57 of 57")).toBeInTheDocument();
+    expect(await screen.findByText("26–50 of 57")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Go to previous page" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Go to next page" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Go to last page" }));
+    expect(await screen.findByText("51–57 of 57")).toBeVisible();
     expect(screen.getByRole("button", { name: "Go to next page" })).toBeDisabled();
+  });
+
+  it("offers full-page sizing and resets the page while preserving the viewed reference", async () => {
+    const { fetchMock } = renderHostConfiguration(selectable, "/hosts/10/configuration?view=booleans&page=2&reference_revision_id=4", explicit);
+    await screen.findByRole("table", { name: "Boolean rows" });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "26 - 50 of 57" }));
+    await user.click(screen.getByRole("menuitem", { name: "100 per page" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => {
+      const params = new URL(url, "http://localhost").searchParams;
+      return params.get("limit") === "100" && params.get("reference_revision_id") === "4" && !params.has("page");
+    })).toBe(true));
+    expect(screen.getByRole("spinbutton", { name: "Current page" })).toHaveValue(1);
   });
 
   it("searches port segments by number", async () => {

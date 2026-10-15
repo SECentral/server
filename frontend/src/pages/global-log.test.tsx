@@ -100,7 +100,7 @@ describe("Global log", () => {
     expect(url.search).toBe("");
     expect(screen.queryByLabelText("Active log filters")).not.toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Time range" })).toHaveValue("all");
-    expect(fetch.mock.calls.some(([value]) => value === "/api/v1/selinux-log?page=1&limit=10")).toBe(true);
+    expect(fetch.mock.calls.some(([value]) => value === "/api/v1/selinux-log?page=1&limit=25")).toBe(true);
   });
 
   it("clears every filter and host search without replacing them with a default interval", async () => {
@@ -117,7 +117,7 @@ describe("Global log", () => {
   });
 
   it("supports direct page navigation and resets to page one when choosing a page size", async () => {
-    const fetch = renderLog("/log?page=2");
+    const fetch = renderLog("/log?page=2&limit=10");
     const user = userEvent.setup();
     await screen.findByRole("table");
     const page = screen.getByRole("spinbutton", { name: "Current page" });
@@ -176,7 +176,6 @@ describe("Global log", () => {
     expect(screen.getByRole("checkbox", { name: "offline" })).toBeChecked();
     expect(screen.queryByText(/Host search shows up to 50 matches/)).not.toBeInTheDocument();
     const typeRow = screen.getByRole("group", { name: "Activity type" }).closest(".pf-v6-c-toolbar__content");
-    expect(typeRow).toHaveClass("pf-v6-u-mb-md");
     expect(typeRow).not.toContainElement(screen.getByRole("textbox", { name: "Search hosts" }));
     const navigation = screen.getByLabelText("Global log table navigation");
     expect(navigation).toHaveClass("table-pagination");

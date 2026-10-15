@@ -13,8 +13,9 @@ info:
       `invalid_request` / `invalid_value` / `invalid_csrf_token` (422).
     - Timestamps are ISO-8601 UTC.
     - Enums are lowercase strings matching the server domain constants.
-    - Pagination is per-endpoint, never a global mandate:
-      - stable lists use `page` / `page_size` (capped at 50) with `PageMeta`;
+    - Numbered page-level tables use `page` / `limit`, defaulting to 25 and
+      capped at 100; embedded occurrence/activity tables default to 10 and cap at 50.
+      - stable lists return `PageMeta`, including the effective `page_size`;
       - time-ordered occurrence streams use opaque cursors (`limit` + `before`)
         with `CursorMeta`.
     - Operator authentication is a same-origin session cookie managed by the browser.
@@ -83,7 +84,8 @@ paths:
           schema: { type: string, maxLength: 4096 }
         - name: limit
           in: query
-          schema: { type: integer, minimum: 1, maximum: 50, default: 50 }
+          description: Numbered pages default to 25 and accept up to 100. Cursor mode retains its default and maximum of 50.
+          schema: { type: integer, minimum: 1, maximum: 100 }
         - name: page
           in: query
           description: Positive page number, with filtered totals; cannot be combined with before.
@@ -496,6 +498,10 @@ paths:
             type: integer
             minimum: 1
             default: 1
+        - name: limit
+          in: query
+          description: Number of issues per page. Omit for 25; explicit 50 preserves the previous page size.
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
       responses:
         "200":
           description: Page of issues with list-level summary
@@ -505,6 +511,8 @@ paths:
                 $ref: "#/components/schemas/IssueListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
   /api/v1/issues/{id}:
     get:
       operationId: getIssue
@@ -629,7 +637,8 @@ paths:
       description: |
         Occurrences ordered by `(occurred_at DESC, id DESC)`. Pass the
         `before` cursor from `meta.next_cursor` to page backwards in time.
-        With `view=summary`, returns 25 lightweight rows and page metadata;
+        With `view=summary`, defaults to 10 lightweight rows and accepts `limit`
+        up to 50, with numbered page metadata;
         raw records and guidance are fetched only from the occurrence detail.
         Raw audit record payloads are preserved exactly as data; clients
         must render them as text, never as markup.
@@ -643,12 +652,11 @@ paths:
             type: integer
         - name: limit
           in: query
-          description: Page size, capped at 50.
+          description: Page size capped at 50; defaults to 10 for summary pages and 50 for the legacy cursor response.
           schema:
             type: integer
             minimum: 1
             maximum: 50
-            default: 50
         - name: before
           in: query
           description: Opaque cursor from `meta.next_cursor`.
@@ -791,6 +799,10 @@ paths:
           schema:
             type: integer
             minimum: 1
+        - name: limit
+          in: query
+          description: Number of hosts per page. Omit for 25; explicit 50 preserves the previous page size.
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
       responses:
         "200":
           description: Host page with agent state summary
@@ -800,6 +812,8 @@ paths:
                 $ref: "#/components/schemas/HostListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
   /api/v1/hosts/{id}:
     get:
       operationId: getHost
@@ -853,12 +867,11 @@ paths:
             type: integer
         - name: limit
           in: query
-          description: Page size, capped at 50.
+          description: Page size capped at 50; numbered pages default to 10, while the legacy cursor response defaults to 50.
           schema:
             type: integer
             minimum: 1
             maximum: 50
-            default: 50
         - name: before
           in: query
           description: Opaque cursor from `meta.next_cursor`.
@@ -896,7 +909,8 @@ paths:
         Window counts include unassociated AVC occurrences, assigned to the latest
         preceding boundary within the same boot. No full raw records are returned.
         Absence of activity never proves that no SELinux change occurred.
-        Pass `page` for numbered pagination with 10 identities per page; it cannot
+        Pass `page` for numbered pagination with 10 identities per page by default;
+        `limit` accepts up to 50. Numbered pagination cannot
         be combined with before, event_id or occurrence_id. Pages beyond the last
         page are clamped to the last page (page 1 for empty history).
       security:
@@ -912,8 +926,12 @@ paths:
           schema: { type: string }
         - name: page
           in: query
-          description: Positive page number for 10-row numbered pagination. Omit for cursor or selected-event navigation.
+          description: Positive page number for numbered pagination. Omit for cursor or selected-event navigation.
           schema: { type: integer, minimum: 1 }
+        - name: limit
+          in: query
+          description: Numbered page size only; requires page. Cursor navigation remains fixed at 20 identities.
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
         - name: event_id
           in: query
           description: Select one supported administrative identity for cross-navigation, including older evidence.
@@ -1049,6 +1067,10 @@ paths:
           schema:
             type: integer
             minimum: 1
+        - name: limit
+          in: query
+          description: Page size for the booleans and ports views; does not truncate the differences summary.
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
       responses:
         "200":
           description: Host configuration comparison
@@ -2001,7 +2023,8 @@ components:
           minimum: 1
         page_size:
           type: integer
-          maximum: 50
+          minimum: 1
+          maximum: 100
         total:
           type: integer
           minimum: 0
@@ -3084,6 +3107,8 @@ components:
           type: integer
         page_size:
           type: integer
+          minimum: 1
+          maximum: 100
         pages:
           type: integer
     HostConfigurationPortPage:
@@ -3105,6 +3130,8 @@ components:
           type: integer
         page_size:
           type: integer
+          minimum: 1
+          maximum: 100
         pages:
           type: integer
     HostConfigurationResponse:
@@ -4798,7 +4825,7 @@ components:
       properties:
         items:
           type: array
-          maxItems: 50
+          maxItems: 100
           items:
             $ref: "#/components/schemas/SelinuxLogItem"
         coverage: { type: string }
@@ -4806,7 +4833,7 @@ components:
           type: object
           required: [page_size, next_cursor]
           properties:
-            page_size: { type: integer, minimum: 1, maximum: 50 }
+            page_size: { type: integer, minimum: 1, maximum: 100 }
             next_cursor: { type: [string, "null"] }
             page: { type: integer, minimum: 1 }
             total: { type: integer, minimum: 0, description: Exact count of entries matching host/category/time filters in numbered-page mode. }
@@ -4913,7 +4940,7 @@ components:
       properties:
         items:
           type: array
-          maxItems: 20
+          maxItems: 50
           items:
             $ref: "#/components/schemas/SelinuxActivityItem"
         coverage: { type: string }
@@ -4921,7 +4948,7 @@ components:
           type: object
           required: [page_size, next_cursor]
           properties:
-            page_size: { type: integer, enum: [10, 20] }
+            page_size: { type: integer, minimum: 1, maximum: 50 }
             next_cursor: { type: [string, "null"] }
             page: { type: integer, minimum: 1 }
             total_pages: { type: integer, minimum: 0 }

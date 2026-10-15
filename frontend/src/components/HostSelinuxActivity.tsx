@@ -12,6 +12,7 @@ import {
 } from "../api/hosts";
 import { EvidenceBlock, formatUtc } from "./OccurrenceEvidence";
 import { administrativeDescription, SelinuxActivitySummary } from "./SelinuxActivitySummary";
+import { EMBEDDED_PAGE_SIZES, pageSize } from "../pagination";
 
 function time(iso: string): string {
   return iso.replace("T", " ").replace(/Z$/, " UTC");
@@ -136,12 +137,14 @@ export function HostSelinuxActivity({ activity }: { activity: UseQueryResult<Sel
   const selected = Number(params.get("selinux_activity")) || undefined;
   const requestedPage = Number(params.get("activity_page") ?? 1);
   const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
-  function navigate(page = 1) {
+  const perPage = pageSize(params.get("activity_page_size"), EMBEDDED_PAGE_SIZES, 10);
+  function navigate(page = 1, size = perPage) {
     setParams((previous) => {
       const next = new URLSearchParams(previous);
       next.delete("selinux_activity");
       next.delete("activity_before");
       next.set("activity_page", String(page));
+      next.set("activity_page_size", String(size));
       return next;
     });
   }
@@ -165,7 +168,7 @@ export function HostSelinuxActivity({ activity }: { activity: UseQueryResult<Sel
             </Table>}
           <div className="host-table-pagination">
             {before && !selected ? <Button variant="link" onClick={() => navigate()}>Recent activity</Button> : null}
-            {!selected && !before ? <Pagination itemCount={activity.data.meta.total ?? activity.data.items.length} page={activity.data.meta.page ?? page} perPage={10} perPageOptions={[{ title: "10", value: 10 }]} isDisabled={activity.isFetching} onSetPage={(_event, value) => navigate(value)} titles={{ paginationAriaLabel: "SELinux activity pagination" }} /> : null}
+            {!selected && !before ? <Pagination widgetId="host-activity-pagination" itemCount={activity.data.meta.total ?? activity.data.items.length} page={activity.data.meta.page ?? page} perPage={activity.data.meta.page_size} perPageOptions={EMBEDDED_PAGE_SIZES.map((value) => ({ title: String(value), value }))} isDisabled={activity.isFetching} onSetPage={(_event, value) => navigate(value)} onPerPageSelect={(_event, size) => navigate(1, size)} titles={{ paginationAriaLabel: "SELinux activity pagination" }} /> : null}
           </div>
         </>}
       </CardBody></Card>

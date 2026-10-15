@@ -5,7 +5,7 @@ class Api::V1::HostConfigurationsController < Api::V1::BaseController
       host,
       view: params[:view].to_s,
       q: params[:q],
-      page: params[:page],
+      page: params[:page], limit: params[:limit],
       reference_revision_id: params[:reference_revision_id]
     )
   rescue CatalogReferenceSelection::InvalidRevision => error

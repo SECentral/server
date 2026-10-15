@@ -17,7 +17,8 @@ class SelinuxLogQuery
     @organization = organization
     @category = filters.fetch("category", "all")
     raise ArgumentError, "Unknown log category" unless %w[all avc administrative].include?(@category)
-    @limit = integer(filters.fetch("limit", "50"), 50)
+    numbered = filters.key?("page")
+    @limit = PageSize.parse(filters["limit"], default: numbered ? 25 : 50, max: numbered ? 100 : 50)
     @host_ids = self.class.host_ids(filters)
     raise ActiveRecord::RecordNotFound unless @host_ids.empty? || @organization.hosts.where(id: @host_ids).count == @host_ids.size
     @start = timestamp(filters["start"]) if filters.key?("start")

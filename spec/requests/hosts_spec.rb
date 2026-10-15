@@ -72,7 +72,7 @@ RSpec.describe "Hosts API", type: :request do
     debian_item = body["hosts"].find { |item| item["id"] == debian.id }
     expect(debian_item["observation"]).to include("status" => "stale")
     expect(body["summary"]).to include("total" => 2, "agent_state_counts" => { "reporting" => 1, "stale" => 0, "offline" => 1 })
-    expect(body["meta"]).to eq("page" => 1, "page_size" => 50, "total" => 2, "total_pages" => 1)
+    expect(body["meta"]).to eq("page" => 1, "page_size" => 25, "total" => 2, "total_pages" => 1)
     expect(body).not_to have_key("boolean_inventory")
   end
 
@@ -143,12 +143,12 @@ RSpec.describe "Hosts API", type: :request do
 
     get "/api/v1/hosts"
     body = JSON.parse(response.body)
-    expect(body["hosts"].length).to eq(50)
-    expect(body["meta"]).to eq("page" => 1, "page_size" => 50, "total" => 55, "total_pages" => 2)
+    expect(body["hosts"].length).to eq(25)
+    expect(body["meta"]).to eq("page" => 1, "page_size" => 25, "total" => 55, "total_pages" => 3)
 
     get "/api/v1/hosts", params: { page: 2 }
     body = JSON.parse(response.body)
-    expect(body["hosts"].length).to eq(5)
+    expect(body["hosts"].length).to eq(25)
     expect(body["meta"]["page"]).to eq(2)
   end
 

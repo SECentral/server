@@ -1,4 +1,4 @@
-import { Alert, Breadcrumb, BreadcrumbItem, Button, ExpandableSection, Label, Spinner, TextInput, Title } from "@patternfly/react-core";
+import { Alert, Breadcrumb, BreadcrumbItem, Button, ExpandableSection, Label, Pagination, Spinner, TextInput, Title } from "@patternfly/react-core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
@@ -16,6 +16,7 @@ import {
 } from "../api/issue";
 import { OccurrenceRawEvidence } from "../components/OccurrenceEvidence";
 import { ResolutionWorkflow } from "../components/ResolutionWorkflow";
+import { EMBEDDED_PAGE_SIZES, pageSize } from "../pagination";
 
 const STATUS_OPTIONS = ["open", "resolved", "ignored"] as const;
 const DISPOSITIONS = ["unclassified", "under_investigation", "expected_harmless", "application_configuration", "labeling_configuration", "policy_required", "possible_policy_package_defect", "suspicious_behavior"];
@@ -498,15 +499,25 @@ export function IssueDetail() {
   const issueId = Number(id);
   const validId = Number.isInteger(issueId) && issueId > 0;
   const queryClient = useQueryClient();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const detailQuery = useQuery({ queryKey: ["issue", issueId], queryFn: () => fetchIssue(issueId), enabled: validId });
   const [showOccurrences, setShowOccurrences] = useState(() => searchParams.get("tab") === "occurrences");
   const [showRelatedFleet, setShowRelatedFleet] = useState(false);
   const [technicalEvidenceIssueId, setTechnicalEvidenceIssueId] = useState<number | null>(null);
   const showTechnicalEvidence = technicalEvidenceIssueId === issueId;
-  const [page, setPage] = useState(1);
+  const requestedPage = Number(searchParams.get("occurrence_page") ?? 1);
+  const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const perPage = pageSize(searchParams.get("occurrence_limit"), EMBEDDED_PAGE_SIZES, 10);
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const occurrencesQuery = useQuery({ queryKey: ["issue-occurrence-page", issueId, page], queryFn: () => fetchIssueOccurrencePage(issueId, page), enabled: validId && showOccurrences });
+  const occurrencesQuery = useQuery({ queryKey: ["issue-occurrence-page", issueId, page, perPage], queryFn: () => fetchIssueOccurrencePage(issueId, page, perPage), enabled: validId && showOccurrences });
+  const setOccurrencePage = (nextPage: number, size = perPage) => {
+    setSelectedId(null);
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", "occurrences");
+    next.set("occurrence_page", String(nextPage));
+    next.set("occurrence_limit", String(size));
+    setSearchParams(next);
+  };
   const selectedQuery = useQuery({ queryKey: ["issue-occurrence", issueId, selectedId], queryFn: () => fetchIssueOccurrence(issueId, selectedId!), enabled: validId && selectedId !== null });
   const analysisQuery = useQuery({ queryKey: ["issue-analysis", issueId], queryFn: () => fetchIssueAnalysis(issueId), enabled: validId && showRelatedFleet });
   const [pendingDisposition, setPendingDisposition] = useState<string | null>(null);
@@ -615,13 +626,15 @@ export function IssueDetail() {
       {triage.signals.length > 0 && <details className="issue-activity-context"><summary>Occurrence pattern</summary><ul>{triage.signals.map((signal) => <li key={signal.code}><strong>{signal.label}:</strong> {signal.explanation}</li>)}</ul></details>}
 
       <section id="issue-occurrences" aria-labelledby="occurrences-title" className="issue-section issue-occurrences-section">
-        <header><div><h2 id="occurrences-title">Occurrences</h2><p>{issue.occurrences_count} retained denial{issue.occurrences_count === 1 ? "" : "s"}{occurrencesQuery.data && ` · ${(occurrencesQuery.data.meta.page - 1) * 25 + (occurrencesQuery.data.meta.total ? 1 : 0)}–${Math.min(occurrencesQuery.data.meta.page * 25, occurrencesQuery.data.meta.total)} of ${occurrencesQuery.data.meta.total}`}</p></div></header>
+        <header><div><h2 id="occurrences-title">Occurrences</h2><p>{issue.occurrences_count} retained denial{issue.occurrences_count === 1 ? "" : "s"}{occurrencesQuery.data && ` · ${(occurrencesQuery.data.meta.page - 1) * occurrencesQuery.data.meta.page_size + (occurrencesQuery.data.meta.total ? 1 : 0)}–${Math.min(occurrencesQuery.data.meta.page * occurrencesQuery.data.meta.page_size, occurrencesQuery.data.meta.total)} of ${occurrencesQuery.data.meta.total}`}</p></div></header>
         {!showOccurrences ? <Button variant="secondary" onClick={() => setShowOccurrences(true)}>Show recent occurrences</Button>
           : occurrencesQuery.isPending ? <div aria-label="Loading occurrences"><Spinner /></div>
           : occurrencesQuery.isError ? <Alert variant="warning" isInline title="Could not load occurrences">{occurrencesQuery.error instanceof Error ? occurrencesQuery.error.message : "Unknown error"}</Alert>
             : occurrencesQuery.data.occurrences.length ? <>
               <table className="pf-v6-c-table" aria-label="Occurrence summary"><thead><tr><th scope="col">Time (UTC)</th>{issue.affected_hosts > 1 && <th scope="col">Host</th>}<th scope="col">Resource</th>{issue.target_class !== "tcp_socket" && <th scope="col">Path evidence</th>}<th scope="col">Inspect</th></tr></thead><tbody>{occurrencesQuery.data.occurrences.map((item) => <tr key={item.id}><td>{formatUtc(item.occurred_at)}</td>{issue.affected_hosts > 1 && <td>{item.host.hostname}</td>}<td><code>{item.resource ?? "Not recorded"}</code></td>{issue.target_class !== "tcp_socket" && <td>{item.absolute_path ? "Absolute path" : "Basename only"}</td>}<td><Button variant="link" onClick={() => setSelectedId(item.id)} aria-label={`Inspect occurrence ${item.id}`}>View evidence</Button></td></tr>)}</tbody></table>
-              <nav aria-label="Occurrence pages"><Button variant="secondary" isDisabled={page <= 1} onClick={() => { setPage(page - 1); setSelectedId(null); }}>Previous</Button> <span>{occurrencesQuery.data.meta.page} / {occurrencesQuery.data.meta.total_pages}</span> <Button variant="secondary" isDisabled={page >= occurrencesQuery.data.meta.total_pages} onClick={() => { setPage(page + 1); setSelectedId(null); }}>Next</Button></nav>
+              <div className="table-pagination"><Pagination itemCount={occurrencesQuery.data.meta.total} page={occurrencesQuery.data.meta.page} perPage={occurrencesQuery.data.meta.page_size}
+                perPageOptions={EMBEDDED_PAGE_SIZES.map((value) => ({ title: String(value), value }))} titles={{ paginationAriaLabel: "Issue occurrence pagination" }}
+                isDisabled={occurrencesQuery.isFetching} onSetPage={(_event, value) => setOccurrencePage(value)} onPerPageSelect={(_event, size) => setOccurrencePage(1, size)} /></div>
               {selectedId !== null && <section aria-label="Selected occurrence evidence">{selectedQuery.isPending ? <Spinner aria-label="Loading occurrence evidence" /> : selectedQuery.isError ? <Alert variant="warning" isInline title="Could not load occurrence evidence" /> : occurrences.map((occurrence) => <IssueOccurrence key={occurrence.id} occurrence={occurrence} />)}</section>}
               <Button className="pf-v6-u-mt-md" variant="link" onClick={() => setShowOccurrences(false)}>Hide occurrences</Button></>
               : <p>No occurrences are retained for this issue.</p>}

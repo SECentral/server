@@ -64,7 +64,7 @@ RSpec.describe "Issues API", type: :request do
     expect(item).to have_key("first_seen_at")
     expect(item).to have_key("last_seen_at")
     expect(body.fetch("host_options").map { |host| host["hostname"] }).to eq(["enforcing-host", "permissive-host", "ungroupable-host", "web-1"])
-    expect(body.fetch("meta")).to eq("page" => 1, "page_size" => 50, "total" => 1, "total_pages" => 1)
+    expect(body.fetch("meta")).to eq("page" => 1, "page_size" => 25, "total" => 1, "total_pages" => 1)
     expect(body.fetch("summary")).to include(
       "total_count" => 1, "open_count" => 1, "regressed_count" => 0, "ungroupable_count" => 1,
       "monitored_hosts" => 4, "enforcing_hosts" => 1, "enforcement_percent" => 25
@@ -143,23 +143,23 @@ RSpec.describe "Issues API", type: :request do
     expect(JSON.parse(response.body).fetch("issues").map { |item| item["id"] }).to eq([multi.id])
   end
 
-  it "paginates issue pages of 50 and clamps page below one" do
+  it "paginates issue pages of 25 and clamps page below one" do
     51.times { |index| create_issue("page-digest-#{index}") }
 
     get "/api/v1/issues"
     body = JSON.parse(response.body)
-    expect(body["issues"].length).to eq(50)
-    expect(body.fetch("meta")).to eq("page" => 1, "page_size" => 50, "total" => 51, "total_pages" => 2)
+    expect(body["issues"].length).to eq(25)
+    expect(body.fetch("meta")).to eq("page" => 1, "page_size" => 25, "total" => 51, "total_pages" => 3)
 
     get "/api/v1/issues", params: { page: 2 }
     body = JSON.parse(response.body)
-    expect(body["issues"].length).to eq(1)
+    expect(body["issues"].length).to eq(25)
     expect(body.fetch("meta", {}).fetch("page")).to eq(2)
 
     get "/api/v1/issues", params: { page: 0 }
     expect(JSON.parse(response.body).fetch("meta", {}).fetch("page")).to eq(1)
 
-    get "/api/v1/issues", params: { page: 3 }
+    get "/api/v1/issues", params: { page: 4 }
     expect(JSON.parse(response.body).fetch("issues")).to be_empty
   end
 
@@ -365,14 +365,14 @@ RSpec.describe "Issues API", type: :request do
     get "/api/v1/issues/#{issue.id}/occurrences", params: { view: "summary", page: 1 }
     ActiveSupport::Notifications.unsubscribe(subscriber)
     body = JSON.parse(response.body)
-    expect(body.fetch("occurrences").size).to eq(25)
-    expect(body.fetch("meta")).to include("page" => 1, "total" => 26, "total_pages" => 2)
+    expect(body.fetch("occurrences").size).to eq(10)
+    expect(body.fetch("meta")).to include("page" => 1, "page_size" => 10, "total" => 26, "total_pages" => 3)
     expect(body.fetch("occurrences").flat_map(&:keys)).not_to include("raw_event", "normalized_denial", "guidance")
     expect(queries.none? { |sql| sql.include?('FROM "raw_audit_records"') || sql.include?('FROM "raw_events"') }).to be(true)
     first_ids = body.fetch("occurrences").map { |item| item["id"] }
     get "/api/v1/issues/#{issue.id}/occurrences", params: { view: "summary", page: 2 }
     second_ids = JSON.parse(response.body).fetch("occurrences").map { |item| item["id"] }
-    expect(second_ids.size).to eq(1)
+    expect(second_ids.size).to eq(10)
     expect(first_ids & second_ids).to be_empty
     get "/api/v1/issues/#{issue.id}/occurrences/#{occurrence.id}"
     expect(JSON.parse(response.body).fetch("id")).to eq(occurrence.id)

@@ -7,6 +7,7 @@ import { fetchSelinuxLog, searchLogHosts } from "../api/selinuxLog";
 import type { SelinuxLogItem } from "../api/generated/types.gen";
 import { formatUtc } from "../components/OccurrenceEvidence";
 import { administrativeDescription, SelinuxActivitySummary } from "../components/SelinuxActivitySummary";
+import { PAGE_SIZES, pageSize } from "../pagination";
 
 const CATEGORIES = [{ value: "all", label: "All" }, { value: "avc", label: "AVCs" }, { value: "administrative", label: "Administrative activity" }];
 const PRESETS = [{ value: "1", label: "Last hour" }, { value: "24", label: "Last 24 hours" }, { value: "168", label: "Last 7 days" }];
@@ -51,8 +52,7 @@ export function GlobalLog() {
   const category = params.get("category") ?? "all";
   const requestedPage = Number(params.get("page") ?? 1);
   const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
-  const requestedSize = Number(params.get("limit") ?? 10);
-  const perPage = [10, 25, 50].includes(requestedSize) ? requestedSize : 10;
+  const perPage = pageSize(params.get("limit"));
   const timeFiltered = params.has("start") || params.has("end");
   const activeFilters = category !== "all" || hostIds.length > 0 || timeFiltered;
   const apiParams = new URLSearchParams();
@@ -95,13 +95,13 @@ export function GlobalLog() {
     <Stack hasGutter>
     <section aria-label="Global log controls">
     <Toolbar aria-label="Global log filters" hasNoPadding>
-      <ToolbarContent className="pf-v6-u-mb-md">
+      <ToolbarContent>
         <ToolbarItem><ToggleGroup aria-label="Activity type">
           {CATEGORIES.map((entry) => <ToggleGroupItem key={entry.value} text={entry.label} buttonId={`log-type-${entry.value}`} isSelected={category === entry.value} onChange={() => update({ category: entry.value === "all" ? null : entry.value })} />)}
         </ToggleGroup></ToolbarItem>
       </ToolbarContent>
       <ToolbarContent>
-        <ToolbarGroup gap={{ default: "gapMd" }}>
+        <ToolbarGroup gap={{ default: "gapMd" }} rowWrap={{ default: "wrap" }}>
         <ToolbarItem><SearchInput aria-label="Search hosts" placeholder="Search hostname" value={search} onChange={(_event, value) => setSearch(value)} onClear={() => setSearch("")} /></ToolbarItem>
         <ToolbarItem><Select role="menu" aria-label="Host options" isOpen={hostMenuOpen} selected={hostIds} onOpenChange={setHostMenuOpen} shouldFocusToggleOnSelect={false}
           onSelect={(_event, value) => {
@@ -128,12 +128,12 @@ export function GlobalLog() {
         </FormSelect></ToolbarItem>
         </ToolbarGroup>
       </ToolbarContent>
-    {customOpen ? <ToolbarContent className="pf-v6-u-mt-md"><ToolbarItem><CustomRange key={`${params.get("start")}:${params.get("end")}`} start={params.get("start") ?? ""} end={params.get("end") ?? ""} apply={(start, end) => update({ start, end, range: "custom" })} /></ToolbarItem></ToolbarContent> : null}
-    {activeFilters || search || customOpen ? <ToolbarContent aria-label="Active log filters" className="pf-v6-u-mt-md">
-      <ToolbarGroup gap={{ default: "gapSm" }}>
+    {customOpen ? <ToolbarContent><ToolbarItem><CustomRange key={`${params.get("start")}:${params.get("end")}`} start={params.get("start") ?? ""} end={params.get("end") ?? ""} apply={(start, end) => update({ start, end, range: "custom" })} /></ToolbarItem></ToolbarContent> : null}
+    {activeFilters || search || customOpen ? <ToolbarContent aria-label="Active log filters">
+      <ToolbarGroup gap={{ default: "gapSm" }} rowWrap={{ default: "wrap" }}>
       {category !== "all" ? <ToolbarItem variant="label-group"><Label closeBtnAriaLabel="Remove activity type filter" onClose={() => update({ category: null })}>Type: {CATEGORIES.find((entry) => entry.value === category)?.label ?? category}</Label></ToolbarItem> : null}
       {hostIds.map((id) => <ToolbarItem key={id} variant="label-group"><Label closeBtnAriaLabel={`Remove host ${options.get(id)?.hostname ?? id}`} onClose={() => selectHosts(hostIds.filter((value) => value !== id))}>Host: {options.get(id)?.hostname ?? id}</Label></ToolbarItem>)}
-      {timeFiltered ? <ToolbarItem variant="label-group"><Label closeBtnAriaLabel="Remove time filter" onClose={() => update({ range: null, start: null, end: null })}>{`${params.get("start") ?? "Unbounded"} → ${params.get("end") ?? "Unbounded"} (end exclusive)`}</Label></ToolbarItem> : null}
+      {timeFiltered ? <ToolbarItem variant="label-group"><Label textMaxWidth="min(36ch, calc(100vw - 6rem))" closeBtnAriaLabel="Remove time filter" onClose={() => update({ range: null, start: null, end: null })}>{`${params.get("start") ?? "Unbounded"} → ${params.get("end") ?? "Unbounded"} (end exclusive)`}</Label></ToolbarItem> : null}
       <ToolbarItem><Button variant="link" onClick={() => { setSearch(""); setParams(new URLSearchParams()); }}>Clear filters</Button></ToolbarItem>
       </ToolbarGroup>
     </ToolbarContent> : null}
@@ -162,7 +162,7 @@ export function GlobalLog() {
       </Table>}
       <div aria-label="Global log table navigation" className="table-pagination">
         <Pagination itemCount={log.data.meta.total ?? 0} page={log.data.meta.page ?? page} perPage={perPage}
-          perPageOptions={[10, 25, 50].map((value) => ({ title: String(value), value }))}
+          perPageOptions={PAGE_SIZES.map((value) => ({ title: String(value), value }))}
           titles={{ paginationAriaLabel: "Global log pagination" }} isDisabled={log.isFetching}
           onSetPage={(_event, value) => update({ page: String(value) }, true)}
           onPerPageSelect={(_event, value) => update({ limit: String(value), page: "1" }, true)} />

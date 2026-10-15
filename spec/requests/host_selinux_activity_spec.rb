@@ -213,11 +213,14 @@ RSpec.describe "Monitored-server SELinux activity", type: :request do
     expect(last["meta"]).to include("page" => 3, "total" => 21)
     expect(last["items"].size).to eq(1)
     expect((numbered["items"] + second["items"] + last["items"]).map { |item| item["id"] }).to eq((first["items"] + older["items"]).map { |item| item["id"] })
+    resized = page(page: 1, limit: 25)
+    expect(resized["meta"]).to include("page_size" => 25, "total_pages" => 1)
+    expect(resized["items"].map { |item| item["id"] }).to eq((first["items"] + older["items"]).map { |item| item["id"] })
   end
 
   it "handles empty numbered pages and rejects invalid pages or mixed selectors" do
     expect(page(page: 3)["meta"]).to include("page" => 1, "page_size" => 10, "total" => 0, "total_pages" => 0)
-    [{ page: 0 }, { page: "" }, { page: "1.5" }, { page: 1, before: "cursor" }, { page: 1, event_id: 1 }, { page: 1, occurrence_id: 1 }].each do |params|
+    [{ page: 0 }, { page: "" }, { page: "1.5" }, { page: 1, before: "cursor" }, { page: 1, event_id: 1 }, { page: 1, occurrence_id: 1 }, { limit: 25 }].each do |params|
       get "/api/v1/hosts/#{host.id}/selinux-activity", params: params
       expect(response).to have_http_status(:unprocessable_content)
     end
