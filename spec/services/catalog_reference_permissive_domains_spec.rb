@@ -1,24 +1,22 @@
 require "rails_helper"
 
-RSpec.describe "Catalog reference effective permissive extraction" do
+RSpec.describe "Inline catalog reference permissive domains" do
   include ActiveJob::TestHelper
 
-  def revision(bytes = "reference policy")
-    document = JSON.parse(File.binread(Rails.root.join("spec/fixtures/catalogs/v3.json")))
+  def revision(bytes = "reference policy", domains: ["example_t"])
+    document = JSON.parse(File.binread(Rails.root.join("spec/fixtures/catalogs/v4.json")))
+    document["catalog"]["platform"]["distribution"] = "almalinux"
     document["catalog"]["policy"]["loaded_policy_digest"] = "sha256:#{Digest::SHA256.hexdigest(bytes)}"
+    document["catalog"]["families"]["effective_permissive_domains"]["domains"] = domains
     document["content_digest"] = "sha256:#{Digest::SHA256.hexdigest(DistributionCatalogCanonicalizer.call(document['catalog']))}"
     ImportDistributionCatalog.call(artifact: DistributionCatalogArtifact.new(JSON.generate(document))).revision
   end
 
-  def companion(record, bytes = "reference policy", domains: nil)
-    policy = PolicyArtifact.store!(policy_identity: record.loaded_policy_digest, bytes: bytes, defer_analysis: true)
-    if domains
-      policy.update_column(:permissive_domain_analysis, { "status" => "observed", "domains" => domains,
-        "policy_identity" => policy.policy_identity, "semantics_version" => PolicyPermissiveDomainAnalyzer::SEMANTICS_VERSION,
-        "evaluator_version" => "SETools test", "evaluated_at" => Time.current.iso8601 })
-    end
-    AttachCatalogPolicy.call(revision: record, bytes: bytes, acquisition_basis: "Synthetic offline reference")
-    policy
+  def comparison_snapshot(policy_identity)
+    HostSnapshot.new(details: { "platform" => { "os_id" => "almalinux", "os_version" => "9.8", "architecture" => "x86_64" },
+      "selinux" => { "policy_identity" => policy_identity, "configured_policy_type" => "targeted", "boolean_status" => "observed",
+        "booleans" => [{ "name" => "httpd_can_network_connect", "current" => false, "status" => "observed" }],
+        "policy" => { "port_inventory" => { "status" => "observed", "mappings" => [] } } } })
   end
 
   after do
@@ -31,94 +29,80 @@ RSpec.describe "Catalog reference effective permissive extraction" do
     clear_enqueued_jobs
   end
 
-  it "requires explicit companion authority, not raw blob existence, and preserves legacy families" do
-    record = revision
-    PolicyArtifact.store!(policy_identity: record.loaded_policy_digest, bytes: "reference policy", defer_analysis: true)
-    expect(record.reference_permissive_domains).to include(status: "unavailable", reason: "reference_policy_artifact_unavailable", domains: nil)
-    expect(record.booleans_complete? && record.ports_complete?).to be(true)
-  end
-
-  it "enqueues once on first consumer without parsing or fabricating host evidence" do
-    record = revision
-    policy = companion(record)
-    before = [Host, HostSnapshot, RawEvent].map(&:count)
-    expect(PolicyPermissiveDomainAnalyzer).not_to receive(:call)
-    expect { 2.times { expect(record.reference_permissive_domains).to include(status: "pending", domains: nil) } }.to have_enqueued_job(AnalyzePolicyPermissiveDomainsJob).with(policy.id, 1).exactly(:once)
-    expect([Host, HostSnapshot, RawEvent].map(&:count)).to eq(before)
-  end
-
   [[], %w[postgresql_t rhcd_t]].each do |domains|
-    it "reuses current host-derived #{domains.inspect} cache without reparse and keeps archived facts" do
-      record = revision
-      policy = companion(record, domains: domains)
+    it "imports #{domains.inspect} without companion bytes, jobs, or fabricated host evidence" do
+      before = [Host, HostSnapshot, RawEvent, PolicyArtifact].map(&:count)
       expect(PolicyPermissiveDomainAnalyzer).not_to receive(:call)
-      expect { expect(record.reference_permissive_domains).to include(status: "observed", domains: domains, evaluator_version: "SETools test", semantics_version: 1) }.not_to have_enqueued_job(AnalyzePolicyPermissiveDomainsJob)
-      expect(PolicyPermissiveDomains.lookup(policy.policy_identity)).to include(status: "observed", domains: domains)
-      record.catalog_management.change!(lifecycle: "archived", changed_by: "test")
-      expect(record.reference_permissive_domains).to include(status: "observed", domains: domains)
+      expect do
+        record = revision(domains: domains)
+        expect(record.reload.reference_permissive_domains).to include(status: "observed", domains: domains,
+          provenance: "inline_catalog_extraction", semantics_version: 1, evaluator_version: "SETools 4.5.1",
+          policy_identity: record.loaded_policy_digest, catalog_revision_id: record.id, content_digest: record.content_digest)
+        expect(record.catalog_policy_artifact).to be_nil
+        record.catalog_management.change!(lifecycle: "archived", changed_by: "test")
+        expect(record.reference_permissive_domains[:domains]).to eq(domains)
+      end.not_to have_enqueued_job(AnalyzePolicyPermissiveDomainsJob)
+      expect([Host, HostSnapshot, RawEvent, PolicyArtifact].map(&:count)).to eq(before)
     end
   end
 
-  it "persists job results, distinguishing observed empty, failure, unavailable and explicit retry" do
+  it "does not fall back to a host cache for absent inline facts" do
     record = revision
-    policy = companion(record)
-    [{ "status" => "observed", "domains" => [], "evaluator_version" => "SETools test" },
-     { "status" => "error", "error_message" => "runtime/resource bound" },
-     { "status" => "unavailable", "error_message" => "parser unavailable" }].each do |result|
-      policy.update_column(:permissive_domain_analysis, {})
-      allow(PolicyPermissiveDomainAnalyzer).to receive(:call).and_return(result)
-      expect(record.reference_permissive_domains[:status]).to eq("pending")
-      perform_enqueued_jobs
-      expect(record.reference_permissive_domains).to include(status: result["status"], domains: result["status"] == "observed" ? [] : nil)
-      expect { record.reference_permissive_domains }.not_to have_enqueued_job(AnalyzePolicyPermissiveDomainsJob)
-    end
+    record.update_column(:effective_permissive_domains, nil)
+    expect(PolicyPermissiveDomains).not_to receive(:lookup)
+    expect(record.reference_permissive_domains).to include(status: "unavailable", reason: "reference_inline_facts_unavailable", domains: nil)
   end
 
-  it "reextracts incompatible semantics and prevents stale jobs or older workers from overwriting newer results" do
-    record = revision
-    policy = companion(record, domains: ["rhcd_t"])
-    policy.update_column(:permissive_domain_analysis, policy.permissive_domain_analysis.merge("semantics_version" => 0))
-    expect(record.reference_permissive_domains).to include(status: "pending", domains: nil)
-    pending = policy.reload.permissive_domain_analysis
-    AnalyzePolicyPermissiveDomainsJob.perform_now(policy.id, 0)
-    expect(policy.reload.permissive_domain_analysis).to eq(pending)
-    newer = pending.merge("status" => "observed", "semantics_version" => 2, "domains" => [], "evaluator_version" => "SETools future")
-    policy.update_column(:permissive_domain_analysis, newer)
-    expect(record.reference_permissive_domains).to include(status: "unavailable", domains: nil)
-    AnalyzePolicyPermissiveDomainsJob.perform_now(policy.id, 1)
-    expect(policy.reload.permissive_domain_analysis).to eq(newer)
-    policy.invalidate_permissive_domain_analysis!("corrupt bytes")
-    expect(policy.reload.permissive_domain_analysis).to include("status" => "unavailable", "semantics_version" => 2)
-  end
-
-  it "never shares facts across different SHA and withholds corrupt backing bytes from host and reference" do
-    first = revision
-    companion(first, domains: ["rhcd_t"])
-    other = revision("other bytes")
-    policy = companion(other, "other bytes", domains: [])
-    expect(first.reference_permissive_domains[:domains]).to eq(["rhcd_t"])
-    PolicyArtifact.where(id: policy.id).update_all(artifact: "corrupt")
-    expect(PolicyPermissiveDomains.lookup(policy.policy_identity)).to include(status: "unavailable", domains: nil)
-    expect(other.reference_permissive_domains).to include(status: "unavailable", domains: nil, reason: "reference_policy_artifact_invalid")
-    expect(first.reference_permissive_domains[:domains]).to eq(["rhcd_t"])
-  end
-
-  it "does not grant selection applicability to observed reference facts" do
-    record = revision
-    companion(record, domains: [])
+  it "allows automatic family-agreement comparison with one complete inline family" do
+    record = revision(domains: [])
     snapshot = HostSnapshot.new(details: { "platform" => { "os_id" => record.distribution, "os_version" => record.major_version, "architecture" => record.architecture },
       "selinux" => { "policy_identity" => record.loaded_policy_digest, "configured_policy_type" => record.policy_type } })
     exact = CatalogReferenceSelection.call(snapshot: snapshot)
     expect(exact.basis).to eq("exact_policy_identity")
-    expect(exact.revision.reference_permissive_domains[:status]).to eq("observed")
     snapshot.details["selinux"]["policy_identity"] = "sha256:" + "f" * 64
     fallback = CatalogReferenceSelection.call(snapshot: snapshot)
     explicit = CatalogReferenceSelection.call(snapshot: snapshot, revision_id: record.id)
     expect(fallback.basis).to eq("major_release_family_agreement")
-    [exact, fallback, explicit].each { |selection| expect(selection.family("effective_permissive_domains")).to include(status: "unknown", comparison_allowed: false) }
+    [exact, fallback, explicit].each { |selection| expect(selection.family("effective_permissive_domains")).to include(status: "comparable", comparison_allowed: true) }
     expect(explicit.revision.reference_permissive_domains[:domains]).to eq([])
     expect(explicit.as_json[:equivalence_asserted]).to be(false)
     record.catalog_management.change!(lifecycle: "archived", changed_by: "test")
     expect(CatalogReferenceSelection.call(snapshot: snapshot, revision_id: record.id).reason).to eq("archived_reference")
+  end
+
+  it "requires every eligible major-release candidate to agree on compatible inline membership" do
+    first = revision(domains: ["alpha_t"])
+    second = revision("reference policy two", domains: ["beta_t"])
+    host_snapshot = comparison_snapshot("sha256:" + "f" * 64)
+
+    selection = CatalogReferenceSelection.call(snapshot: host_snapshot)
+    expect(selection.basis).to eq("major_release_family_agreement")
+    expect(selection.family("booleans")).to include(status: "comparable", comparison_allowed: true)
+    expect(selection.family("effective_permissive_domains")).to include(status: "unknown", reference_status: "observed",
+      comparison_allowed: false, reason: "effective_permissive_reference_ambiguous")
+
+    second.update_column(:effective_permissive_domains, first.effective_permissive_domains)
+    expect(CatalogReferenceSelection.call(snapshot: host_snapshot).family("effective_permissive_domains")).to include(status: "comparable", comparison_allowed: true)
+  end
+
+  it "fails closed for automatic effective comparison when an eligible legacy V3 candidate lacks inline facts" do
+    record = revision
+    legacy = DistributionCatalogRevision.create!(schema_version: 1, collector_semantics_version: 3,
+      content_digest: "sha256:" + "b" * 64, loaded_policy_digest: "sha256:" + "c" * 64,
+      distribution: "almalinux", major_version: "9", architecture: "x86_64", policy_type: "targeted",
+      kernel_policy_version: 33, policy_packages: [], booleans_complete: true, ports_complete: true)
+    record.distribution_catalog_booleans.each do |entry|
+      legacy.distribution_catalog_booleans.create!(name: entry.name, default_value: entry.default_value, description: entry.description)
+    end
+    record.distribution_catalog_ports.each do |mapping|
+      legacy.distribution_catalog_ports.create!(protocol: mapping.protocol, start_port: mapping.start_port, end_port: mapping.end_port, selinux_type: mapping.selinux_type)
+    end
+    host_snapshot = comparison_snapshot("sha256:" + "f" * 64)
+
+    selection = CatalogReferenceSelection.call(snapshot: host_snapshot)
+    expect(selection.basis).to eq("major_release_family_agreement")
+    expect(selection.family("effective_permissive_domains")).to include(status: "unknown", reference_status: "incomplete",
+      comparison_allowed: false, reason: "reference_inline_facts_unavailable")
+    expect(record).to be_persisted
   end
 end

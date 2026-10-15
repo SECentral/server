@@ -11,7 +11,7 @@ its name or availability does not change its contents.
    distribution label. This name applies only when creating a new revision.
 3. Select **Validate / Preview**. Review the schema/collector compatibility,
    immutable digests, platform/packages, submitted acquisition information,
-   complete Boolean/port counts and proposed create/reuse outcome.
+   complete Boolean/port/permissive-domain counts and proposed create/reuse outcome.
 4. Select **Import new catalog revision** or **Record another import of existing
    revision** to confirm. A conflict has no confirmation action.
 
@@ -31,12 +31,31 @@ import of the same revision. Semantic content is deduplicated; each successful
 attempt retains its own import evidence. The result page explains whether a
 revision was created or reused, including whether it remains archived.
 
-The supported format is schema 1 / collector semantics V3 with complete Boolean
-and port families. Organizational/custom-reference formats are not supported.
+The supported format is schema 1 / collector semantics V4 with complete Boolean,
+port and effective permissive-domain families. Organizational/custom-reference formats are not supported.
 Artifacts are limited to 2 MiB, 32 JSON nesting levels, 20,000 entries per family
 and 256 policy packages. Invalid, missing or incomplete families are rejected,
 not shown as empty inventories. Validation does not establish vendor/SECentral
 review or publisher authenticity.
+
+This coordinated pre-release change rejects semantics V3 and earlier artifacts.
+Regenerate catalogs on prepared reference systems using the current collector
+with Python 3/SETools bindings. Do not copy host analysis results into old JSON,
+hand-fill domain lists, or stamp old payloads as V4. Existing development revisions
+have no compatibility adapter and must be replaced/reimported in an appropriate
+development database. The importer still rejects a different content digest claiming
+an already imported policy SHA; reimport does not rewrite immutable old revisions.
+Back up retained evidence before deliberately rebuilding a development database.
+If a V3 AlmaLinux 9 revision is already active, importing the updated V4 capture
+creates a separate revision; it is not a replacement or semantic upgrade. When
+their complete Boolean/port families differ, both active revisions can make
+automatic major-release selection ambiguous. Archive the old V3 revision after
+reviewing the new one to remove it from new automatic selection; the immutable old
+revision and its import evidence remain retained. Effective permissive comparison
+may use the automatic V4 reference when all eligible candidate sets are complete,
+semantics-compatible and unanimous; otherwise it remains Unknown. See the
+[inline-family acceptance](catalog-inline-permissive-domains-acceptance.md) for
+the observed import and selection results.
 
 Administrative validation/import tasks remain available inside the server's
 Rails container and use the same validator/importer:
@@ -51,8 +70,8 @@ bundle exec rake 'secentral:catalog:import[/path/to/catalog.json]'
 For optional exact compiled-policy companions, see
 [catalog policy companion operations](catalog-policy-companions.md). This is a
 separate local administrative authority; browser JSON import does not attach binary
-policy or authorize effective-policy reference facts. JSON-only catalogs retain
-their existing Boolean/port behavior.
+policy. Effective permissive-domain reference facts come from the required inline
+family in JSON; they require neither a companion nor reference extraction jobs.
 
 The version-controlled [catalog source directory](../catalogs/README.md) contains
 SECentral-reviewed distribution references, licensed under **GPL-2.0-or-later
@@ -168,7 +187,8 @@ Selecting a revision is separate from family usability. Boolean/port comparison
 can remain Unknown, Unavailable, Partial or Stale. Missing host observations are
 never filled from reference defaults. Partial port evidence cannot prove a missing
 mapping; stale observations pause current comparison. These limits apply equally
-to automatic and explicit selection. No other catalog families are compared.
+to automatic and explicit selection. Effective permissive membership has the
+separate exact-policy applicability below.
 
 Automatic comparisons consider active catalogs only. SECentral prefers a
 reference with the host's exact loaded-policy digest. Otherwise, Boolean/port
@@ -200,20 +220,31 @@ compiled-policy membership, not configured `semanage permissive` state, enforcem
 mode or AVC-local decisions. Counts and lists are neutral state differences, not
 administrative attribution or security recommendations.
 
-Automatic exact selection plus verified companion and observed current-semantics
-analysis on both sides permits comparison. Major-release Boolean/port agreement does
-not: that section shows Unknown with an exact-reference-required explanation even
-when the configured families compare successfully. A compatible active explicit
+Automatic exact selection plus complete inline reference facts and trusted host
+analysis with compatible extraction semantics permits comparison. Automatic
+major-release family agreement also permits effective permissive comparison only
+when every eligible candidate has complete V4 inline facts with compatible
+extraction semantics and all candidates report the same domain set. If candidates
+disagree or a legacy candidate lacks inline facts, that family is Unknown while
+Boolean/port comparison remains independently usable. A compatible active explicit
 target may compare different SHAs and is labeled non-equivalent. Archived new
 selection remains unavailable.
 
 The API includes host/reference/selection evidence in
 `comparison.effective_permissive_domains`, with `matching`, `unexpected_on_host`,
 `missing_from_host` and counts. Unknown returns null sets/counts and stable reasons
-for host trust/artifact/analysis, selection and reference artifact/analysis. No partial
-set differences are invented. Observed empty/empty is a valid match. Pending analysis
-polls; errors require explicit operator correction/retry. See
-[companion and extraction operations](catalog-policy-companions.md).
+for host trust/artifact/analysis, selection, missing inline facts or incompatible
+reference extraction semantics. No partial set differences are invented. Observed
+empty/empty is a valid match. Pending host analysis polls; host errors require
+explicit operator correction/retry. Reference facts are immediately available on
+JSON-only import, without server extraction or a binary companion.
+
+Catalog detail shows the reference count and expandable, searchable membership.
+Comparison evidence identifies the immutable revision/content digest, declared
+loaded-policy SHA, extraction semantics and actual SETools version. Reference facts
+are **collector-reported inline extraction**, not server-verified binary extraction.
+Tool versions may differ when extraction semantics are compatible. Content integrity
+does not prove publisher authenticity or that the declared policy produced the facts.
 
 ## Check identity and provenance
 

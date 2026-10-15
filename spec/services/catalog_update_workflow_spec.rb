@@ -10,7 +10,7 @@ RSpec.describe "Manual catalog update boundary" do
   end
 
   def document(index, default: nil)
-    value = JSON.parse(File.binread(Rails.root.join("spec/fixtures/catalogs/v3.json")))
+    value = JSON.parse(File.binread(Rails.root.join("spec/fixtures/catalogs/v4.json")))
     value["catalog"]["policy"]["loaded_policy_digest"] = "sha256:#{index.to_s(16).rjust(64, '0')}"
     value["catalog"]["families"]["booleans"]["entries"][0]["default"] = default unless default.nil?
     value["content_digest"] = "sha256:#{Digest::SHA256.hexdigest(DistributionCatalogCanonicalizer.call(value.fetch('catalog')))}"

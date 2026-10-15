@@ -48,6 +48,7 @@ export type CatalogImportPreview = {
         collector_version: string;
     };
     families: {
+        effective_permissive_domains: CatalogImportFamily;
         booleans: CatalogImportFamily;
         ports: CatalogImportFamily & {
             protocols: Array<'tcp' | 'udp' | 'sctp' | 'dccp'>;
@@ -1013,9 +1014,10 @@ export type CatalogFamilyApplicability = {
 /**
  * One domain selection contract. Selected revision is separate from family
  * usability. Automatic exact/family-agreement and explicit request basis never fill
- * missing host evidence. Major-release family agreement grants only Boolean/port reference agreement,
- * not applicability for future exact-policy facts. Fresh evaluation uses
- * current active eligibility; there is no persisted historical selection pin.
+ * missing host evidence. Effective permissive membership under family agreement
+ * requires complete V4 inline facts with compatible extraction semantics and
+ * unanimous candidate sets. Fresh evaluation uses current active eligibility;
+ * there is no persisted historical selection pin.
  *
  */
 export type CatalogReferenceSelection = {
@@ -1042,7 +1044,7 @@ export type CatalogReferenceSelection = {
      */
     equivalence_asserted: boolean;
     /**
-     * Effective permissive membership requires exact or explicit verified reference authority; Boolean/port agreement does not grant that eligibility.
+     * Automatic major-release selection permits effective permissive comparison only when every eligible V4 catalog has complete facts under compatible extractor semantics and all candidate sets agree; otherwise this family is Unknown. Exact and compatible explicit selection remain supported.
      */
     families: {
         booleans: CatalogFamilyApplicability;
@@ -1052,6 +1054,10 @@ export type CatalogReferenceSelection = {
 };
 
 export type EffectivePermissiveEvidence = {
+    /**
+     * Reference inline facts are collector-reported, not server-verified binary extraction.
+     */
+    provenance?: 'exact_loaded_policy_artifact' | 'inline_catalog_extraction' | null;
     status: 'observed' | 'pending' | 'unavailable' | 'error';
     policy_identity: string | null;
     semantics_version: number | null;
@@ -1065,11 +1071,11 @@ export type EffectivePermissiveEvidence = {
 };
 
 /**
- * Complete exact-policy-derived membership sets. Differences are state evidence, not administrative attribution, security judgment or binary equivalence. Unknown never supplies partial differences.
+ * Complete host exact-policy and collector-reported catalog membership sets. Automatic major-release applicability requires complete, compatible, unanimous candidate facts. Differences are state evidence, not administrative attribution, security judgment or binary equivalence. Unknown never supplies partial differences.
  */
 export type EffectivePermissiveComparison = {
     status: 'observed' | 'unknown';
-    reason: 'host_policy_identity_unavailable' | 'stale_host_observation' | 'host_policy_artifact_unavailable' | 'host_permissive_analysis_pending' | 'host_permissive_analysis_unavailable' | 'host_permissive_analysis_error' | 'reference_absent' | 'reference_ambiguous' | 'reference_unavailable' | 'reference_archived' | 'incompatible_policy_context' | 'effective_policy_requires_exact_reference' | 'reference_policy_artifact_unavailable' | 'reference_policy_artifact_invalid' | 'reference_permissive_analysis_pending' | 'reference_permissive_analysis_unavailable' | 'reference_permissive_analysis_error' | null;
+    reason: 'host_policy_identity_unavailable' | 'stale_host_observation' | 'host_policy_artifact_unavailable' | 'host_permissive_analysis_pending' | 'host_permissive_analysis_unavailable' | 'host_permissive_analysis_error' | 'reference_absent' | 'reference_ambiguous' | 'reference_unavailable' | 'reference_archived' | 'incompatible_policy_context' | 'reference_inline_facts_unavailable' | 'reference_extraction_semantics_incompatible' | 'effective_permissive_reference_ambiguous' | null;
     host: EffectivePermissiveEvidence;
     reference: EffectivePermissiveEvidence | null;
     selection: {
@@ -1197,6 +1203,7 @@ export type Catalog = {
 };
 
 export type CatalogDetail = Catalog & {
+    effective_permissive_domains: CatalogPermissiveDomains;
     policy_packages: Array<{
         [key: string]: unknown;
     }>;
@@ -1215,6 +1222,21 @@ export type CatalogDetail = Catalog & {
          */
         type: string;
     }>;
+};
+
+/**
+ * Collector-reported inline reference membership bound to catalog content and declared policy SHA, not server-verified binary extraction. Unavailable facts never imply an empty set.
+ */
+export type CatalogPermissiveDomains = {
+    status: 'observed' | 'unavailable';
+    domains: Array<string> | null;
+    policy_identity: string;
+    provenance: 'inline_catalog_extraction';
+    catalog_revision_id: number;
+    content_digest: string;
+    semantics_version: number | null;
+    evaluator_version: string | null;
+    reason?: string | null;
 };
 
 export type CatalogListResponse = {

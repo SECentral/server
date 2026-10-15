@@ -1,6 +1,6 @@
 class DistributionCatalogArtifact
   SCHEMA_VERSION = 1
-  COLLECTOR_SEMANTICS_VERSION = 3
+  COLLECTOR_SEMANTICS_VERSION = 4
   PORT_PROTOCOLS = %w[tcp udp sctp dccp].freeze
   MAX_BYTES = 2 * 1024 * 1024
   MAX_ENTRIES = 20_000
@@ -76,9 +76,10 @@ class DistributionCatalogArtifact
     validate_policy!
     validate_platform!
     @error_code, @error_path = "invalid_artifact", "catalog.families"
-    require_value(@catalog["families"].is_a?(Hash) && (@catalog["families"].keys - %w[booleans ports]).empty?, "unsupported catalog families")
+    require_value(@catalog["families"].is_a?(Hash) && (@catalog["families"].keys - %w[booleans ports effective_permissive_domains]).empty?, "unsupported catalog families")
     validate_booleans!
     validate_ports!
+    validate_permissive_domains!
   end
 
   def validate_policy!
@@ -136,6 +137,19 @@ class DistributionCatalogArtifact
     end
     require_canonical(mappings, mappings.sort_by { |mapping| [mapping["protocol"], mapping["start"], mapping["end"], mapping["type"]] }, "port mappings")
     require_value(mappings.uniq == mappings, "duplicate port mapping")
+  end
+
+  def validate_permissive_domains!
+    @error_code, @error_path = "invalid_permissive_domain_family", "catalog.families.effective_permissive_domains"
+    family = @catalog.dig("families", "effective_permissive_domains")
+    require_keys(family, %w[complete domains extractor_semantics_version evaluator_version], "effective permissive domain family")
+    require_value(family["complete"] == true, "effective permissive domain family incomplete")
+    require_value(family["extractor_semantics_version"].is_a?(Integer) && family["extractor_semantics_version"] == PolicyPermissiveDomainAnalyzer::SEMANTICS_VERSION, "unsupported permissive extraction semantics")
+    domains = family["domains"]
+    require_value(PolicyPermissiveDomainAnalyzer.valid_domains?(domains) && domains.length <= MAX_ENTRIES, "invalid permissive domains")
+    require_canonical(domains, domains.uniq.sort, "permissive domains")
+    version = family["evaluator_version"]
+    require_value(PolicyPermissiveDomainAnalyzer.valid_evaluator_version?(version) && version.bytesize <= 120 && version.start_with?("SETools ") && version.delete_prefix("SETools ").strip.present?, "invalid permissive evaluator version")
   end
 
   def validate_metadata!

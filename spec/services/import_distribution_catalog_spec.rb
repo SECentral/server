@@ -2,7 +2,7 @@ require "rails_helper"
 
 RSpec.describe ImportDistributionCatalog do
   def document
-    JSON.parse(File.read(Rails.root.join("spec/fixtures/catalogs/v3.json")))
+    JSON.parse(File.read(Rails.root.join("spec/fixtures/catalogs/v4.json")))
   end
 
   def catalog_artifact(value = document)
@@ -39,8 +39,9 @@ RSpec.describe ImportDistributionCatalog do
     revision = result.revision
 
     expect(result.created).to be(true)
-    expect(revision.content_digest).to eq("sha256:3d8dff7fdef145ff2b0db34036d55248e97e6b33c231e5f6fe04d2ec19d3131d")
-    expect(revision.collector_semantics_version).to eq(3)
+    expect(revision.content_digest).to eq("sha256:ac82f6ec761a58c556edf0606e59ef92930ae087a2c3372e242fd6653f5c2c69")
+    expect(revision.collector_semantics_version).to eq(4)
+    expect(revision.effective_permissive_domains).to eq(document.dig("catalog", "families", "effective_permissive_domains"))
     expect(revision.loaded_policy_digest).to eq("sha256:" + "a" * 64)
     expect(revision).to have_attributes(booleans_complete: true, ports_complete: true)
     expect(revision.distribution_catalog_booleans.map { |entry| { "name" => entry.name, "default" => entry.default_value, "description" => entry.description } }).to eq(document.dig("catalog", "families", "booleans", "entries"))
@@ -81,8 +82,8 @@ RSpec.describe ImportDistributionCatalog do
     expect(DistributionCatalogImport.count).to eq(0)
   end
 
-  it "rejects V1, V2, and bad V3 digests before persisting anything" do
-    [1, 2].each do |version|
+  it "rejects old semantics and bad V4 digests before persisting anything" do
+    [1, 2, 3].each do |version|
       value = document
       value.dig("catalog")["collector_semantics_version"] = version
       expect { described_class.call(artifact: catalog_artifact(value)) }.to raise_error(DistributionCatalogArtifact::Invalid)
@@ -140,7 +141,7 @@ RSpec.describe ImportDistributionCatalog do
   end
 
   it "shares preview/import classification with CLI artifacts without persistence" do
-    raw = File.binread(Rails.root.join("spec/fixtures/catalogs/v3.json"))
+    raw = File.binread(Rails.root.join("spec/fixtures/catalogs/v4.json"))
     before_counts = [DistributionCatalogRevision, DistributionCatalogImport, CatalogManagement].map(&:count)
     preview = described_class.preview(artifact: DistributionCatalogArtifact.new(raw), display_name: "Initial label")
     expect(preview.outcome).to eq("create_new_revision")

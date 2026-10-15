@@ -1,0 +1,5533 @@
+{
+  "schema_version": 1,
+  "content_digest": "sha256:3bdff0cb4aa3803f6debb9fdf8e7bee9a64eeb72b6c12efa1f085db6a432e18b",
+  "catalog": {
+    "collector_semantics_version": 4,
+    "policy": {
+      "loaded_policy_digest": "sha256:aeeaab874b5280516b9dedab20d3eef531a5630082dffd47303516dce04c30dd",
+      "type": "targeted",
+      "kernel_policy_version": 33,
+      "packages": [
+        {
+          "name": "selinux-policy-targeted",
+          "epoch": "0",
+          "version": "38.1.75",
+          "release": "2.el9_8.1",
+          "architecture": "noarch"
+        }
+      ]
+    },
+    "platform": {
+      "distribution": "rhel",
+      "major_version": "9",
+      "architecture": "x86_64"
+    },
+    "families": {
+      "booleans": {
+        "complete": true,
+        "entries": [
+          {
+            "name": "abrt_anon_write",
+            "default": false,
+            "description": "Allow abrt to anon write"
+          },
+          {
+            "name": "abrt_handle_event",
+            "default": false,
+            "description": "Allow abrt to handle event"
+          },
+          {
+            "name": "abrt_upload_watch_anon_write",
+            "default": true,
+            "description": "Allow abrt to upload watch anon write"
+          },
+          {
+            "name": "antivirus_can_scan_system",
+            "default": false,
+            "description": "Allow antivirus to can scan system"
+          },
+          {
+            "name": "antivirus_use_jit",
+            "default": false,
+            "description": "Allow antivirus to use jit"
+          },
+          {
+            "name": "auditadm_exec_content",
+            "default": true,
+            "description": "Allow auditadm to exec content"
+          },
+          {
+            "name": "authlogin_nsswitch_use_ldap",
+            "default": false,
+            "description": "Allow authlogin to nsswitch use ldap"
+          },
+          {
+            "name": "authlogin_radius",
+            "default": false,
+            "description": "Allow authlogin to radius"
+          },
+          {
+            "name": "authlogin_yubikey",
+            "default": false,
+            "description": "Allow authlogin to yubikey"
+          },
+          {
+            "name": "awstats_purge_apache_log_files",
+            "default": false,
+            "description": "Allow awstats to purge apache log files"
+          },
+          {
+            "name": "boinc_execmem",
+            "default": true,
+            "description": "Allow boinc to execmem"
+          },
+          {
+            "name": "cdrecord_read_content",
+            "default": false,
+            "description": "Allow cdrecord to read content"
+          },
+          {
+            "name": "cluster_can_network_connect",
+            "default": false,
+            "description": "Allow cluster to can network connect"
+          },
+          {
+            "name": "cluster_manage_all_files",
+            "default": false,
+            "description": "Allow cluster to manage all files"
+          },
+          {
+            "name": "cluster_use_execmem",
+            "default": false,
+            "description": "Allow cluster to use execmem"
+          },
+          {
+            "name": "cobbler_anon_write",
+            "default": false,
+            "description": "Allow cobbler to anon write"
+          },
+          {
+            "name": "cobbler_can_network_connect",
+            "default": false,
+            "description": "Allow cobbler to can network connect"
+          },
+          {
+            "name": "cobbler_use_cifs",
+            "default": false,
+            "description": "Allow cobbler to use cifs"
+          },
+          {
+            "name": "cobbler_use_nfs",
+            "default": false,
+            "description": "Allow cobbler to use nfs"
+          },
+          {
+            "name": "collectd_tcp_network_connect",
+            "default": false,
+            "description": "Allow collectd to tcp network connect"
+          },
+          {
+            "name": "colord_use_nfs",
+            "default": false,
+            "description": "Allow colord to use nfs"
+          },
+          {
+            "name": "condor_tcp_network_connect",
+            "default": false,
+            "description": "Allow condor to tcp network connect"
+          },
+          {
+            "name": "conman_can_network",
+            "default": false,
+            "description": "Allow conman to can network"
+          },
+          {
+            "name": "conman_use_nfs",
+            "default": false,
+            "description": "Allow conman to use nfs"
+          },
+          {
+            "name": "cron_can_relabel",
+            "default": false,
+            "description": "Allow cron to can relabel"
+          },
+          {
+            "name": "cron_system_cronjob_use_shares",
+            "default": false,
+            "description": "Allow cron to system cronjob use shares"
+          },
+          {
+            "name": "cron_userdomain_transition",
+            "default": true,
+            "description": "Allow cron to userdomain transition"
+          },
+          {
+            "name": "cups_execmem",
+            "default": false,
+            "description": "Allow cups to execmem"
+          },
+          {
+            "name": "cvs_read_shadow",
+            "default": false,
+            "description": "Allow cvs to read shadow"
+          },
+          {
+            "name": "daemons_dontaudit_scheduling",
+            "default": true,
+            "description": "Allow daemons to dontaudit scheduling"
+          },
+          {
+            "name": "daemons_dump_core",
+            "default": false,
+            "description": "Allow daemons to dump core"
+          },
+          {
+            "name": "daemons_enable_cluster_mode",
+            "default": false,
+            "description": "Allow daemons to enable cluster mode"
+          },
+          {
+            "name": "daemons_use_tcp_wrapper",
+            "default": false,
+            "description": "Allow daemons to use tcp wrapper"
+          },
+          {
+            "name": "daemons_use_tty",
+            "default": false,
+            "description": "Allow daemons to use tty"
+          },
+          {
+            "name": "dbadm_exec_content",
+            "default": true,
+            "description": "Allow dbadm to exec content"
+          },
+          {
+            "name": "dbadm_manage_user_files",
+            "default": false,
+            "description": "Allow dbadm to manage user files"
+          },
+          {
+            "name": "dbadm_read_user_files",
+            "default": false,
+            "description": "Allow dbadm to read user files"
+          },
+          {
+            "name": "deny_bluetooth",
+            "default": false,
+            "description": "Allow deny to bluetooth"
+          },
+          {
+            "name": "deny_execmem",
+            "default": false,
+            "description": "Allow deny to execmem"
+          },
+          {
+            "name": "deny_ptrace",
+            "default": false,
+            "description": "Allow deny to ptrace"
+          },
+          {
+            "name": "dhcpc_exec_iptables",
+            "default": false,
+            "description": "Allow dhcpc to exec iptables"
+          },
+          {
+            "name": "dhcpd_use_ldap",
+            "default": false,
+            "description": "Allow dhcpd to use ldap"
+          },
+          {
+            "name": "dnsmasq_use_ipset",
+            "default": false,
+            "description": "Allow dnsmasq to use ipset"
+          },
+          {
+            "name": "domain_can_mmap_files",
+            "default": false,
+            "description": "Allow domain to can mmap files"
+          },
+          {
+            "name": "domain_can_write_kmsg",
+            "default": false,
+            "description": "Allow domain to can write kmsg"
+          },
+          {
+            "name": "domain_fd_use",
+            "default": true,
+            "description": "Allow domain to fd use"
+          },
+          {
+            "name": "domain_kernel_load_modules",
+            "default": false,
+            "description": "Allow domain to kernel load modules"
+          },
+          {
+            "name": "entropyd_use_audio",
+            "default": true,
+            "description": "Allow entropyd to use audio"
+          },
+          {
+            "name": "exim_can_connect_db",
+            "default": false,
+            "description": "Allow exim to can connect db"
+          },
+          {
+            "name": "exim_manage_user_files",
+            "default": false,
+            "description": "Allow exim to manage user files"
+          },
+          {
+            "name": "exim_read_user_files",
+            "default": false,
+            "description": "Allow exim to read user files"
+          },
+          {
+            "name": "fcron_crond",
+            "default": false,
+            "description": "Allow fcron to crond"
+          },
+          {
+            "name": "fenced_can_network_connect",
+            "default": false,
+            "description": "Allow fenced to can network connect"
+          },
+          {
+            "name": "fenced_can_ssh",
+            "default": false,
+            "description": "Allow fenced to can ssh"
+          },
+          {
+            "name": "fips_mode",
+            "default": true,
+            "description": "Allow fips to mode"
+          },
+          {
+            "name": "ftpd_anon_write",
+            "default": false,
+            "description": "Allow ftpd to anon write"
+          },
+          {
+            "name": "ftpd_connect_all_unreserved",
+            "default": false,
+            "description": "Allow ftpd to connect all unreserved"
+          },
+          {
+            "name": "ftpd_connect_db",
+            "default": false,
+            "description": "Allow ftpd to connect db"
+          },
+          {
+            "name": "ftpd_full_access",
+            "default": false,
+            "description": "Allow ftpd to full access"
+          },
+          {
+            "name": "ftpd_use_cifs",
+            "default": false,
+            "description": "Allow ftpd to use cifs"
+          },
+          {
+            "name": "ftpd_use_fusefs",
+            "default": false,
+            "description": "Allow ftpd to use fusefs"
+          },
+          {
+            "name": "ftpd_use_nfs",
+            "default": false,
+            "description": "Allow ftpd to use nfs"
+          },
+          {
+            "name": "ftpd_use_passive_mode",
+            "default": false,
+            "description": "Allow ftpd to use passive mode"
+          },
+          {
+            "name": "git_cgi_enable_homedirs",
+            "default": false,
+            "description": "Allow git to cgi enable homedirs"
+          },
+          {
+            "name": "git_cgi_use_cifs",
+            "default": false,
+            "description": "Allow git to cgi use cifs"
+          },
+          {
+            "name": "git_cgi_use_nfs",
+            "default": false,
+            "description": "Allow git to cgi use nfs"
+          },
+          {
+            "name": "git_session_bind_all_unreserved_ports",
+            "default": false,
+            "description": "Allow git to session bind all unreserved ports"
+          },
+          {
+            "name": "git_session_users",
+            "default": false,
+            "description": "Allow git to session users"
+          },
+          {
+            "name": "git_system_enable_homedirs",
+            "default": false,
+            "description": "Allow git to system enable homedirs"
+          },
+          {
+            "name": "git_system_use_cifs",
+            "default": false,
+            "description": "Allow git to system use cifs"
+          },
+          {
+            "name": "git_system_use_nfs",
+            "default": false,
+            "description": "Allow git to system use nfs"
+          },
+          {
+            "name": "gitosis_can_sendmail",
+            "default": false,
+            "description": "Allow gitosis to can sendmail"
+          },
+          {
+            "name": "glance_api_can_network",
+            "default": false,
+            "description": "Allow glance to api can network"
+          },
+          {
+            "name": "glance_use_execmem",
+            "default": false,
+            "description": "Allow glance to use execmem"
+          },
+          {
+            "name": "glance_use_fusefs",
+            "default": false,
+            "description": "Allow glance to use fusefs"
+          },
+          {
+            "name": "global_ssp",
+            "default": false,
+            "description": "Allow global to ssp"
+          },
+          {
+            "name": "gpg_web_anon_write",
+            "default": false,
+            "description": "Allow gpg to web anon write"
+          },
+          {
+            "name": "gssd_read_tmp",
+            "default": true,
+            "description": "Allow gssd to read tmp"
+          },
+          {
+            "name": "guest_exec_content",
+            "default": true,
+            "description": "Allow guest to exec content"
+          },
+          {
+            "name": "haproxy_connect_any",
+            "default": false,
+            "description": "Allow haproxy to connect any"
+          },
+          {
+            "name": "httpd_anon_write",
+            "default": false,
+            "description": "Allow httpd to anon write"
+          },
+          {
+            "name": "httpd_builtin_scripting",
+            "default": true,
+            "description": "Allow httpd to builtin scripting"
+          },
+          {
+            "name": "httpd_can_check_spam",
+            "default": false,
+            "description": "Allow httpd to can check spam"
+          },
+          {
+            "name": "httpd_can_connect_ftp",
+            "default": false,
+            "description": "Allow httpd to can connect ftp"
+          },
+          {
+            "name": "httpd_can_connect_ldap",
+            "default": false,
+            "description": "Allow httpd to can connect ldap"
+          },
+          {
+            "name": "httpd_can_connect_mythtv",
+            "default": false,
+            "description": "Allow httpd to can connect mythtv"
+          },
+          {
+            "name": "httpd_can_connect_zabbix",
+            "default": false,
+            "description": "Allow httpd to can connect zabbix"
+          },
+          {
+            "name": "httpd_can_manage_courier_spool",
+            "default": false,
+            "description": "Allow httpd to can manage courier spool"
+          },
+          {
+            "name": "httpd_can_network_connect",
+            "default": false,
+            "description": "Allow httpd to can network connect"
+          },
+          {
+            "name": "httpd_can_network_connect_cobbler",
+            "default": false,
+            "description": "Allow httpd to can network connect cobbler"
+          },
+          {
+            "name": "httpd_can_network_connect_db",
+            "default": false,
+            "description": "Allow httpd to can network connect db"
+          },
+          {
+            "name": "httpd_can_network_memcache",
+            "default": false,
+            "description": "Allow httpd to can network memcache"
+          },
+          {
+            "name": "httpd_can_network_relay",
+            "default": false,
+            "description": "Allow httpd to can network relay"
+          },
+          {
+            "name": "httpd_can_sendmail",
+            "default": false,
+            "description": "Allow httpd to can sendmail"
+          },
+          {
+            "name": "httpd_dbus_avahi",
+            "default": false,
+            "description": "Allow httpd to dbus avahi"
+          },
+          {
+            "name": "httpd_dbus_sssd",
+            "default": false,
+            "description": "Allow httpd to dbus sssd"
+          },
+          {
+            "name": "httpd_dontaudit_search_dirs",
+            "default": false,
+            "description": "Allow httpd to dontaudit search dirs"
+          },
+          {
+            "name": "httpd_enable_cgi",
+            "default": true,
+            "description": "Allow httpd to enable cgi"
+          },
+          {
+            "name": "httpd_enable_ftp_server",
+            "default": false,
+            "description": "Allow httpd to enable ftp server"
+          },
+          {
+            "name": "httpd_enable_homedirs",
+            "default": false,
+            "description": "Allow httpd to enable homedirs"
+          },
+          {
+            "name": "httpd_execmem",
+            "default": false,
+            "description": "Allow httpd to execmem"
+          },
+          {
+            "name": "httpd_graceful_shutdown",
+            "default": false,
+            "description": "Allow httpd to graceful shutdown"
+          },
+          {
+            "name": "httpd_manage_ipa",
+            "default": false,
+            "description": "Allow httpd to manage ipa"
+          },
+          {
+            "name": "httpd_mod_auth_ntlm_winbind",
+            "default": false,
+            "description": "Allow httpd to mod auth ntlm winbind"
+          },
+          {
+            "name": "httpd_mod_auth_pam",
+            "default": false,
+            "description": "Allow httpd to mod auth pam"
+          },
+          {
+            "name": "httpd_read_user_content",
+            "default": false,
+            "description": "Allow httpd to read user content"
+          },
+          {
+            "name": "httpd_run_ipa",
+            "default": false,
+            "description": "Allow httpd to run ipa"
+          },
+          {
+            "name": "httpd_run_preupgrade",
+            "default": false,
+            "description": "Allow httpd to run preupgrade"
+          },
+          {
+            "name": "httpd_run_stickshift",
+            "default": false,
+            "description": "Allow httpd to run stickshift"
+          },
+          {
+            "name": "httpd_serve_cobbler_files",
+            "default": false,
+            "description": "Allow httpd to serve cobbler files"
+          },
+          {
+            "name": "httpd_setrlimit",
+            "default": false,
+            "description": "Allow httpd to setrlimit"
+          },
+          {
+            "name": "httpd_ssi_exec",
+            "default": false,
+            "description": "Allow httpd to ssi exec"
+          },
+          {
+            "name": "httpd_sys_script_anon_write",
+            "default": false,
+            "description": "Allow httpd to sys script anon write"
+          },
+          {
+            "name": "httpd_tmp_exec",
+            "default": false,
+            "description": "Allow httpd to tmp exec"
+          },
+          {
+            "name": "httpd_tty_comm",
+            "default": false,
+            "description": "Allow httpd to tty comm"
+          },
+          {
+            "name": "httpd_unified",
+            "default": false,
+            "description": "Allow httpd to unified"
+          },
+          {
+            "name": "httpd_use_cifs",
+            "default": false,
+            "description": "Allow httpd to use cifs"
+          },
+          {
+            "name": "httpd_use_fusefs",
+            "default": false,
+            "description": "Allow httpd to use fusefs"
+          },
+          {
+            "name": "httpd_use_gpg",
+            "default": false,
+            "description": "Allow httpd to use gpg"
+          },
+          {
+            "name": "httpd_use_nfs",
+            "default": false,
+            "description": "Allow httpd to use nfs"
+          },
+          {
+            "name": "httpd_use_opencryptoki",
+            "default": false,
+            "description": "Allow httpd to use opencryptoki"
+          },
+          {
+            "name": "httpd_use_openstack",
+            "default": false,
+            "description": "Allow httpd to use openstack"
+          },
+          {
+            "name": "httpd_use_sasl",
+            "default": false,
+            "description": "Allow httpd to use sasl"
+          },
+          {
+            "name": "httpd_verify_dns",
+            "default": false,
+            "description": "Allow httpd to verify dns"
+          },
+          {
+            "name": "icecast_use_any_tcp_ports",
+            "default": false,
+            "description": "Allow icecast to use any tcp ports"
+          },
+          {
+            "name": "init_audit_control",
+            "default": false,
+            "description": "Allow init to audit control"
+          },
+          {
+            "name": "init_create_dirs",
+            "default": true,
+            "description": "Allow init to create dirs"
+          },
+          {
+            "name": "irc_use_any_tcp_ports",
+            "default": false,
+            "description": "Allow irc to use any tcp ports"
+          },
+          {
+            "name": "irqbalance_run_unconfined",
+            "default": false,
+            "description": "Allow irqbalance to run unconfined"
+          },
+          {
+            "name": "irssi_use_full_network",
+            "default": false,
+            "description": "Allow irssi to use full network"
+          },
+          {
+            "name": "kdumpgui_run_bootloader",
+            "default": false,
+            "description": "Allow kdumpgui to run bootloader"
+          },
+          {
+            "name": "keepalived_connect_any",
+            "default": false,
+            "description": "Allow keepalived to connect any"
+          },
+          {
+            "name": "kerberos_enabled",
+            "default": true,
+            "description": "Allow kerberos to enabled"
+          },
+          {
+            "name": "ksmtuned_use_cifs",
+            "default": false,
+            "description": "Allow ksmtuned to use cifs"
+          },
+          {
+            "name": "ksmtuned_use_nfs",
+            "default": false,
+            "description": "Allow ksmtuned to use nfs"
+          },
+          {
+            "name": "logadm_exec_content",
+            "default": true,
+            "description": "Allow logadm to exec content"
+          },
+          {
+            "name": "logging_syslogd_append_public_content",
+            "default": false,
+            "description": "Allow logging to syslogd append public content"
+          },
+          {
+            "name": "logging_syslogd_can_sendmail",
+            "default": false,
+            "description": "Allow logging to syslogd can sendmail"
+          },
+          {
+            "name": "logging_syslogd_list_non_security_dirs",
+            "default": false,
+            "description": "Allow logging to syslogd list non security dirs"
+          },
+          {
+            "name": "logging_syslogd_run_nagios_plugins",
+            "default": false,
+            "description": "Allow logging to syslogd run nagios plugins"
+          },
+          {
+            "name": "logging_syslogd_run_unconfined",
+            "default": false,
+            "description": "Allow logging to syslogd run unconfined"
+          },
+          {
+            "name": "logging_syslogd_use_tty",
+            "default": true,
+            "description": "Allow logging to syslogd use tty"
+          },
+          {
+            "name": "login_console_enabled",
+            "default": true,
+            "description": "Allow login to console enabled"
+          },
+          {
+            "name": "logrotate_read_inside_containers",
+            "default": false,
+            "description": "Allow logrotate to read inside containers"
+          },
+          {
+            "name": "logrotate_use_cifs",
+            "default": false,
+            "description": "Allow logrotate to use cifs"
+          },
+          {
+            "name": "logrotate_use_fusefs",
+            "default": false,
+            "description": "Allow logrotate to use fusefs"
+          },
+          {
+            "name": "logrotate_use_nfs",
+            "default": false,
+            "description": "Allow logrotate to use nfs"
+          },
+          {
+            "name": "logwatch_can_network_connect_mail",
+            "default": false,
+            "description": "Allow logwatch to can network connect mail"
+          },
+          {
+            "name": "lsmd_plugin_connect_any",
+            "default": false,
+            "description": "Allow lsmd to plugin connect any"
+          },
+          {
+            "name": "mailman_use_fusefs",
+            "default": false,
+            "description": "Allow mailman to use fusefs"
+          },
+          {
+            "name": "mcelog_client",
+            "default": false,
+            "description": "Allow mcelog to client"
+          },
+          {
+            "name": "mcelog_exec_scripts",
+            "default": true,
+            "description": "Allow mcelog to exec scripts"
+          },
+          {
+            "name": "mcelog_foreground",
+            "default": false,
+            "description": "Allow mcelog to foreground"
+          },
+          {
+            "name": "mcelog_server",
+            "default": false,
+            "description": "Allow mcelog to server"
+          },
+          {
+            "name": "minidlna_read_generic_user_content",
+            "default": false,
+            "description": "Allow minidlna to read generic user content"
+          },
+          {
+            "name": "mmap_low_allowed",
+            "default": false,
+            "description": "Allow mmap to low allowed"
+          },
+          {
+            "name": "mock_enable_homedirs",
+            "default": false,
+            "description": "Allow mock to enable homedirs"
+          },
+          {
+            "name": "mount_anyfile",
+            "default": true,
+            "description": "Allow mount to anyfile"
+          },
+          {
+            "name": "mozilla_plugin_bind_unreserved_ports",
+            "default": false,
+            "description": "Allow mozilla to plugin bind unreserved ports"
+          },
+          {
+            "name": "mozilla_plugin_can_network_connect",
+            "default": true,
+            "description": "Allow mozilla to plugin can network connect"
+          },
+          {
+            "name": "mozilla_plugin_use_bluejeans",
+            "default": false,
+            "description": "Allow mozilla to plugin use bluejeans"
+          },
+          {
+            "name": "mozilla_plugin_use_gps",
+            "default": false,
+            "description": "Allow mozilla to plugin use gps"
+          },
+          {
+            "name": "mozilla_plugin_use_spice",
+            "default": false,
+            "description": "Allow mozilla to plugin use spice"
+          },
+          {
+            "name": "mozilla_read_content",
+            "default": false,
+            "description": "Allow mozilla to read content"
+          },
+          {
+            "name": "mpd_enable_homedirs",
+            "default": false,
+            "description": "Allow mpd to enable homedirs"
+          },
+          {
+            "name": "mpd_use_cifs",
+            "default": false,
+            "description": "Allow mpd to use cifs"
+          },
+          {
+            "name": "mpd_use_nfs",
+            "default": false,
+            "description": "Allow mpd to use nfs"
+          },
+          {
+            "name": "mplayer_execstack",
+            "default": false,
+            "description": "Allow mplayer to execstack"
+          },
+          {
+            "name": "mysql_connect_any",
+            "default": false,
+            "description": "Allow mysql to connect any"
+          },
+          {
+            "name": "mysql_connect_http",
+            "default": false,
+            "description": "Allow mysql to connect http"
+          },
+          {
+            "name": "nagios_run_pnp4nagios",
+            "default": false,
+            "description": "Allow nagios to run pnp4nagios"
+          },
+          {
+            "name": "nagios_run_sudo",
+            "default": false,
+            "description": "Allow nagios to run sudo"
+          },
+          {
+            "name": "nagios_use_nfs",
+            "default": false,
+            "description": "Allow nagios to use nfs"
+          },
+          {
+            "name": "named_tcp_bind_http_port",
+            "default": false,
+            "description": "Allow named to tcp bind http port"
+          },
+          {
+            "name": "named_write_master_zones",
+            "default": true,
+            "description": "Allow named to write master zones"
+          },
+          {
+            "name": "neutron_can_network",
+            "default": false,
+            "description": "Allow neutron to can network"
+          },
+          {
+            "name": "nfs_export_all_ro",
+            "default": true,
+            "description": "Allow nfs to export all ro"
+          },
+          {
+            "name": "nfs_export_all_rw",
+            "default": true,
+            "description": "Allow nfs to export all rw"
+          },
+          {
+            "name": "nfsd_anon_write",
+            "default": false,
+            "description": "Allow nfsd to anon write"
+          },
+          {
+            "name": "nis_enabled",
+            "default": false,
+            "description": "Allow nis to enabled"
+          },
+          {
+            "name": "nscd_use_shm",
+            "default": true,
+            "description": "Allow nscd to use shm"
+          },
+          {
+            "name": "openfortivpn_can_network_connect",
+            "default": true,
+            "description": "Allow openfortivpn to can network connect"
+          },
+          {
+            "name": "openshift_use_nfs",
+            "default": false,
+            "description": "Allow openshift to use nfs"
+          },
+          {
+            "name": "openvpn_can_network_connect",
+            "default": true,
+            "description": "Allow openvpn to can network connect"
+          },
+          {
+            "name": "openvpn_enable_homedirs",
+            "default": true,
+            "description": "Allow openvpn to enable homedirs"
+          },
+          {
+            "name": "openvpn_run_unconfined",
+            "default": false,
+            "description": "Allow openvpn to run unconfined"
+          },
+          {
+            "name": "pcp_bind_all_unreserved_ports",
+            "default": false,
+            "description": "Allow pcp to bind all unreserved ports"
+          },
+          {
+            "name": "pcp_read_generic_logs",
+            "default": false,
+            "description": "Allow pcp to read generic logs"
+          },
+          {
+            "name": "pdns_can_network_connect_db",
+            "default": false,
+            "description": "Allow pdns to can network connect db"
+          },
+          {
+            "name": "piranha_lvs_can_network_connect",
+            "default": false,
+            "description": "Allow piranha to lvs can network connect"
+          },
+          {
+            "name": "polipo_connect_all_unreserved",
+            "default": false,
+            "description": "Allow polipo to connect all unreserved"
+          },
+          {
+            "name": "polipo_session_bind_all_unreserved_ports",
+            "default": false,
+            "description": "Allow polipo to session bind all unreserved ports"
+          },
+          {
+            "name": "polipo_session_users",
+            "default": false,
+            "description": "Allow polipo to session users"
+          },
+          {
+            "name": "polipo_use_cifs",
+            "default": false,
+            "description": "Allow polipo to use cifs"
+          },
+          {
+            "name": "polipo_use_nfs",
+            "default": false,
+            "description": "Allow polipo to use nfs"
+          },
+          {
+            "name": "polyinstantiation_enabled",
+            "default": false,
+            "description": "Allow polyinstantiation to enabled"
+          },
+          {
+            "name": "postfix_local_write_mail_spool",
+            "default": true,
+            "description": "Allow postfix to local write mail spool"
+          },
+          {
+            "name": "postgresql_can_rsync",
+            "default": false,
+            "description": "Allow postgresql to can rsync"
+          },
+          {
+            "name": "postgresql_selinux_transmit_client_label",
+            "default": false,
+            "description": "Allow postgresql to selinux transmit client label"
+          },
+          {
+            "name": "postgresql_selinux_unconfined_dbadm",
+            "default": true,
+            "description": "Allow postgresql to selinux unconfined dbadm"
+          },
+          {
+            "name": "postgresql_selinux_users_ddl",
+            "default": true,
+            "description": "Allow postgresql to selinux users ddl"
+          },
+          {
+            "name": "pppd_can_insmod",
+            "default": false,
+            "description": "Allow pppd to can insmod"
+          },
+          {
+            "name": "pppd_for_user",
+            "default": false,
+            "description": "Allow pppd to for user"
+          },
+          {
+            "name": "privoxy_connect_any",
+            "default": true,
+            "description": "Allow privoxy to connect any"
+          },
+          {
+            "name": "prosody_bind_http_port",
+            "default": false,
+            "description": "Allow prosody to bind http port"
+          },
+          {
+            "name": "puppetagent_manage_all_files",
+            "default": false,
+            "description": "Allow puppetagent to manage all files"
+          },
+          {
+            "name": "puppetmaster_use_db",
+            "default": false,
+            "description": "Allow puppetmaster to use db"
+          },
+          {
+            "name": "racoon_read_shadow",
+            "default": false,
+            "description": "Allow racoon to read shadow"
+          },
+          {
+            "name": "radius_use_jit",
+            "default": false,
+            "description": "Allow radius to use jit"
+          },
+          {
+            "name": "redis_enable_notify",
+            "default": false,
+            "description": "Allow redis to enable notify"
+          },
+          {
+            "name": "rngd_execmem",
+            "default": false,
+            "description": "Allow rngd to execmem"
+          },
+          {
+            "name": "rpcd_use_fusefs",
+            "default": false,
+            "description": "Allow rpcd to use fusefs"
+          },
+          {
+            "name": "rsync_anon_write",
+            "default": false,
+            "description": "Allow rsync to anon write"
+          },
+          {
+            "name": "rsync_client",
+            "default": false,
+            "description": "Allow rsync to client"
+          },
+          {
+            "name": "rsync_export_all_ro",
+            "default": false,
+            "description": "Allow rsync to export all ro"
+          },
+          {
+            "name": "rsync_full_access",
+            "default": false,
+            "description": "Allow rsync to full access"
+          },
+          {
+            "name": "rsync_sys_admin",
+            "default": false,
+            "description": "Allow rsync to sys admin"
+          },
+          {
+            "name": "samba_create_home_dirs",
+            "default": false,
+            "description": "Allow samba to create home dirs"
+          },
+          {
+            "name": "samba_domain_controller",
+            "default": false,
+            "description": "Allow samba to domain controller"
+          },
+          {
+            "name": "samba_enable_home_dirs",
+            "default": false,
+            "description": "Allow samba to enable home dirs"
+          },
+          {
+            "name": "samba_export_all_ro",
+            "default": false,
+            "description": "Allow samba to export all ro"
+          },
+          {
+            "name": "samba_export_all_rw",
+            "default": false,
+            "description": "Allow samba to export all rw"
+          },
+          {
+            "name": "samba_load_libgfapi",
+            "default": false,
+            "description": "Allow samba to load libgfapi"
+          },
+          {
+            "name": "samba_portmapper",
+            "default": false,
+            "description": "Allow samba to portmapper"
+          },
+          {
+            "name": "samba_run_unconfined",
+            "default": false,
+            "description": "Allow samba to run unconfined"
+          },
+          {
+            "name": "samba_share_fusefs",
+            "default": false,
+            "description": "Allow samba to share fusefs"
+          },
+          {
+            "name": "samba_share_nfs",
+            "default": false,
+            "description": "Allow samba to share nfs"
+          },
+          {
+            "name": "sanlock_enable_home_dirs",
+            "default": false,
+            "description": "Allow sanlock to enable home dirs"
+          },
+          {
+            "name": "sanlock_use_fusefs",
+            "default": false,
+            "description": "Allow sanlock to use fusefs"
+          },
+          {
+            "name": "sanlock_use_nfs",
+            "default": false,
+            "description": "Allow sanlock to use nfs"
+          },
+          {
+            "name": "sanlock_use_samba",
+            "default": false,
+            "description": "Allow sanlock to use samba"
+          },
+          {
+            "name": "saslauthd_read_shadow",
+            "default": false,
+            "description": "Allow saslauthd to read shadow"
+          },
+          {
+            "name": "screen_allow_session_sharing",
+            "default": false,
+            "description": "Allow screen to allow session sharing"
+          },
+          {
+            "name": "secadm_exec_content",
+            "default": true,
+            "description": "Allow secadm to exec content"
+          },
+          {
+            "name": "secure_mode",
+            "default": false,
+            "description": "Allow secure to mode"
+          },
+          {
+            "name": "secure_mode_insmod",
+            "default": false,
+            "description": "Allow secure to mode insmod"
+          },
+          {
+            "name": "secure_mode_policyload",
+            "default": false,
+            "description": "Allow secure to mode policyload"
+          },
+          {
+            "name": "selinuxuser_direct_dri_enabled",
+            "default": true,
+            "description": "Allow selinuxuser to direct dri enabled"
+          },
+          {
+            "name": "selinuxuser_execheap",
+            "default": false,
+            "description": "Allow selinuxuser to execheap"
+          },
+          {
+            "name": "selinuxuser_execmod",
+            "default": false,
+            "description": "Allow selinuxuser to execmod"
+          },
+          {
+            "name": "selinuxuser_execstack",
+            "default": true,
+            "description": "Allow selinuxuser to execstack"
+          },
+          {
+            "name": "selinuxuser_mysql_connect_enabled",
+            "default": false,
+            "description": "Allow selinuxuser to mysql connect enabled"
+          },
+          {
+            "name": "selinuxuser_ping",
+            "default": true,
+            "description": "Allow selinuxuser to ping"
+          },
+          {
+            "name": "selinuxuser_postgresql_connect_enabled",
+            "default": false,
+            "description": "Allow selinuxuser to postgresql connect enabled"
+          },
+          {
+            "name": "selinuxuser_rw_noexattrfile",
+            "default": true,
+            "description": "Allow selinuxuser to rw noexattrfile"
+          },
+          {
+            "name": "selinuxuser_share_music",
+            "default": false,
+            "description": "Allow selinuxuser to share music"
+          },
+          {
+            "name": "selinuxuser_tcp_server",
+            "default": false,
+            "description": "Allow selinuxuser to tcp server"
+          },
+          {
+            "name": "selinuxuser_udp_server",
+            "default": false,
+            "description": "Allow selinuxuser to udp server"
+          },
+          {
+            "name": "selinuxuser_use_ssh_chroot",
+            "default": false,
+            "description": "Allow selinuxuser to use ssh chroot"
+          },
+          {
+            "name": "sge_domain_can_network_connect",
+            "default": false,
+            "description": "Allow sge to domain can network connect"
+          },
+          {
+            "name": "sge_use_nfs",
+            "default": false,
+            "description": "Allow sge to use nfs"
+          },
+          {
+            "name": "smartmon_3ware",
+            "default": false,
+            "description": "Allow smartmon to 3ware"
+          },
+          {
+            "name": "smbd_anon_write",
+            "default": false,
+            "description": "Allow smbd to anon write"
+          },
+          {
+            "name": "spamassassin_can_network",
+            "default": false,
+            "description": "Allow spamassassin to can network"
+          },
+          {
+            "name": "spamd_enable_home_dirs",
+            "default": true,
+            "description": "Allow spamd to enable home dirs"
+          },
+          {
+            "name": "spamd_update_can_network",
+            "default": false,
+            "description": "Allow spamd to update can network"
+          },
+          {
+            "name": "squid_bind_snmp_port",
+            "default": false,
+            "description": "Allow squid to bind snmp port"
+          },
+          {
+            "name": "squid_connect_any",
+            "default": true,
+            "description": "Allow squid to connect any"
+          },
+          {
+            "name": "squid_use_tproxy",
+            "default": false,
+            "description": "Allow squid to use tproxy"
+          },
+          {
+            "name": "ssh_chroot_rw_homedirs",
+            "default": false,
+            "description": "Allow ssh to chroot rw homedirs"
+          },
+          {
+            "name": "ssh_keysign",
+            "default": false,
+            "description": "Allow ssh to keysign"
+          },
+          {
+            "name": "ssh_sysadm_login",
+            "default": false,
+            "description": "Allow ssh to sysadm login"
+          },
+          {
+            "name": "ssh_use_tcpd",
+            "default": false,
+            "description": "Allow ssh to use tcpd"
+          },
+          {
+            "name": "sslh_can_bind_any_port",
+            "default": false,
+            "description": "Allow sslh to can bind any port"
+          },
+          {
+            "name": "sslh_can_connect_any_port",
+            "default": false,
+            "description": "Allow sslh to can connect any port"
+          },
+          {
+            "name": "sssd_access_kernel_keys",
+            "default": false,
+            "description": "Allow sssd to access kernel keys"
+          },
+          {
+            "name": "sssd_connect_all_unreserved_ports",
+            "default": false,
+            "description": "Allow sssd to connect all unreserved ports"
+          },
+          {
+            "name": "sssd_use_usb",
+            "default": false,
+            "description": "Allow sssd to use usb"
+          },
+          {
+            "name": "staff_exec_content",
+            "default": true,
+            "description": "Allow staff to exec content"
+          },
+          {
+            "name": "staff_use_svirt",
+            "default": false,
+            "description": "Allow staff to use svirt"
+          },
+          {
+            "name": "swift_can_network",
+            "default": false,
+            "description": "Allow swift to can network"
+          },
+          {
+            "name": "sysadm_exec_content",
+            "default": true,
+            "description": "Allow sysadm to exec content"
+          },
+          {
+            "name": "systemd_socket_proxyd_bind_any",
+            "default": false,
+            "description": "Allow systemd to socket proxyd bind any"
+          },
+          {
+            "name": "systemd_socket_proxyd_connect_any",
+            "default": false,
+            "description": "Allow systemd to socket proxyd connect any"
+          },
+          {
+            "name": "telepathy_connect_all_ports",
+            "default": false,
+            "description": "Allow telepathy to connect all ports"
+          },
+          {
+            "name": "telepathy_tcp_connect_generic_network_ports",
+            "default": true,
+            "description": "Allow telepathy to tcp connect generic network ports"
+          },
+          {
+            "name": "tftp_anon_write",
+            "default": false,
+            "description": "Allow tftp to anon write"
+          },
+          {
+            "name": "tftp_home_dir",
+            "default": false,
+            "description": "Allow tftp to home dir"
+          },
+          {
+            "name": "tmpreaper_use_cifs",
+            "default": false,
+            "description": "Allow tmpreaper to use cifs"
+          },
+          {
+            "name": "tmpreaper_use_nfs",
+            "default": false,
+            "description": "Allow tmpreaper to use nfs"
+          },
+          {
+            "name": "tmpreaper_use_samba",
+            "default": false,
+            "description": "Allow tmpreaper to use samba"
+          },
+          {
+            "name": "tomcat_can_network_connect_db",
+            "default": false,
+            "description": "Allow tomcat to can network connect db"
+          },
+          {
+            "name": "tomcat_read_rpm_db",
+            "default": false,
+            "description": "Allow tomcat to read rpm db"
+          },
+          {
+            "name": "tomcat_use_execmem",
+            "default": false,
+            "description": "Allow tomcat to use execmem"
+          },
+          {
+            "name": "tor_bind_all_unreserved_ports",
+            "default": false,
+            "description": "Allow tor to bind all unreserved ports"
+          },
+          {
+            "name": "tor_can_network_relay",
+            "default": false,
+            "description": "Allow tor to can network relay"
+          },
+          {
+            "name": "tor_can_onion_services",
+            "default": false,
+            "description": "Allow tor to can onion services"
+          },
+          {
+            "name": "unconfined_chrome_sandbox_transition",
+            "default": true,
+            "description": "Allow unconfined to chrome sandbox transition"
+          },
+          {
+            "name": "unconfined_dyntrans_all",
+            "default": false,
+            "description": "Allow unconfined to dyntrans all"
+          },
+          {
+            "name": "unconfined_login",
+            "default": true,
+            "description": "Allow unconfined to login"
+          },
+          {
+            "name": "unconfined_mozilla_plugin_transition",
+            "default": true,
+            "description": "Allow unconfined to mozilla plugin transition"
+          },
+          {
+            "name": "unprivuser_use_svirt",
+            "default": false,
+            "description": "Allow unprivuser to use svirt"
+          },
+          {
+            "name": "use_ecryptfs_home_dirs",
+            "default": false,
+            "description": "Allow use to ecryptfs home dirs"
+          },
+          {
+            "name": "use_fusefs_home_dirs",
+            "default": false,
+            "description": "Allow use to fusefs home dirs"
+          },
+          {
+            "name": "use_lpd_server",
+            "default": false,
+            "description": "Allow use to lpd server"
+          },
+          {
+            "name": "use_nfs_home_dirs",
+            "default": false,
+            "description": "Allow use to nfs home dirs"
+          },
+          {
+            "name": "use_samba_home_dirs",
+            "default": false,
+            "description": "Allow use to samba home dirs"
+          },
+          {
+            "name": "use_virtualbox",
+            "default": true,
+            "description": "Allow use to virtualbox"
+          },
+          {
+            "name": "user_exec_content",
+            "default": true,
+            "description": "Allow user to exec content"
+          },
+          {
+            "name": "varnishd_connect_any",
+            "default": false,
+            "description": "Allow varnishd to connect any"
+          },
+          {
+            "name": "virt_lockd_blk_devs",
+            "default": false,
+            "description": "Allow virt to lockd blk devs"
+          },
+          {
+            "name": "virt_qemu_ga_manage_ssh",
+            "default": false,
+            "description": "Allow virt to qemu ga manage ssh"
+          },
+          {
+            "name": "virt_qemu_ga_read_nonsecurity_files",
+            "default": false,
+            "description": "Allow virt to qemu ga read nonsecurity files"
+          },
+          {
+            "name": "virt_qemu_ga_run_unconfined",
+            "default": false,
+            "description": "Allow virt to qemu ga run unconfined"
+          },
+          {
+            "name": "virt_read_qemu_ga_data",
+            "default": false,
+            "description": "Allow virt to read qemu ga data"
+          },
+          {
+            "name": "virt_rw_qemu_ga_data",
+            "default": false,
+            "description": "Allow virt to rw qemu ga data"
+          },
+          {
+            "name": "virt_sandbox_share_apache_content",
+            "default": false,
+            "description": "Allow virt to sandbox share apache content"
+          },
+          {
+            "name": "virt_sandbox_use_all_caps",
+            "default": true,
+            "description": "Allow virt to sandbox use all caps"
+          },
+          {
+            "name": "virt_sandbox_use_audit",
+            "default": true,
+            "description": "Allow virt to sandbox use audit"
+          },
+          {
+            "name": "virt_sandbox_use_fusefs",
+            "default": false,
+            "description": "Allow virt to sandbox use fusefs"
+          },
+          {
+            "name": "virt_sandbox_use_mknod",
+            "default": false,
+            "description": "Allow virt to sandbox use mknod"
+          },
+          {
+            "name": "virt_sandbox_use_netlink",
+            "default": false,
+            "description": "Allow virt to sandbox use netlink"
+          },
+          {
+            "name": "virt_sandbox_use_sys_admin",
+            "default": false,
+            "description": "Allow virt to sandbox use sys admin"
+          },
+          {
+            "name": "virt_transition_userdomain",
+            "default": false,
+            "description": "Allow virt to transition userdomain"
+          },
+          {
+            "name": "virt_use_comm",
+            "default": false,
+            "description": "Allow virt to use comm"
+          },
+          {
+            "name": "virt_use_execmem",
+            "default": false,
+            "description": "Allow virt to use execmem"
+          },
+          {
+            "name": "virt_use_fusefs",
+            "default": false,
+            "description": "Allow virt to use fusefs"
+          },
+          {
+            "name": "virt_use_glusterd",
+            "default": false,
+            "description": "Allow virt to use glusterd"
+          },
+          {
+            "name": "virt_use_nfs",
+            "default": false,
+            "description": "Allow virt to use nfs"
+          },
+          {
+            "name": "virt_use_pcscd",
+            "default": false,
+            "description": "Allow virt to use pcscd"
+          },
+          {
+            "name": "virt_use_pulseaudio",
+            "default": false,
+            "description": "Allow virt to use pulseaudio"
+          },
+          {
+            "name": "virt_use_rawip",
+            "default": false,
+            "description": "Allow virt to use rawip"
+          },
+          {
+            "name": "virt_use_samba",
+            "default": false,
+            "description": "Allow virt to use samba"
+          },
+          {
+            "name": "virt_use_sanlock",
+            "default": false,
+            "description": "Allow virt to use sanlock"
+          },
+          {
+            "name": "virt_use_usb",
+            "default": true,
+            "description": "Allow virt to use usb"
+          },
+          {
+            "name": "virt_use_xserver",
+            "default": false,
+            "description": "Allow virt to use xserver"
+          },
+          {
+            "name": "webadm_manage_user_files",
+            "default": false,
+            "description": "Allow webadm to manage user files"
+          },
+          {
+            "name": "webadm_read_user_files",
+            "default": false,
+            "description": "Allow webadm to read user files"
+          },
+          {
+            "name": "wine_mmap_zero_ignore",
+            "default": false,
+            "description": "Allow wine to mmap zero ignore"
+          },
+          {
+            "name": "xdm_bind_vnc_tcp_port",
+            "default": false,
+            "description": "Allow xdm to bind vnc tcp port"
+          },
+          {
+            "name": "xdm_exec_bootloader",
+            "default": false,
+            "description": "Allow xdm to exec bootloader"
+          },
+          {
+            "name": "xdm_manage_bootloader",
+            "default": true,
+            "description": "Allow xdm to manage bootloader"
+          },
+          {
+            "name": "xdm_sysadm_login",
+            "default": false,
+            "description": "Allow xdm to sysadm login"
+          },
+          {
+            "name": "xdm_write_home",
+            "default": false,
+            "description": "Allow xdm to write home"
+          },
+          {
+            "name": "xen_use_nfs",
+            "default": false,
+            "description": "Allow xen to use nfs"
+          },
+          {
+            "name": "xend_run_blktap",
+            "default": true,
+            "description": "Allow xend to run blktap"
+          },
+          {
+            "name": "xend_run_qemu",
+            "default": true,
+            "description": "Allow xend to run qemu"
+          },
+          {
+            "name": "xguest_connect_network",
+            "default": true,
+            "description": "Allow xguest to connect network"
+          },
+          {
+            "name": "xguest_exec_content",
+            "default": true,
+            "description": "Allow xguest to exec content"
+          },
+          {
+            "name": "xguest_mount_media",
+            "default": true,
+            "description": "Allow xguest to mount media"
+          },
+          {
+            "name": "xguest_use_bluetooth",
+            "default": true,
+            "description": "Allow xguest to use bluetooth"
+          },
+          {
+            "name": "xserver_clients_write_xshm",
+            "default": false,
+            "description": "Allow xserver to clients write xshm"
+          },
+          {
+            "name": "xserver_execmem",
+            "default": false,
+            "description": "Allow xserver to execmem"
+          },
+          {
+            "name": "xserver_object_manager",
+            "default": false,
+            "description": "Allow xserver to object manager"
+          },
+          {
+            "name": "zabbix_can_network",
+            "default": false,
+            "description": "Allow zabbix to can network"
+          },
+          {
+            "name": "zabbix_run_sudo",
+            "default": false,
+            "description": "Allow zabbix to run sudo"
+          },
+          {
+            "name": "zarafa_setrlimit",
+            "default": false,
+            "description": "Allow zarafa to setrlimit"
+          },
+          {
+            "name": "zebra_write_config",
+            "default": false,
+            "description": "Allow zebra to write config"
+          },
+          {
+            "name": "zoneminder_anon_write",
+            "default": false,
+            "description": "Allow zoneminder to anon write"
+          },
+          {
+            "name": "zoneminder_run_sudo",
+            "default": false,
+            "description": "Allow zoneminder to run sudo"
+          }
+        ]
+      },
+      "ports": {
+        "complete": true,
+        "mappings": [
+          {
+            "type": "reserved_port_t",
+            "protocol": "sctp",
+            "start": 1,
+            "end": 511
+          },
+          {
+            "type": "hi_reserved_port_t",
+            "protocol": "sctp",
+            "start": 512,
+            "end": 1023
+          },
+          {
+            "type": "unreserved_port_t",
+            "protocol": "sctp",
+            "start": 1024,
+            "end": 65535
+          },
+          {
+            "type": "inetd_child_port_t",
+            "protocol": "tcp",
+            "start": 1,
+            "end": 1
+          },
+          {
+            "type": "reserved_port_t",
+            "protocol": "tcp",
+            "start": 1,
+            "end": 511
+          },
+          {
+            "type": "echo_port_t",
+            "protocol": "tcp",
+            "start": 7,
+            "end": 7
+          },
+          {
+            "type": "inetd_child_port_t",
+            "protocol": "tcp",
+            "start": 9,
+            "end": 9
+          },
+          {
+            "type": "inetd_child_port_t",
+            "protocol": "tcp",
+            "start": 13,
+            "end": 13
+          },
+          {
+            "type": "inetd_child_port_t",
+            "protocol": "tcp",
+            "start": 19,
+            "end": 19
+          },
+          {
+            "type": "ftp_data_port_t",
+            "protocol": "tcp",
+            "start": 20,
+            "end": 20
+          },
+          {
+            "type": "ftp_port_t",
+            "protocol": "tcp",
+            "start": 21,
+            "end": 21
+          },
+          {
+            "type": "ssh_port_t",
+            "protocol": "tcp",
+            "start": 22,
+            "end": 22
+          },
+          {
+            "type": "telnetd_port_t",
+            "protocol": "tcp",
+            "start": 23,
+            "end": 23
+          },
+          {
+            "type": "lmtp_port_t",
+            "protocol": "tcp",
+            "start": 24,
+            "end": 24
+          },
+          {
+            "type": "smtp_port_t",
+            "protocol": "tcp",
+            "start": 25,
+            "end": 25
+          },
+          {
+            "type": "time_port_t",
+            "protocol": "tcp",
+            "start": 37,
+            "end": 37
+          },
+          {
+            "type": "whois_port_t",
+            "protocol": "tcp",
+            "start": 43,
+            "end": 43
+          },
+          {
+            "type": "dns_port_t",
+            "protocol": "tcp",
+            "start": 53,
+            "end": 53
+          },
+          {
+            "type": "audit_port_t",
+            "protocol": "tcp",
+            "start": 60,
+            "end": 60
+          },
+          {
+            "type": "dhcpc_port_t",
+            "protocol": "tcp",
+            "start": 68,
+            "end": 68
+          },
+          {
+            "type": "gopher_port_t",
+            "protocol": "tcp",
+            "start": 70,
+            "end": 70
+          },
+          {
+            "type": "fingerd_port_t",
+            "protocol": "tcp",
+            "start": 79,
+            "end": 79
+          },
+          {
+            "type": "http_port_t",
+            "protocol": "tcp",
+            "start": 80,
+            "end": 81
+          },
+          {
+            "type": "kerberos_port_t",
+            "protocol": "tcp",
+            "start": 88,
+            "end": 88
+          },
+          {
+            "type": "pop_port_t",
+            "protocol": "tcp",
+            "start": 106,
+            "end": 106
+          },
+          {
+            "type": "pop_port_t",
+            "protocol": "tcp",
+            "start": 109,
+            "end": 110
+          },
+          {
+            "type": "portmap_port_t",
+            "protocol": "tcp",
+            "start": 111,
+            "end": 111
+          },
+          {
+            "type": "auth_port_t",
+            "protocol": "tcp",
+            "start": 113,
+            "end": 113
+          },
+          {
+            "type": "innd_port_t",
+            "protocol": "tcp",
+            "start": 119,
+            "end": 119
+          },
+          {
+            "type": "epmap_port_t",
+            "protocol": "tcp",
+            "start": 135,
+            "end": 135
+          },
+          {
+            "type": "smbd_port_t",
+            "protocol": "tcp",
+            "start": 137,
+            "end": 139
+          },
+          {
+            "type": "pop_port_t",
+            "protocol": "tcp",
+            "start": 143,
+            "end": 143
+          },
+          {
+            "type": "snmp_port_t",
+            "protocol": "tcp",
+            "start": 161,
+            "end": 162
+          },
+          {
+            "type": "xdmcp_port_t",
+            "protocol": "tcp",
+            "start": 177,
+            "end": 177
+          },
+          {
+            "type": "bgp_port_t",
+            "protocol": "tcp",
+            "start": 179,
+            "end": 179
+          },
+          {
+            "type": "snmp_port_t",
+            "protocol": "tcp",
+            "start": 199,
+            "end": 199
+          },
+          {
+            "type": "pop_port_t",
+            "protocol": "tcp",
+            "start": 220,
+            "end": 220
+          },
+          {
+            "type": "zarafa_port_t",
+            "protocol": "tcp",
+            "start": 236,
+            "end": 237
+          },
+          {
+            "type": "ldap_port_t",
+            "protocol": "tcp",
+            "start": 389,
+            "end": 389
+          },
+          {
+            "type": "svrloc_port_t",
+            "protocol": "tcp",
+            "start": 427,
+            "end": 427
+          },
+          {
+            "type": "http_port_t",
+            "protocol": "tcp",
+            "start": 443,
+            "end": 443
+          },
+          {
+            "type": "smbd_port_t",
+            "protocol": "tcp",
+            "start": 445,
+            "end": 445
+          },
+          {
+            "type": "kerberos_password_port_t",
+            "protocol": "tcp",
+            "start": 464,
+            "end": 464
+          },
+          {
+            "type": "smtp_port_t",
+            "protocol": "tcp",
+            "start": 465,
+            "end": 465
+          },
+          {
+            "type": "http_port_t",
+            "protocol": "tcp",
+            "start": 488,
+            "end": 488
+          },
+          {
+            "type": "inetd_child_port_t",
+            "protocol": "tcp",
+            "start": 512,
+            "end": 512
+          },
+          {
+            "type": "hi_reserved_port_t",
+            "protocol": "tcp",
+            "start": 512,
+            "end": 1023
+          },
+          {
+            "type": "rlogind_port_t",
+            "protocol": "tcp",
+            "start": 513,
+            "end": 513
+          },
+          {
+            "type": "rsh_port_t",
+            "protocol": "tcp",
+            "start": 514,
+            "end": 514
+          },
+          {
+            "type": "printer_port_t",
+            "protocol": "tcp",
+            "start": 515,
+            "end": 515
+          },
+          {
+            "type": "efs_port_t",
+            "protocol": "tcp",
+            "start": 520,
+            "end": 520
+          },
+          {
+            "type": "router_port_t",
+            "protocol": "tcp",
+            "start": 521,
+            "end": 521
+          },
+          {
+            "type": "gdomap_port_t",
+            "protocol": "tcp",
+            "start": 538,
+            "end": 538
+          },
+          {
+            "type": "apertus_ldp_port_t",
+            "protocol": "tcp",
+            "start": 539,
+            "end": 539
+          },
+          {
+            "type": "uucpd_port_t",
+            "protocol": "tcp",
+            "start": 540,
+            "end": 540
+          },
+          {
+            "type": "rlogin_port_t",
+            "protocol": "tcp",
+            "start": 543,
+            "end": 543
+          },
+          {
+            "type": "inetd_child_port_t",
+            "protocol": "tcp",
+            "start": 544,
+            "end": 544
+          },
+          {
+            "type": "dhcpc_port_t",
+            "protocol": "tcp",
+            "start": 546,
+            "end": 546
+          },
+          {
+            "type": "dhcpd_port_t",
+            "protocol": "tcp",
+            "start": 547,
+            "end": 548
+          },
+          {
+            "type": "rtsp_port_t",
+            "protocol": "tcp",
+            "start": 554,
+            "end": 554
+          },
+          {
+            "type": "smtp_port_t",
+            "protocol": "tcp",
+            "start": 587,
+            "end": 587
+          },
+          {
+            "type": "syslogd_port_t",
+            "protocol": "tcp",
+            "start": 601,
+            "end": 601
+          },
+          {
+            "type": "ipp_port_t",
+            "protocol": "tcp",
+            "start": 631,
+            "end": 631
+          },
+          {
+            "type": "ldap_port_t",
+            "protocol": "tcp",
+            "start": 636,
+            "end": 636
+          },
+          {
+            "type": "dhcpd_port_t",
+            "protocol": "tcp",
+            "start": 647,
+            "end": 647
+          },
+          {
+            "type": "agentx_port_t",
+            "protocol": "tcp",
+            "start": 705,
+            "end": 705
+          },
+          {
+            "type": "kerberos_admin_port_t",
+            "protocol": "tcp",
+            "start": 749,
+            "end": 749
+          },
+          {
+            "type": "kerberos_port_t",
+            "protocol": "tcp",
+            "start": 750,
+            "end": 750
+          },
+          {
+            "type": "kprop_port_t",
+            "protocol": "tcp",
+            "start": 754,
+            "end": 754
+          },
+          {
+            "type": "spamd_port_t",
+            "protocol": "tcp",
+            "start": 783,
+            "end": 783
+          },
+          {
+            "type": "pki_ca_port_t",
+            "protocol": "tcp",
+            "start": 829,
+            "end": 829
+          },
+          {
+            "type": "flash_port_t",
+            "protocol": "tcp",
+            "start": 843,
+            "end": 843
+          },
+          {
+            "type": "dhcpd_port_t",
+            "protocol": "tcp",
+            "start": 847,
+            "end": 847
+          },
+          {
+            "type": "dns_port_t",
+            "protocol": "tcp",
+            "start": 853,
+            "end": 853
+          },
+          {
+            "type": "rsync_port_t",
+            "protocol": "tcp",
+            "start": 873,
+            "end": 873
+          },
+          {
+            "type": "inetd_child_port_t",
+            "protocol": "tcp",
+            "start": 891,
+            "end": 892
+          },
+          {
+            "type": "swat_port_t",
+            "protocol": "tcp",
+            "start": 901,
+            "end": 901
+          },
+          {
+            "type": "rndc_port_t",
+            "protocol": "tcp",
+            "start": 953,
+            "end": 953
+          },
+          {
+            "type": "ftp_port_t",
+            "protocol": "tcp",
+            "start": 989,
+            "end": 990
+          },
+          {
+            "type": "pop_port_t",
+            "protocol": "tcp",
+            "start": 993,
+            "end": 993
+          },
+          {
+            "type": "pop_port_t",
+            "protocol": "tcp",
+            "start": 995,
+            "end": 995
+          },
+          {
+            "type": "unreserved_port_t",
+            "protocol": "tcp",
+            "start": 1024,
+            "end": 32767
+          },
+          {
+            "type": "boinc_client_port_t",
+            "protocol": "tcp",
+            "start": 1043,
+            "end": 1043
+          },
+          {
+            "type": "cma_port_t",
+            "protocol": "tcp",
+            "start": 1050,
+            "end": 1050
+          },
+          {
+            "type": "pop_port_t",
+            "protocol": "tcp",
+            "start": 1109,
+            "end": 1109
+          },
+          {
+            "type": "saphostctrl_port_t",
+            "protocol": "tcp",
+            "start": 1128,
+            "end": 1129
+          },
+          {
+            "type": "snmp_port_t",
+            "protocol": "tcp",
+            "start": 1161,
+            "end": 1161
+          },
+          {
+            "type": "dbskkd_port_t",
+            "protocol": "tcp",
+            "start": 1178,
+            "end": 1178
+          },
+          {
+            "type": "mysqld_port_t",
+            "protocol": "tcp",
+            "start": 1186,
+            "end": 1186
+          },
+          {
+            "type": "openvpn_port_t",
+            "protocol": "tcp",
+            "start": 1194,
+            "end": 1194
+          },
+          {
+            "type": "giftd_port_t",
+            "protocol": "tcp",
+            "start": 1213,
+            "end": 1213
+          },
+          {
+            "type": "zented_port_t",
+            "protocol": "tcp",
+            "start": 1229,
+            "end": 1229
+          },
+          {
+            "type": "monopd_port_t",
+            "protocol": "tcp",
+            "start": 1234,
+            "end": 1234
+          },
+          {
+            "type": "nessus_port_t",
+            "protocol": "tcp",
+            "start": 1241,
+            "end": 1241
+          },
+          {
+            "type": "pdps_port_t",
+            "protocol": "tcp",
+            "start": 1314,
+            "end": 1314
+          },
+          {
+            "type": "connlcli_port_t",
+            "protocol": "tcp",
+            "start": 1358,
+            "end": 1358
+          },
+          {
+            "type": "mssql_port_t",
+            "protocol": "tcp",
+            "start": 1433,
+            "end": 1434
+          },
+          {
+            "type": "oracle_port_t",
+            "protocol": "tcp",
+            "start": 1521,
+            "end": 1521
+          },
+          {
+            "type": "virtual_places_port_t",
+            "protocol": "tcp",
+            "start": 1533,
+            "end": 1533
+          },
+          {
+            "type": "vqp_port_t",
+            "protocol": "tcp",
+            "start": 1589,
+            "end": 1589
+          },
+          {
+            "type": "radius_port_t",
+            "protocol": "tcp",
+            "start": 1645,
+            "end": 1645
+          },
+          {
+            "type": "radacct_port_t",
+            "protocol": "tcp",
+            "start": 1646,
+            "end": 1646
+          },
+          {
+            "type": "l2tp_port_t",
+            "protocol": "tcp",
+            "start": 1701,
+            "end": 1701
+          },
+          {
+            "type": "xmsg_port_t",
+            "protocol": "tcp",
+            "start": 1716,
+            "end": 1716
+          },
+          {
+            "type": "asterisk_port_t",
+            "protocol": "tcp",
+            "start": 1720,
+            "end": 1720
+          },
+          {
+            "type": "gatekeeper_port_t",
+            "protocol": "tcp",
+            "start": 1721,
+            "end": 1721
+          },
+          {
+            "type": "pptp_port_t",
+            "protocol": "tcp",
+            "start": 1723,
+            "end": 1723
+          },
+          {
+            "type": "ms_streaming_port_t",
+            "protocol": "tcp",
+            "start": 1755,
+            "end": 1755
+          },
+          {
+            "type": "hplip_port_t",
+            "protocol": "tcp",
+            "start": 1782,
+            "end": 1782
+          },
+          {
+            "type": "ibm_dt_2_port_t",
+            "protocol": "tcp",
+            "start": 1792,
+            "end": 1792
+          },
+          {
+            "type": "radius_port_t",
+            "protocol": "tcp",
+            "start": 1812,
+            "end": 1812
+          },
+          {
+            "type": "radacct_port_t",
+            "protocol": "tcp",
+            "start": 1813,
+            "end": 1813
+          },
+          {
+            "type": "msnp_port_t",
+            "protocol": "tcp",
+            "start": 1863,
+            "end": 1863
+          },
+          {
+            "type": "ssdp_port_t",
+            "protocol": "tcp",
+            "start": 1900,
+            "end": 1900
+          },
+          {
+            "type": "flash_port_t",
+            "protocol": "tcp",
+            "start": 1935,
+            "end": 1935
+          },
+          {
+            "type": "mail_port_t",
+            "protocol": "tcp",
+            "start": 2000,
+            "end": 2000
+          },
+          {
+            "type": "lmtp_port_t",
+            "protocol": "tcp",
+            "start": 2003,
+            "end": 2003
+          },
+          {
+            "type": "mailbox_port_t",
+            "protocol": "tcp",
+            "start": 2004,
+            "end": 2004
+          },
+          {
+            "type": "cyrus_imapd_port_t",
+            "protocol": "tcp",
+            "start": 2005,
+            "end": 2005
+          },
+          {
+            "type": "xinuexpansion3_port_t",
+            "protocol": "tcp",
+            "start": 2023,
+            "end": 2023
+          },
+          {
+            "type": "xinuexpansion4_port_t",
+            "protocol": "tcp",
+            "start": 2024,
+            "end": 2024
+          },
+          {
+            "type": "afs_fs_port_t",
+            "protocol": "tcp",
+            "start": 2040,
+            "end": 2040
+          },
+          {
+            "type": "nfs_port_t",
+            "protocol": "tcp",
+            "start": 2049,
+            "end": 2049
+          },
+          {
+            "type": "radsec_port_t",
+            "protocol": "tcp",
+            "start": 2083,
+            "end": 2083
+          },
+          {
+            "type": "rlogin_port_t",
+            "protocol": "tcp",
+            "start": 2105,
+            "end": 2105
+          },
+          {
+            "type": "pktcable_cops_port_t",
+            "protocol": "tcp",
+            "start": 2126,
+            "end": 2126
+          },
+          {
+            "type": "zookeeper_client_port_t",
+            "protocol": "tcp",
+            "start": 2181,
+            "end": 2181
+          },
+          {
+            "type": "hplip_port_t",
+            "protocol": "tcp",
+            "start": 2207,
+            "end": 2208
+          },
+          {
+            "type": "mysqlmanagerd_port_t",
+            "protocol": "tcp",
+            "start": 2273,
+            "end": 2273
+          },
+          {
+            "type": "cvs_port_t",
+            "protocol": "tcp",
+            "start": 2401,
+            "end": 2401
+          },
+          {
+            "type": "oracle_port_t",
+            "protocol": "tcp",
+            "start": 2483,
+            "end": 2484
+          },
+          {
+            "type": "rtsclient_port_t",
+            "protocol": "tcp",
+            "start": 2501,
+            "end": 2501
+          },
+          {
+            "type": "zebra_port_t",
+            "protocol": "tcp",
+            "start": 2600,
+            "end": 2604
+          },
+          {
+            "type": "bgp_port_t",
+            "protocol": "tcp",
+            "start": 2605,
+            "end": 2605
+          },
+          {
+            "type": "zebra_port_t",
+            "protocol": "tcp",
+            "start": 2606,
+            "end": 2606
+          },
+          {
+            "type": "zebra_port_t",
+            "protocol": "tcp",
+            "start": 2608,
+            "end": 2609
+          },
+          {
+            "type": "versa_tek_port_t",
+            "protocol": "tcp",
+            "start": 2610,
+            "end": 2610
+          },
+          {
+            "type": "qpasa_agent_port_t",
+            "protocol": "tcp",
+            "start": 2611,
+            "end": 2612
+          },
+          {
+            "type": "smntubootstrap_port_t",
+            "protocol": "tcp",
+            "start": 2613,
+            "end": 2613
+          },
+          {
+            "type": "firepower_port_t",
+            "protocol": "tcp",
+            "start": 2615,
+            "end": 2615
+          },
+          {
+            "type": "appswitch_emp_port_t",
+            "protocol": "tcp",
+            "start": 2616,
+            "end": 2616
+          },
+          {
+            "type": "cmadmin_port_t",
+            "protocol": "tcp",
+            "start": 2617,
+            "end": 2617
+          },
+          {
+            "type": "priority_e_com_port_t",
+            "protocol": "tcp",
+            "start": 2618,
+            "end": 2618
+          },
+          {
+            "type": "dict_port_t",
+            "protocol": "tcp",
+            "start": 2628,
+            "end": 2628
+          },
+          {
+            "type": "razor_port_t",
+            "protocol": "tcp",
+            "start": 2703,
+            "end": 2703
+          },
+          {
+            "type": "zookeeper_leader_port_t",
+            "protocol": "tcp",
+            "start": 2888,
+            "end": 2888
+          },
+          {
+            "type": "gpsd_port_t",
+            "protocol": "tcp",
+            "start": 2947,
+            "end": 2947
+          },
+          {
+            "type": "ntop_port_t",
+            "protocol": "tcp",
+            "start": 3000,
+            "end": 3001
+          },
+          {
+            "type": "gds_db_port_t",
+            "protocol": "tcp",
+            "start": 3050,
+            "end": 3050
+          },
+          {
+            "type": "apc_port_t",
+            "protocol": "tcp",
+            "start": 3052,
+            "end": 3052
+          },
+          {
+            "type": "squid_port_t",
+            "protocol": "tcp",
+            "start": 3128,
+            "end": 3128
+          },
+          {
+            "type": "netport_port_t",
+            "protocol": "tcp",
+            "start": 3129,
+            "end": 3129
+          },
+          {
+            "type": "winshadow_port_t",
+            "protocol": "tcp",
+            "start": 3161,
+            "end": 3161
+          },
+          {
+            "type": "embrace_dp_c_port_t",
+            "protocol": "tcp",
+            "start": 3198,
+            "end": 3198
+          },
+          {
+            "type": "isns_port_t",
+            "protocol": "tcp",
+            "start": 3205,
+            "end": 3205
+          },
+          {
+            "type": "iscsi_port_t",
+            "protocol": "tcp",
+            "start": 3260,
+            "end": 3260
+          },
+          {
+            "type": "ldap_port_t",
+            "protocol": "tcp",
+            "start": 3268,
+            "end": 3269
+          },
+          {
+            "type": "mysqld_port_t",
+            "protocol": "tcp",
+            "start": 3306,
+            "end": 3306
+          },
+          {
+            "type": "clamd_port_t",
+            "protocol": "tcp",
+            "start": 3310,
+            "end": 3310
+          },
+          {
+            "type": "wsicopy_port_t",
+            "protocol": "tcp",
+            "start": 3378,
+            "end": 3378
+          },
+          {
+            "type": "squid_port_t",
+            "protocol": "tcp",
+            "start": 3401,
+            "end": 3401
+          },
+          {
+            "type": "ups_port_t",
+            "protocol": "tcp",
+            "start": 3493,
+            "end": 3493
+          },
+          {
+            "type": "jacorb_port_t",
+            "protocol": "tcp",
+            "start": 3528,
+            "end": 3529
+          },
+          {
+            "type": "apcupsd_port_t",
+            "protocol": "tcp",
+            "start": 3551,
+            "end": 3551
+          },
+          {
+            "type": "distccd_port_t",
+            "protocol": "tcp",
+            "start": 3632,
+            "end": 3632
+          },
+          {
+            "type": "servistaitsm_port_t",
+            "protocol": "tcp",
+            "start": 3636,
+            "end": 3636
+          },
+          {
+            "type": "daap_port_t",
+            "protocol": "tcp",
+            "start": 3689,
+            "end": 3689
+          },
+          {
+            "type": "svn_port_t",
+            "protocol": "tcp",
+            "start": 3690,
+            "end": 3690
+          },
+          {
+            "type": "bfd_control_port_t",
+            "protocol": "tcp",
+            "start": 3784,
+            "end": 3784
+          },
+          {
+            "type": "bfd_echo_port_t",
+            "protocol": "tcp",
+            "start": 3785,
+            "end": 3785
+          },
+          {
+            "type": "sixxsconfig_port_t",
+            "protocol": "tcp",
+            "start": 3874,
+            "end": 3874
+          },
+          {
+            "type": "zookeeper_election_port_t",
+            "protocol": "tcp",
+            "start": 3888,
+            "end": 3888
+          },
+          {
+            "type": "mail_port_t",
+            "protocol": "tcp",
+            "start": 3905,
+            "end": 3905
+          },
+          {
+            "type": "kubernetes_port_t",
+            "protocol": "tcp",
+            "start": 4001,
+            "end": 4001
+          },
+          {
+            "type": "brlp_port_t",
+            "protocol": "tcp",
+            "start": 4101,
+            "end": 4101
+          },
+          {
+            "type": "sieve_port_t",
+            "protocol": "tcp",
+            "start": 4190,
+            "end": 4190
+          },
+          {
+            "type": "kubernetes_port_t",
+            "protocol": "tcp",
+            "start": 4194,
+            "end": 4194
+          },
+          {
+            "type": "shellinaboxd_port_t",
+            "protocol": "tcp",
+            "start": 4200,
+            "end": 4200
+          },
+          {
+            "type": "whois_port_t",
+            "protocol": "tcp",
+            "start": 4321,
+            "end": 4321
+          },
+          {
+            "type": "dey_sapi_port_t",
+            "protocol": "tcp",
+            "start": 4330,
+            "end": 4330
+          },
+          {
+            "type": "commplex_link_port_t",
+            "protocol": "tcp",
+            "start": 4331,
+            "end": 4331
+          },
+          {
+            "type": "epmd_port_t",
+            "protocol": "tcp",
+            "start": 4369,
+            "end": 4369
+          },
+          {
+            "type": "ctdb_port_t",
+            "protocol": "tcp",
+            "start": 4379,
+            "end": 4379
+          },
+          {
+            "type": "kerberos_port_t",
+            "protocol": "tcp",
+            "start": 4444,
+            "end": 4444
+          },
+          {
+            "type": "jboss_management_port_t",
+            "protocol": "tcp",
+            "start": 4447,
+            "end": 4447
+          },
+          {
+            "type": "ntske_port_t",
+            "protocol": "tcp",
+            "start": 4460,
+            "end": 4460
+          },
+          {
+            "type": "ipsecnat_port_t",
+            "protocol": "tcp",
+            "start": 4500,
+            "end": 4500
+          },
+          {
+            "type": "salt_port_t",
+            "protocol": "tcp",
+            "start": 4505,
+            "end": 4506
+          },
+          {
+            "type": "tram_port_t",
+            "protocol": "tcp",
+            "start": 4567,
+            "end": 4567
+          },
+          {
+            "type": "prelude_port_t",
+            "protocol": "tcp",
+            "start": 4690,
+            "end": 4690
+          },
+          {
+            "type": "jboss_management_port_t",
+            "protocol": "tcp",
+            "start": 4712,
+            "end": 4712
+          },
+          {
+            "type": "pulseaudio_port_t",
+            "protocol": "tcp",
+            "start": 4713,
+            "end": 4713
+          },
+          {
+            "type": "openhpid_port_t",
+            "protocol": "tcp",
+            "start": 4743,
+            "end": 4743
+          },
+          {
+            "type": "bfd_multi_port_t",
+            "protocol": "tcp",
+            "start": 4784,
+            "end": 4784
+          },
+          {
+            "type": "squid_port_t",
+            "protocol": "tcp",
+            "start": 4827,
+            "end": 4827
+          },
+          {
+            "type": "munin_port_t",
+            "protocol": "tcp",
+            "start": 4949,
+            "end": 4949
+          },
+          {
+            "type": "commplex_main_port_t",
+            "protocol": "tcp",
+            "start": 5000,
+            "end": 5000
+          },
+          {
+            "type": "commplex_link_port_t",
+            "protocol": "tcp",
+            "start": 5001,
+            "end": 5001
+          },
+          {
+            "type": "fmpro_internal_port_t",
+            "protocol": "tcp",
+            "start": 5003,
+            "end": 5003
+          },
+          {
+            "type": "rtp_media_port_t",
+            "protocol": "tcp",
+            "start": 5004,
+            "end": 5005
+          },
+          {
+            "type": "mmcc_port_t",
+            "protocol": "tcp",
+            "start": 5050,
+            "end": 5050
+          },
+          {
+            "type": "sip_port_t",
+            "protocol": "tcp",
+            "start": 5060,
+            "end": 5061
+          },
+          {
+            "type": "cluster_port_t",
+            "protocol": "tcp",
+            "start": 5149,
+            "end": 5149
+          },
+          {
+            "type": "aol_port_t",
+            "protocol": "tcp",
+            "start": 5190,
+            "end": 5193
+          },
+          {
+            "type": "jabber_client_port_t",
+            "protocol": "tcp",
+            "start": 5222,
+            "end": 5223
+          },
+          {
+            "type": "movaz_ssc_port_t",
+            "protocol": "tcp",
+            "start": 5252,
+            "end": 5252
+          },
+          {
+            "type": "jabber_interserver_port_t",
+            "protocol": "tcp",
+            "start": 5269,
+            "end": 5269
+          },
+          {
+            "type": "jabber_interserver_port_t",
+            "protocol": "tcp",
+            "start": 5280,
+            "end": 5280
+          },
+          {
+            "type": "prosody_port_t",
+            "protocol": "tcp",
+            "start": 5280,
+            "end": 5281
+          },
+          {
+            "type": "presence_port_t",
+            "protocol": "tcp",
+            "start": 5298,
+            "end": 5299
+          },
+          {
+            "type": "imaze_port_t",
+            "protocol": "tcp",
+            "start": 5323,
+            "end": 5323
+          },
+          {
+            "type": "howl_port_t",
+            "protocol": "tcp",
+            "start": 5335,
+            "end": 5335
+          },
+          {
+            "type": "lltng_port_t",
+            "protocol": "tcp",
+            "start": 5345,
+            "end": 5345
+          },
+          {
+            "type": "jabber_router_port_t",
+            "protocol": "tcp",
+            "start": 5347,
+            "end": 5347
+          },
+          {
+            "type": "llmnr_port_t",
+            "protocol": "tcp",
+            "start": 5355,
+            "end": 5355
+          },
+          {
+            "type": "wsdapi_port_t",
+            "protocol": "tcp",
+            "start": 5357,
+            "end": 5357
+          },
+          {
+            "type": "netsupport_port_t",
+            "protocol": "tcp",
+            "start": 5404,
+            "end": 5405
+          },
+          {
+            "type": "postgresql_port_t",
+            "protocol": "tcp",
+            "start": 5432,
+            "end": 5432
+          },
+          {
+            "type": "jboss_messaging_port_t",
+            "protocol": "tcp",
+            "start": 5445,
+            "end": 5445
+          },
+          {
+            "type": "jboss_messaging_port_t",
+            "protocol": "tcp",
+            "start": 5455,
+            "end": 5455
+          },
+          {
+            "type": "dhcpc_port_t",
+            "protocol": "tcp",
+            "start": 5546,
+            "end": 5546
+          },
+          {
+            "type": "fac_restore_port_t",
+            "protocol": "tcp",
+            "start": 5582,
+            "end": 5582
+          },
+          {
+            "type": "inetd_child_port_t",
+            "protocol": "tcp",
+            "start": 5666,
+            "end": 5666
+          },
+          {
+            "type": "nsca_port_t",
+            "protocol": "tcp",
+            "start": 5667,
+            "end": 5667
+          },
+          {
+            "type": "amqp_port_t",
+            "protocol": "tcp",
+            "start": 5671,
+            "end": 5672
+          },
+          {
+            "type": "dccm_port_t",
+            "protocol": "tcp",
+            "start": 5679,
+            "end": 5679
+          },
+          {
+            "type": "ptal_port_t",
+            "protocol": "tcp",
+            "start": 5703,
+            "end": 5703
+          },
+          {
+            "type": "nodejs_debug_port_t",
+            "protocol": "tcp",
+            "start": 5858,
+            "end": 5858
+          },
+          {
+            "type": "vnc_port_t",
+            "protocol": "tcp",
+            "start": 5900,
+            "end": 5983
+          },
+          {
+            "type": "couchdb_port_t",
+            "protocol": "tcp",
+            "start": 5984,
+            "end": 5984
+          },
+          {
+            "type": "vnc_port_t",
+            "protocol": "tcp",
+            "start": 5985,
+            "end": 5999
+          },
+          {
+            "type": "pegasus_http_port_t",
+            "protocol": "tcp",
+            "start": 5988,
+            "end": 5988
+          },
+          {
+            "type": "pegasus_https_port_t",
+            "protocol": "tcp",
+            "start": 5989,
+            "end": 5989
+          },
+          {
+            "type": "xserver_port_t",
+            "protocol": "tcp",
+            "start": 6000,
+            "end": 6020
+          },
+          {
+            "type": "geneve_port_t",
+            "protocol": "tcp",
+            "start": 6080,
+            "end": 6080
+          },
+          {
+            "type": "varnishd_port_t",
+            "protocol": "tcp",
+            "start": 6081,
+            "end": 6082
+          },
+          {
+            "type": "swift_port_t",
+            "protocol": "tcp",
+            "start": 6200,
+            "end": 6203
+          },
+          {
+            "type": "repository_port_t",
+            "protocol": "tcp",
+            "start": 6363,
+            "end": 6363
+          },
+          {
+            "type": "redis_port_t",
+            "protocol": "tcp",
+            "start": 6379,
+            "end": 6379
+          },
+          {
+            "type": "sge_port_t",
+            "protocol": "tcp",
+            "start": 6444,
+            "end": 6445
+          },
+          {
+            "type": "syslog_tls_port_t",
+            "protocol": "tcp",
+            "start": 6514,
+            "end": 6514
+          },
+          {
+            "type": "mythtv_port_t",
+            "protocol": "tcp",
+            "start": 6543,
+            "end": 6544
+          },
+          {
+            "type": "mpd_port_t",
+            "protocol": "tcp",
+            "start": 6600,
+            "end": 6600
+          },
+          {
+            "type": "xodbc_connect_port_t",
+            "protocol": "tcp",
+            "start": 6632,
+            "end": 6632
+          },
+          {
+            "type": "openflow_port_t",
+            "protocol": "tcp",
+            "start": 6633,
+            "end": 6633
+          },
+          {
+            "type": "openvswitch_port_t",
+            "protocol": "tcp",
+            "start": 6634,
+            "end": 6634
+          },
+          {
+            "type": "ovsdb_port_t",
+            "protocol": "tcp",
+            "start": 6640,
+            "end": 6640
+          },
+          {
+            "type": "openflow_port_t",
+            "protocol": "tcp",
+            "start": 6653,
+            "end": 6653
+          },
+          {
+            "type": "ircd_port_t",
+            "protocol": "tcp",
+            "start": 6667,
+            "end": 6667
+          },
+          {
+            "type": "ircd_port_t",
+            "protocol": "tcp",
+            "start": 6697,
+            "end": 6697
+          },
+          {
+            "type": "cyphesis_port_t",
+            "protocol": "tcp",
+            "start": 6767,
+            "end": 6767
+          },
+          {
+            "type": "cyphesis_port_t",
+            "protocol": "tcp",
+            "start": 6769,
+            "end": 6769
+          },
+          {
+            "type": "cyphesis_port_t",
+            "protocol": "tcp",
+            "start": 6780,
+            "end": 6799
+          },
+          {
+            "type": "tor_port_t",
+            "protocol": "tcp",
+            "start": 6969,
+            "end": 6969
+          },
+          {
+            "type": "couchdb_port_t",
+            "protocol": "tcp",
+            "start": 6984,
+            "end": 6984
+          },
+          {
+            "type": "gatekeeper_port_t",
+            "protocol": "tcp",
+            "start": 7000,
+            "end": 7000
+          },
+          {
+            "type": "afs3_callback_port_t",
+            "protocol": "tcp",
+            "start": 7001,
+            "end": 7001
+          },
+          {
+            "type": "afs_pt_port_t",
+            "protocol": "tcp",
+            "start": 7002,
+            "end": 7002
+          },
+          {
+            "type": "xfs_port_t",
+            "protocol": "tcp",
+            "start": 7100,
+            "end": 7100
+          },
+          {
+            "type": "ldap_port_t",
+            "protocol": "tcp",
+            "start": 7389,
+            "end": 7389
+          },
+          {
+            "type": "dogtag_port_t",
+            "protocol": "tcp",
+            "start": 7390,
+            "end": 7390
+          },
+          {
+            "type": "tangd_port_t",
+            "protocol": "tcp",
+            "start": 7406,
+            "end": 7406
+          },
+          {
+            "type": "ionixnetmon_port_t",
+            "protocol": "tcp",
+            "start": 7410,
+            "end": 7410
+          },
+          {
+            "type": "jboss_management_port_t",
+            "protocol": "tcp",
+            "start": 7600,
+            "end": 7600
+          },
+          {
+            "type": "hddtemp_port_t",
+            "protocol": "tcp",
+            "start": 7634,
+            "end": 7634
+          },
+          {
+            "type": "interwise_port_t",
+            "protocol": "tcp",
+            "start": 7778,
+            "end": 7778
+          },
+          {
+            "type": "pki_tps_port_t",
+            "protocol": "tcp",
+            "start": 7888,
+            "end": 7889
+          },
+          {
+            "type": "conman_port_t",
+            "protocol": "tcp",
+            "start": 7890,
+            "end": 7890
+          },
+          {
+            "type": "dhcpd_port_t",
+            "protocol": "tcp",
+            "start": 7911,
+            "end": 7911
+          },
+          {
+            "type": "soundd_port_t",
+            "protocol": "tcp",
+            "start": 8000,
+            "end": 8000
+          },
+          {
+            "type": "xen_port_t",
+            "protocol": "tcp",
+            "start": 8002,
+            "end": 8002
+          },
+          {
+            "type": "mxi_port_t",
+            "protocol": "tcp",
+            "start": 8005,
+            "end": 8005
+          },
+          {
+            "type": "http_port_t",
+            "protocol": "tcp",
+            "start": 8008,
+            "end": 8009
+          },
+          {
+            "type": "hadoop_namenode_port_t",
+            "protocol": "tcp",
+            "start": 8020,
+            "end": 8020
+          },
+          {
+            "type": "zope_port_t",
+            "protocol": "tcp",
+            "start": 8021,
+            "end": 8021
+          },
+          {
+            "type": "oa_system_port_t",
+            "protocol": "tcp",
+            "start": 8022,
+            "end": 8022
+          },
+          {
+            "type": "speech_port_t",
+            "protocol": "tcp",
+            "start": 8036,
+            "end": 8036
+          },
+          {
+            "type": "http_cache_port_t",
+            "protocol": "tcp",
+            "start": 8080,
+            "end": 8080
+          },
+          {
+            "type": "transproxy_port_t",
+            "protocol": "tcp",
+            "start": 8081,
+            "end": 8081
+          },
+          {
+            "type": "us_cli_port_t",
+            "protocol": "tcp",
+            "start": 8082,
+            "end": 8083
+          },
+          {
+            "type": "luci_port_t",
+            "protocol": "tcp",
+            "start": 8084,
+            "end": 8084
+          },
+          {
+            "type": "preupgrade_port_t",
+            "protocol": "tcp",
+            "start": 8099,
+            "end": 8099
+          },
+          {
+            "type": "http_cache_port_t",
+            "protocol": "tcp",
+            "start": 8118,
+            "end": 8118
+          },
+          {
+            "type": "http_cache_port_t",
+            "protocol": "tcp",
+            "start": 8123,
+            "end": 8123
+          },
+          {
+            "type": "puppet_port_t",
+            "protocol": "tcp",
+            "start": 8140,
+            "end": 8140
+          },
+          {
+            "type": "intermapper_port_t",
+            "protocol": "tcp",
+            "start": 8181,
+            "end": 8181
+          },
+          {
+            "type": "trivnet1_port_t",
+            "protocol": "tcp",
+            "start": 8200,
+            "end": 8200
+          },
+          {
+            "type": "hplip_port_t",
+            "protocol": "tcp",
+            "start": 8290,
+            "end": 8290
+          },
+          {
+            "type": "hplip_port_t",
+            "protocol": "tcp",
+            "start": 8292,
+            "end": 8292
+          },
+          {
+            "type": "http_port_t",
+            "protocol": "tcp",
+            "start": 8443,
+            "end": 8443
+          },
+          {
+            "type": "rtsp_port_t",
+            "protocol": "tcp",
+            "start": 8554,
+            "end": 8554
+          },
+          {
+            "type": "ipp_port_t",
+            "protocol": "tcp",
+            "start": 8610,
+            "end": 8614
+          },
+          {
+            "type": "dey_keyneg_port_t",
+            "protocol": "tcp",
+            "start": 8750,
+            "end": 8750
+          },
+          {
+            "type": "lirc_port_t",
+            "protocol": "tcp",
+            "start": 8765,
+            "end": 8765
+          },
+          {
+            "type": "osapi_compute_port_t",
+            "protocol": "tcp",
+            "start": 8774,
+            "end": 8774
+          },
+          {
+            "type": "neutron_port_t",
+            "protocol": "tcp",
+            "start": 8775,
+            "end": 8775
+          },
+          {
+            "type": "jboss_debug_port_t",
+            "protocol": "tcp",
+            "start": 8787,
+            "end": 8787
+          },
+          {
+            "type": "keylime_port_t",
+            "protocol": "tcp",
+            "start": 8881,
+            "end": 8881
+          },
+          {
+            "type": "milter_port_t",
+            "protocol": "tcp",
+            "start": 8890,
+            "end": 8891
+          },
+          {
+            "type": "keylime_port_t",
+            "protocol": "tcp",
+            "start": 8892,
+            "end": 8892
+          },
+          {
+            "type": "milter_port_t",
+            "protocol": "tcp",
+            "start": 8893,
+            "end": 8893
+          },
+          {
+            "type": "nsd_control_port_t",
+            "protocol": "tcp",
+            "start": 8952,
+            "end": 8952
+          },
+          {
+            "type": "rndc_port_t",
+            "protocol": "tcp",
+            "start": 8953,
+            "end": 8953
+          },
+          {
+            "type": "dnssec_port_t",
+            "protocol": "tcp",
+            "start": 8955,
+            "end": 8955
+          },
+          {
+            "type": "bctp_port_t",
+            "protocol": "tcp",
+            "start": 8999,
+            "end": 8999
+          },
+          {
+            "type": "http_port_t",
+            "protocol": "tcp",
+            "start": 9000,
+            "end": 9000
+          },
+          {
+            "type": "tor_port_t",
+            "protocol": "tcp",
+            "start": 9001,
+            "end": 9001
+          },
+          {
+            "type": "keylime_port_t",
+            "protocol": "tcp",
+            "start": 9002,
+            "end": 9002
+          },
+          {
+            "type": "i18n_input_port_t",
+            "protocol": "tcp",
+            "start": 9010,
+            "end": 9010
+          },
+          {
+            "type": "tor_port_t",
+            "protocol": "tcp",
+            "start": 9030,
+            "end": 9030
+          },
+          {
+            "type": "tor_port_t",
+            "protocol": "tcp",
+            "start": 9050,
+            "end": 9051
+          },
+          {
+            "type": "ocsp_port_t",
+            "protocol": "tcp",
+            "start": 9080,
+            "end": 9080
+          },
+          {
+            "type": "websm_port_t",
+            "protocol": "tcp",
+            "start": 9090,
+            "end": 9090
+          },
+          {
+            "type": "hplip_port_t",
+            "protocol": "tcp",
+            "start": 9100,
+            "end": 9102
+          },
+          {
+            "type": "bacula_port_t",
+            "protocol": "tcp",
+            "start": 9103,
+            "end": 9103
+          },
+          {
+            "type": "jboss_management_port_t",
+            "protocol": "tcp",
+            "start": 9123,
+            "end": 9123
+          },
+          {
+            "type": "pingd_port_t",
+            "protocol": "tcp",
+            "start": 9125,
+            "end": 9125
+          },
+          {
+            "type": "tor_port_t",
+            "protocol": "tcp",
+            "start": 9150,
+            "end": 9150
+          },
+          {
+            "type": "pki_ca_port_t",
+            "protocol": "tcp",
+            "start": 9180,
+            "end": 9180
+          },
+          {
+            "type": "glance_registry_port_t",
+            "protocol": "tcp",
+            "start": 9191,
+            "end": 9191
+          },
+          {
+            "type": "wap_wsp_port_t",
+            "protocol": "tcp",
+            "start": 9200,
+            "end": 9200
+          },
+          {
+            "type": "hplip_port_t",
+            "protocol": "tcp",
+            "start": 9220,
+            "end": 9222
+          },
+          {
+            "type": "freeipmi_port_t",
+            "protocol": "tcp",
+            "start": 9225,
+            "end": 9225
+          },
+          {
+            "type": "hplip_port_t",
+            "protocol": "tcp",
+            "start": 9280,
+            "end": 9282
+          },
+          {
+            "type": "hplip_port_t",
+            "protocol": "tcp",
+            "start": 9290,
+            "end": 9291
+          },
+          {
+            "type": "glance_port_t",
+            "protocol": "tcp",
+            "start": 9292,
+            "end": 9292
+          },
+          {
+            "type": "git_port_t",
+            "protocol": "tcp",
+            "start": 9418,
+            "end": 9418
+          },
+          {
+            "type": "soundd_port_t",
+            "protocol": "tcp",
+            "start": 9433,
+            "end": 9433
+          },
+          {
+            "type": "pki_ca_port_t",
+            "protocol": "tcp",
+            "start": 9443,
+            "end": 9447
+          },
+          {
+            "type": "openqa_port_t",
+            "protocol": "tcp",
+            "start": 9526,
+            "end": 9526
+          },
+          {
+            "type": "openqa_websockets_port_t",
+            "protocol": "tcp",
+            "start": 9527,
+            "end": 9527
+          },
+          {
+            "type": "openqa_liveview_port_t",
+            "protocol": "tcp",
+            "start": 9528,
+            "end": 9528
+          },
+          {
+            "type": "condor_port_t",
+            "protocol": "tcp",
+            "start": 9618,
+            "end": 9618
+          },
+          {
+            "type": "neutron_port_t",
+            "protocol": "tcp",
+            "start": 9696,
+            "end": 9697
+          },
+          {
+            "type": "pki_ca_port_t",
+            "protocol": "tcp",
+            "start": 9701,
+            "end": 9701
+          },
+          {
+            "type": "sap_port_t",
+            "protocol": "tcp",
+            "start": 9875,
+            "end": 9875
+          },
+          {
+            "type": "postgresql_port_t",
+            "protocol": "tcp",
+            "start": 9898,
+            "end": 9898
+          },
+          {
+            "type": "sype_transport_port_t",
+            "protocol": "tcp",
+            "start": 9911,
+            "end": 9911
+          },
+          {
+            "type": "boothd_port_t",
+            "protocol": "tcp",
+            "start": 9929,
+            "end": 9929
+          },
+          {
+            "type": "jboss_management_port_t",
+            "protocol": "tcp",
+            "start": 9990,
+            "end": 9990
+          },
+          {
+            "type": "jboss_management_port_t",
+            "protocol": "tcp",
+            "start": 9999,
+            "end": 9999
+          },
+          {
+            "type": "http_cache_port_t",
+            "protocol": "tcp",
+            "start": 10001,
+            "end": 10010
+          },
+          {
+            "type": "amavisd_recv_port_t",
+            "protocol": "tcp",
+            "start": 10024,
+            "end": 10024
+          },
+          {
+            "type": "amavisd_send_port_t",
+            "protocol": "tcp",
+            "start": 10025,
+            "end": 10025
+          },
+          {
+            "type": "spamd_port_t",
+            "protocol": "tcp",
+            "start": 10026,
+            "end": 10027
+          },
+          {
+            "type": "postfix_policyd_port_t",
+            "protocol": "tcp",
+            "start": 10031,
+            "end": 10031
+          },
+          {
+            "type": "zabbix_agent_port_t",
+            "protocol": "tcp",
+            "start": 10050,
+            "end": 10050
+          },
+          {
+            "type": "zabbix_port_t",
+            "protocol": "tcp",
+            "start": 10051,
+            "end": 10051
+          },
+          {
+            "type": "amanda_port_t",
+            "protocol": "tcp",
+            "start": 10080,
+            "end": 10083
+          },
+          {
+            "type": "nmea_port_t",
+            "protocol": "tcp",
+            "start": 10110,
+            "end": 10110
+          },
+          {
+            "type": "snmp_port_t",
+            "protocol": "tcp",
+            "start": 10161,
+            "end": 10162
+          },
+          {
+            "type": "pki_kra_port_t",
+            "protocol": "tcp",
+            "start": 10180,
+            "end": 10180
+          },
+          {
+            "type": "trisoap_port_t",
+            "protocol": "tcp",
+            "start": 10200,
+            "end": 10200
+          },
+          {
+            "type": "kubernetes_port_t",
+            "protocol": "tcp",
+            "start": 10250,
+            "end": 10250
+          },
+          {
+            "type": "pki_kra_port_t",
+            "protocol": "tcp",
+            "start": 10443,
+            "end": 10446
+          },
+          {
+            "type": "syslog_tls_port_t",
+            "protocol": "tcp",
+            "start": 10514,
+            "end": 10514
+          },
+          {
+            "type": "pki_kra_port_t",
+            "protocol": "tcp",
+            "start": 10701,
+            "end": 10701
+          },
+          {
+            "type": "pop_port_t",
+            "protocol": "tcp",
+            "start": 10993,
+            "end": 10993
+          },
+          {
+            "type": "ricci_port_t",
+            "protocol": "tcp",
+            "start": 11111,
+            "end": 11111
+          },
+          {
+            "type": "pki_ocsp_port_t",
+            "protocol": "tcp",
+            "start": 11180,
+            "end": 11180
+          },
+          {
+            "type": "memcache_port_t",
+            "protocol": "tcp",
+            "start": 11211,
+            "end": 11211
+          },
+          {
+            "type": "pgpkeyserver_port_t",
+            "protocol": "tcp",
+            "start": 11371,
+            "end": 11371
+          },
+          {
+            "type": "pki_ocsp_port_t",
+            "protocol": "tcp",
+            "start": 11443,
+            "end": 11446
+          },
+          {
+            "type": "pki_ocsp_port_t",
+            "protocol": "tcp",
+            "start": 11701,
+            "end": 11701
+          },
+          {
+            "type": "pki_ra_port_t",
+            "protocol": "tcp",
+            "start": 12888,
+            "end": 12889
+          },
+          {
+            "type": "pki_tks_port_t",
+            "protocol": "tcp",
+            "start": 13180,
+            "end": 13180
+          },
+          {
+            "type": "pki_tks_port_t",
+            "protocol": "tcp",
+            "start": 13443,
+            "end": 13446
+          },
+          {
+            "type": "pki_tks_port_t",
+            "protocol": "tcp",
+            "start": 13701,
+            "end": 13701
+          },
+          {
+            "type": "opendnssec_port_t",
+            "protocol": "tcp",
+            "start": 15354,
+            "end": 15354
+          },
+          {
+            "type": "amqp_port_t",
+            "protocol": "tcp",
+            "start": 15672,
+            "end": 15672
+          },
+          {
+            "type": "soundd_port_t",
+            "protocol": "tcp",
+            "start": 16001,
+            "end": 16001
+          },
+          {
+            "type": "redis_port_t",
+            "protocol": "tcp",
+            "start": 16379,
+            "end": 16379
+          },
+          {
+            "type": "virt_port_t",
+            "protocol": "tcp",
+            "start": 16509,
+            "end": 16509
+          },
+          {
+            "type": "virt_port_t",
+            "protocol": "tcp",
+            "start": 16514,
+            "end": 16514
+          },
+          {
+            "type": "ricci_modcluster_port_t",
+            "protocol": "tcp",
+            "start": 16851,
+            "end": 16851
+          },
+          {
+            "type": "jboss_management_port_t",
+            "protocol": "tcp",
+            "start": 18001,
+            "end": 18001
+          },
+          {
+            "type": "rkt_port_t",
+            "protocol": "tcp",
+            "start": 18112,
+            "end": 18112
+          },
+          {
+            "type": "radius_port_t",
+            "protocol": "tcp",
+            "start": 18120,
+            "end": 18121
+          },
+          {
+            "type": "lsm_plugin_port_t",
+            "protocol": "tcp",
+            "start": 18700,
+            "end": 18700
+          },
+          {
+            "type": "journal_remote_port_t",
+            "protocol": "tcp",
+            "start": 19532,
+            "end": 19532
+          },
+          {
+            "type": "mountd_port_t",
+            "protocol": "tcp",
+            "start": 20048,
+            "end": 20048
+          },
+          {
+            "type": "nfs_port_t",
+            "protocol": "tcp",
+            "start": 20048,
+            "end": 20049
+          },
+          {
+            "type": "syslogd_port_t",
+            "protocol": "tcp",
+            "start": 20514,
+            "end": 20514
+          },
+          {
+            "type": "gluster_port_t",
+            "protocol": "tcp",
+            "start": 24007,
+            "end": 24027
+          },
+          {
+            "type": "pulp_port_t",
+            "protocol": "tcp",
+            "start": 24816,
+            "end": 24817
+          },
+          {
+            "type": "cobbler_port_t",
+            "protocol": "tcp",
+            "start": 25151,
+            "end": 25151
+          },
+          {
+            "type": "rabbitmq_port_t",
+            "protocol": "tcp",
+            "start": 25672,
+            "end": 25672
+          },
+          {
+            "type": "redis_port_t",
+            "protocol": "tcp",
+            "start": 26379,
+            "end": 26379
+          },
+          {
+            "type": "mongod_port_t",
+            "protocol": "tcp",
+            "start": 27017,
+            "end": 27019
+          },
+          {
+            "type": "mongod_port_t",
+            "protocol": "tcp",
+            "start": 28017,
+            "end": 28019
+          },
+          {
+            "type": "tcs_port_t",
+            "protocol": "tcp",
+            "start": 30003,
+            "end": 30003
+          },
+          {
+            "type": "boinc_port_t",
+            "protocol": "tcp",
+            "start": 31416,
+            "end": 31416
+          },
+          {
+            "type": "ephemeral_port_t",
+            "protocol": "tcp",
+            "start": 32768,
+            "end": 60999
+          },
+          {
+            "type": "keystone_port_t",
+            "protocol": "tcp",
+            "start": 35357,
+            "end": 35357
+          },
+          {
+            "type": "gluster_port_t",
+            "protocol": "tcp",
+            "start": 38465,
+            "end": 38469
+          },
+          {
+            "type": "cluster_port_t",
+            "protocol": "tcp",
+            "start": 40040,
+            "end": 40040
+          },
+          {
+            "type": "gear_port_t",
+            "protocol": "tcp",
+            "start": 43273,
+            "end": 43273
+          },
+          {
+            "type": "matahari_port_t",
+            "protocol": "tcp",
+            "start": 49000,
+            "end": 49000
+          },
+          {
+            "type": "virt_migration_port_t",
+            "protocol": "tcp",
+            "start": 49152,
+            "end": 49216
+          },
+          {
+            "type": "hplip_port_t",
+            "protocol": "tcp",
+            "start": 50000,
+            "end": 50000
+          },
+          {
+            "type": "hplip_port_t",
+            "protocol": "tcp",
+            "start": 50002,
+            "end": 50002
+          },
+          {
+            "type": "cluster_port_t",
+            "protocol": "tcp",
+            "start": 50006,
+            "end": 50008
+          },
+          {
+            "type": "hadoop_datanode_port_t",
+            "protocol": "tcp",
+            "start": 50010,
+            "end": 50010
+          },
+          {
+            "type": "certmaster_port_t",
+            "protocol": "tcp",
+            "start": 51235,
+            "end": 51235
+          },
+          {
+            "type": "isns_port_t",
+            "protocol": "tcp",
+            "start": 51954,
+            "end": 51954
+          },
+          {
+            "type": "postgrey_port_t",
+            "protocol": "tcp",
+            "start": 60000,
+            "end": 60000
+          },
+          {
+            "type": "unreserved_port_t",
+            "protocol": "tcp",
+            "start": 61000,
+            "end": 65535
+          },
+          {
+            "type": "mysqld_port_t",
+            "protocol": "tcp",
+            "start": 63132,
+            "end": 63164
+          },
+          {
+            "type": "inetd_child_port_t",
+            "protocol": "udp",
+            "start": 1,
+            "end": 1
+          },
+          {
+            "type": "reserved_port_t",
+            "protocol": "udp",
+            "start": 1,
+            "end": 511
+          },
+          {
+            "type": "echo_port_t",
+            "protocol": "udp",
+            "start": 7,
+            "end": 7
+          },
+          {
+            "type": "inetd_child_port_t",
+            "protocol": "udp",
+            "start": 9,
+            "end": 9
+          },
+          {
+            "type": "inetd_child_port_t",
+            "protocol": "udp",
+            "start": 13,
+            "end": 13
+          },
+          {
+            "type": "inetd_child_port_t",
+            "protocol": "udp",
+            "start": 19,
+            "end": 19
+          },
+          {
+            "type": "lmtp_port_t",
+            "protocol": "udp",
+            "start": 24,
+            "end": 24
+          },
+          {
+            "type": "time_port_t",
+            "protocol": "udp",
+            "start": 37,
+            "end": 37
+          },
+          {
+            "type": "whois_port_t",
+            "protocol": "udp",
+            "start": 43,
+            "end": 43
+          },
+          {
+            "type": "dns_port_t",
+            "protocol": "udp",
+            "start": 53,
+            "end": 53
+          },
+          {
+            "type": "dhcpd_port_t",
+            "protocol": "udp",
+            "start": 67,
+            "end": 67
+          },
+          {
+            "type": "dhcpc_port_t",
+            "protocol": "udp",
+            "start": 68,
+            "end": 68
+          },
+          {
+            "type": "tftp_port_t",
+            "protocol": "udp",
+            "start": 69,
+            "end": 69
+          },
+          {
+            "type": "gopher_port_t",
+            "protocol": "udp",
+            "start": 70,
+            "end": 70
+          },
+          {
+            "type": "kerberos_port_t",
+            "protocol": "udp",
+            "start": 88,
+            "end": 88
+          },
+          {
+            "type": "portmap_port_t",
+            "protocol": "udp",
+            "start": 111,
+            "end": 111
+          },
+          {
+            "type": "ntp_port_t",
+            "protocol": "udp",
+            "start": 123,
+            "end": 123
+          },
+          {
+            "type": "epmap_port_t",
+            "protocol": "udp",
+            "start": 135,
+            "end": 135
+          },
+          {
+            "type": "nmbd_port_t",
+            "protocol": "udp",
+            "start": 137,
+            "end": 138
+          },
+          {
+            "type": "snmp_port_t",
+            "protocol": "udp",
+            "start": 161,
+            "end": 162
+          },
+          {
+            "type": "xdmcp_port_t",
+            "protocol": "udp",
+            "start": 177,
+            "end": 177
+          },
+          {
+            "type": "bgp_port_t",
+            "protocol": "udp",
+            "start": 179,
+            "end": 179
+          },
+          {
+            "type": "ptp_event_port_t",
+            "protocol": "udp",
+            "start": 319,
+            "end": 319
+          },
+          {
+            "type": "chronyd_port_t",
+            "protocol": "udp",
+            "start": 323,
+            "end": 323
+          },
+          {
+            "type": "ldap_port_t",
+            "protocol": "udp",
+            "start": 389,
+            "end": 389
+          },
+          {
+            "type": "svrloc_port_t",
+            "protocol": "udp",
+            "start": 427,
+            "end": 427
+          },
+          {
+            "type": "kerberos_password_port_t",
+            "protocol": "udp",
+            "start": 464,
+            "end": 464
+          },
+          {
+            "type": "isakmp_port_t",
+            "protocol": "udp",
+            "start": 500,
+            "end": 500
+          },
+          {
+            "type": "comsat_port_t",
+            "protocol": "udp",
+            "start": 512,
+            "end": 512
+          },
+          {
+            "type": "hi_reserved_port_t",
+            "protocol": "udp",
+            "start": 512,
+            "end": 1023
+          },
+          {
+            "type": "rwho_port_t",
+            "protocol": "udp",
+            "start": 513,
+            "end": 513
+          },
+          {
+            "type": "syslogd_port_t",
+            "protocol": "udp",
+            "start": 514,
+            "end": 514
+          },
+          {
+            "type": "ktalkd_port_t",
+            "protocol": "udp",
+            "start": 517,
+            "end": 518
+          },
+          {
+            "type": "router_port_t",
+            "protocol": "udp",
+            "start": 520,
+            "end": 521
+          },
+          {
+            "type": "gdomap_port_t",
+            "protocol": "udp",
+            "start": 538,
+            "end": 538
+          },
+          {
+            "type": "apertus_ldp_port_t",
+            "protocol": "udp",
+            "start": 539,
+            "end": 539
+          },
+          {
+            "type": "dhcpc_port_t",
+            "protocol": "udp",
+            "start": 546,
+            "end": 546
+          },
+          {
+            "type": "dhcpd_port_t",
+            "protocol": "udp",
+            "start": 547,
+            "end": 548
+          },
+          {
+            "type": "rtsp_port_t",
+            "protocol": "udp",
+            "start": 554,
+            "end": 554
+          },
+          {
+            "type": "syslogd_port_t",
+            "protocol": "udp",
+            "start": 601,
+            "end": 601
+          },
+          {
+            "type": "ipmi_port_t",
+            "protocol": "udp",
+            "start": 623,
+            "end": 623
+          },
+          {
+            "type": "ipp_port_t",
+            "protocol": "udp",
+            "start": 631,
+            "end": 631
+          },
+          {
+            "type": "ldap_port_t",
+            "protocol": "udp",
+            "start": 636,
+            "end": 636
+          },
+          {
+            "type": "dhcpd_port_t",
+            "protocol": "udp",
+            "start": 647,
+            "end": 647
+          },
+          {
+            "type": "ipmi_port_t",
+            "protocol": "udp",
+            "start": 664,
+            "end": 664
+          },
+          {
+            "type": "agentx_port_t",
+            "protocol": "udp",
+            "start": 705,
+            "end": 705
+          },
+          {
+            "type": "kerberos_port_t",
+            "protocol": "udp",
+            "start": 750,
+            "end": 750
+          },
+          {
+            "type": "dhcpd_port_t",
+            "protocol": "udp",
+            "start": 847,
+            "end": 847
+          },
+          {
+            "type": "dns_port_t",
+            "protocol": "udp",
+            "start": 853,
+            "end": 853
+          },
+          {
+            "type": "rsync_port_t",
+            "protocol": "udp",
+            "start": 873,
+            "end": 873
+          },
+          {
+            "type": "inetd_child_port_t",
+            "protocol": "udp",
+            "start": 891,
+            "end": 892
+          },
+          {
+            "type": "rndc_port_t",
+            "protocol": "udp",
+            "start": 953,
+            "end": 953
+          },
+          {
+            "type": "ftp_port_t",
+            "protocol": "udp",
+            "start": 989,
+            "end": 990
+          },
+          {
+            "type": "unreserved_port_t",
+            "protocol": "udp",
+            "start": 1024,
+            "end": 32767
+          },
+          {
+            "type": "boinc_client_port_t",
+            "protocol": "udp",
+            "start": 1034,
+            "end": 1034
+          },
+          {
+            "type": "cma_port_t",
+            "protocol": "udp",
+            "start": 1050,
+            "end": 1050
+          },
+          {
+            "type": "openvpn_port_t",
+            "protocol": "udp",
+            "start": 1194,
+            "end": 1194
+          },
+          {
+            "type": "zented_port_t",
+            "protocol": "udp",
+            "start": 1229,
+            "end": 1229
+          },
+          {
+            "type": "pdps_port_t",
+            "protocol": "udp",
+            "start": 1314,
+            "end": 1314
+          },
+          {
+            "type": "connlcli_port_t",
+            "protocol": "udp",
+            "start": 1358,
+            "end": 1358
+          },
+          {
+            "type": "mssql_port_t",
+            "protocol": "udp",
+            "start": 1433,
+            "end": 1434
+          },
+          {
+            "type": "oracle_port_t",
+            "protocol": "udp",
+            "start": 1521,
+            "end": 1521
+          },
+          {
+            "type": "virtual_places_port_t",
+            "protocol": "udp",
+            "start": 1533,
+            "end": 1533
+          },
+          {
+            "type": "vqp_port_t",
+            "protocol": "udp",
+            "start": 1589,
+            "end": 1589
+          },
+          {
+            "type": "radius_port_t",
+            "protocol": "udp",
+            "start": 1645,
+            "end": 1645
+          },
+          {
+            "type": "radacct_port_t",
+            "protocol": "udp",
+            "start": 1646,
+            "end": 1646
+          },
+          {
+            "type": "l2tp_port_t",
+            "protocol": "udp",
+            "start": 1701,
+            "end": 1701
+          },
+          {
+            "type": "xmsg_port_t",
+            "protocol": "udp",
+            "start": 1716,
+            "end": 1716
+          },
+          {
+            "type": "gatekeeper_port_t",
+            "protocol": "udp",
+            "start": 1718,
+            "end": 1719
+          },
+          {
+            "type": "pptp_port_t",
+            "protocol": "udp",
+            "start": 1723,
+            "end": 1723
+          },
+          {
+            "type": "ms_streaming_port_t",
+            "protocol": "udp",
+            "start": 1755,
+            "end": 1755
+          },
+          {
+            "type": "ibm_dt_2_port_t",
+            "protocol": "udp",
+            "start": 1792,
+            "end": 1792
+          },
+          {
+            "type": "radius_port_t",
+            "protocol": "udp",
+            "start": 1812,
+            "end": 1812
+          },
+          {
+            "type": "radacct_port_t",
+            "protocol": "udp",
+            "start": 1813,
+            "end": 1813
+          },
+          {
+            "type": "msnp_port_t",
+            "protocol": "udp",
+            "start": 1863,
+            "end": 1863
+          },
+          {
+            "type": "ssdp_port_t",
+            "protocol": "udp",
+            "start": 1900,
+            "end": 1900
+          },
+          {
+            "type": "flash_port_t",
+            "protocol": "udp",
+            "start": 1935,
+            "end": 1935
+          },
+          {
+            "type": "xinuexpansion3_port_t",
+            "protocol": "udp",
+            "start": 2023,
+            "end": 2023
+          },
+          {
+            "type": "xinuexpansion4_port_t",
+            "protocol": "udp",
+            "start": 2024,
+            "end": 2024
+          },
+          {
+            "type": "wccp_port_t",
+            "protocol": "udp",
+            "start": 2048,
+            "end": 2048
+          },
+          {
+            "type": "nfs_port_t",
+            "protocol": "udp",
+            "start": 2049,
+            "end": 2049
+          },
+          {
+            "type": "pktcable_cops_port_t",
+            "protocol": "udp",
+            "start": 2126,
+            "end": 2126
+          },
+          {
+            "type": "cvs_port_t",
+            "protocol": "udp",
+            "start": 2401,
+            "end": 2401
+          },
+          {
+            "type": "asterisk_port_t",
+            "protocol": "udp",
+            "start": 2427,
+            "end": 2427
+          },
+          {
+            "type": "oracle_port_t",
+            "protocol": "udp",
+            "start": 2483,
+            "end": 2484
+          },
+          {
+            "type": "zebra_port_t",
+            "protocol": "udp",
+            "start": 2600,
+            "end": 2604
+          },
+          {
+            "type": "bgp_port_t",
+            "protocol": "udp",
+            "start": 2605,
+            "end": 2605
+          },
+          {
+            "type": "zebra_port_t",
+            "protocol": "udp",
+            "start": 2606,
+            "end": 2606
+          },
+          {
+            "type": "zebra_port_t",
+            "protocol": "udp",
+            "start": 2608,
+            "end": 2609
+          },
+          {
+            "type": "versa_tek_port_t",
+            "protocol": "udp",
+            "start": 2610,
+            "end": 2610
+          },
+          {
+            "type": "qpasa_agent_port_t",
+            "protocol": "udp",
+            "start": 2611,
+            "end": 2612
+          },
+          {
+            "type": "smntubootstrap_port_t",
+            "protocol": "udp",
+            "start": 2613,
+            "end": 2613
+          },
+          {
+            "type": "firepower_port_t",
+            "protocol": "udp",
+            "start": 2615,
+            "end": 2615
+          },
+          {
+            "type": "appswitch_emp_port_t",
+            "protocol": "udp",
+            "start": 2616,
+            "end": 2616
+          },
+          {
+            "type": "cmadmin_port_t",
+            "protocol": "udp",
+            "start": 2617,
+            "end": 2617
+          },
+          {
+            "type": "priority_e_com_port_t",
+            "protocol": "udp",
+            "start": 2618,
+            "end": 2618
+          },
+          {
+            "type": "asterisk_port_t",
+            "protocol": "udp",
+            "start": 2727,
+            "end": 2727
+          },
+          {
+            "type": "ntop_port_t",
+            "protocol": "udp",
+            "start": 3000,
+            "end": 3001
+          },
+          {
+            "type": "gds_db_port_t",
+            "protocol": "udp",
+            "start": 3050,
+            "end": 3050
+          },
+          {
+            "type": "apc_port_t",
+            "protocol": "udp",
+            "start": 3052,
+            "end": 3052
+          },
+          {
+            "type": "netport_port_t",
+            "protocol": "udp",
+            "start": 3129,
+            "end": 3129
+          },
+          {
+            "type": "http_cache_port_t",
+            "protocol": "udp",
+            "start": 3130,
+            "end": 3130
+          },
+          {
+            "type": "embrace_dp_c_port_t",
+            "protocol": "udp",
+            "start": 3198,
+            "end": 3198
+          },
+          {
+            "type": "isns_port_t",
+            "protocol": "udp",
+            "start": 3205,
+            "end": 3205
+          },
+          {
+            "type": "winshadow_port_t",
+            "protocol": "udp",
+            "start": 3261,
+            "end": 3261
+          },
+          {
+            "type": "wsicopy_port_t",
+            "protocol": "udp",
+            "start": 3378,
+            "end": 3378
+          },
+          {
+            "type": "squid_port_t",
+            "protocol": "udp",
+            "start": 3401,
+            "end": 3401
+          },
+          {
+            "type": "apcupsd_port_t",
+            "protocol": "udp",
+            "start": 3551,
+            "end": 3551
+          },
+          {
+            "type": "servistaitsm_port_t",
+            "protocol": "udp",
+            "start": 3636,
+            "end": 3636
+          },
+          {
+            "type": "daap_port_t",
+            "protocol": "udp",
+            "start": 3689,
+            "end": 3689
+          },
+          {
+            "type": "svn_port_t",
+            "protocol": "udp",
+            "start": 3690,
+            "end": 3690
+          },
+          {
+            "type": "conntrackd_port_t",
+            "protocol": "udp",
+            "start": 3780,
+            "end": 3780
+          },
+          {
+            "type": "bfd_control_port_t",
+            "protocol": "udp",
+            "start": 3784,
+            "end": 3784
+          },
+          {
+            "type": "bfd_echo_port_t",
+            "protocol": "udp",
+            "start": 3785,
+            "end": 3785
+          },
+          {
+            "type": "sixxsconfig_port_t",
+            "protocol": "udp",
+            "start": 3874,
+            "end": 3874
+          },
+          {
+            "type": "pxe_port_t",
+            "protocol": "udp",
+            "start": 4011,
+            "end": 4011
+          },
+          {
+            "type": "clockspeed_port_t",
+            "protocol": "udp",
+            "start": 4041,
+            "end": 4041
+          },
+          {
+            "type": "whois_port_t",
+            "protocol": "udp",
+            "start": 4321,
+            "end": 4321
+          },
+          {
+            "type": "epmd_port_t",
+            "protocol": "udp",
+            "start": 4369,
+            "end": 4369
+          },
+          {
+            "type": "ctdb_port_t",
+            "protocol": "udp",
+            "start": 4379,
+            "end": 4379
+          },
+          {
+            "type": "kerberos_port_t",
+            "protocol": "udp",
+            "start": 4444,
+            "end": 4444
+          },
+          {
+            "type": "ipsecnat_port_t",
+            "protocol": "udp",
+            "start": 4500,
+            "end": 4500
+          },
+          {
+            "type": "asterisk_port_t",
+            "protocol": "udp",
+            "start": 4569,
+            "end": 4569
+          },
+          {
+            "type": "prelude_port_t",
+            "protocol": "udp",
+            "start": 4690,
+            "end": 4690
+          },
+          {
+            "type": "jboss_management_port_t",
+            "protocol": "udp",
+            "start": 4712,
+            "end": 4712
+          },
+          {
+            "type": "pulseaudio_port_t",
+            "protocol": "udp",
+            "start": 4713,
+            "end": 4713
+          },
+          {
+            "type": "openhpid_port_t",
+            "protocol": "udp",
+            "start": 4743,
+            "end": 4743
+          },
+          {
+            "type": "bfd_multi_port_t",
+            "protocol": "udp",
+            "start": 4784,
+            "end": 4784
+          },
+          {
+            "type": "squid_port_t",
+            "protocol": "udp",
+            "start": 4827,
+            "end": 4827
+          },
+          {
+            "type": "munin_port_t",
+            "protocol": "udp",
+            "start": 4949,
+            "end": 4949
+          },
+          {
+            "type": "commplex_main_port_t",
+            "protocol": "udp",
+            "start": 5000,
+            "end": 5000
+          },
+          {
+            "type": "commplex_link_port_t",
+            "protocol": "udp",
+            "start": 5001,
+            "end": 5001
+          },
+          {
+            "type": "fmpro_internal_port_t",
+            "protocol": "udp",
+            "start": 5003,
+            "end": 5003
+          },
+          {
+            "type": "rtp_media_port_t",
+            "protocol": "udp",
+            "start": 5004,
+            "end": 5005
+          },
+          {
+            "type": "mmcc_port_t",
+            "protocol": "udp",
+            "start": 5050,
+            "end": 5050
+          },
+          {
+            "type": "sip_port_t",
+            "protocol": "udp",
+            "start": 5060,
+            "end": 5061
+          },
+          {
+            "type": "cluster_port_t",
+            "protocol": "udp",
+            "start": 5149,
+            "end": 5149
+          },
+          {
+            "type": "aol_port_t",
+            "protocol": "udp",
+            "start": 5190,
+            "end": 5193
+          },
+          {
+            "type": "movaz_ssc_port_t",
+            "protocol": "udp",
+            "start": 5252,
+            "end": 5252
+          },
+          {
+            "type": "presence_port_t",
+            "protocol": "udp",
+            "start": 5298,
+            "end": 5299
+          },
+          {
+            "type": "imaze_port_t",
+            "protocol": "udp",
+            "start": 5323,
+            "end": 5323
+          },
+          {
+            "type": "howl_port_t",
+            "protocol": "udp",
+            "start": 5353,
+            "end": 5353
+          },
+          {
+            "type": "llmnr_port_t",
+            "protocol": "udp",
+            "start": 5355,
+            "end": 5355
+          },
+          {
+            "type": "wsdapi_port_t",
+            "protocol": "udp",
+            "start": 5357,
+            "end": 5357
+          },
+          {
+            "type": "netsupport_port_t",
+            "protocol": "udp",
+            "start": 5404,
+            "end": 5405
+          },
+          {
+            "type": "dhcpc_port_t",
+            "protocol": "udp",
+            "start": 5546,
+            "end": 5546
+          },
+          {
+            "type": "fac_restore_port_t",
+            "protocol": "udp",
+            "start": 5582,
+            "end": 5582
+          },
+          {
+            "type": "amqp_port_t",
+            "protocol": "udp",
+            "start": 5671,
+            "end": 5672
+          },
+          {
+            "type": "dccm_port_t",
+            "protocol": "udp",
+            "start": 5679,
+            "end": 5679
+          },
+          {
+            "type": "nodejs_debug_port_t",
+            "protocol": "udp",
+            "start": 5858,
+            "end": 5858
+          },
+          {
+            "type": "couchdb_port_t",
+            "protocol": "udp",
+            "start": 5984,
+            "end": 5984
+          },
+          {
+            "type": "dcc_port_t",
+            "protocol": "udp",
+            "start": 6276,
+            "end": 6277
+          },
+          {
+            "type": "syslog_tls_port_t",
+            "protocol": "udp",
+            "start": 6514,
+            "end": 6514
+          },
+          {
+            "type": "babel_port_t",
+            "protocol": "udp",
+            "start": 6696,
+            "end": 6696
+          },
+          {
+            "type": "couchdb_port_t",
+            "protocol": "udp",
+            "start": 6984,
+            "end": 6984
+          },
+          {
+            "type": "afs_fs_port_t",
+            "protocol": "udp",
+            "start": 7000,
+            "end": 7000
+          },
+          {
+            "type": "afs3_callback_port_t",
+            "protocol": "udp",
+            "start": 7001,
+            "end": 7001
+          },
+          {
+            "type": "afs_pt_port_t",
+            "protocol": "udp",
+            "start": 7002,
+            "end": 7002
+          },
+          {
+            "type": "afs_vl_port_t",
+            "protocol": "udp",
+            "start": 7003,
+            "end": 7003
+          },
+          {
+            "type": "afs_ka_port_t",
+            "protocol": "udp",
+            "start": 7004,
+            "end": 7004
+          },
+          {
+            "type": "afs_fs_port_t",
+            "protocol": "udp",
+            "start": 7005,
+            "end": 7005
+          },
+          {
+            "type": "afs_bos_port_t",
+            "protocol": "udp",
+            "start": 7007,
+            "end": 7007
+          },
+          {
+            "type": "ionixnetmon_port_t",
+            "protocol": "udp",
+            "start": 7410,
+            "end": 7410
+          },
+          {
+            "type": "interwise_port_t",
+            "protocol": "udp",
+            "start": 7778,
+            "end": 7778
+          },
+          {
+            "type": "conman_port_t",
+            "protocol": "udp",
+            "start": 7890,
+            "end": 7890
+          },
+          {
+            "type": "mxi_port_t",
+            "protocol": "udp",
+            "start": 8005,
+            "end": 8005
+          },
+          {
+            "type": "oa_system_port_t",
+            "protocol": "udp",
+            "start": 8022,
+            "end": 8022
+          },
+          {
+            "type": "us_cli_port_t",
+            "protocol": "udp",
+            "start": 8082,
+            "end": 8083
+          },
+          {
+            "type": "statsd_port_t",
+            "protocol": "udp",
+            "start": 8125,
+            "end": 8125
+          },
+          {
+            "type": "trivnet1_port_t",
+            "protocol": "udp",
+            "start": 8200,
+            "end": 8200
+          },
+          {
+            "type": "rtsp_port_t",
+            "protocol": "udp",
+            "start": 8554,
+            "end": 8554
+          },
+          {
+            "type": "ipp_port_t",
+            "protocol": "udp",
+            "start": 8610,
+            "end": 8614
+          },
+          {
+            "type": "dey_keyneg_port_t",
+            "protocol": "udp",
+            "start": 8750,
+            "end": 8750
+          },
+          {
+            "type": "jboss_debug_port_t",
+            "protocol": "udp",
+            "start": 8787,
+            "end": 8787
+          },
+          {
+            "type": "bctp_port_t",
+            "protocol": "udp",
+            "start": 8999,
+            "end": 8999
+          },
+          {
+            "type": "websm_port_t",
+            "protocol": "udp",
+            "start": 9090,
+            "end": 9090
+          },
+          {
+            "type": "bacula_port_t",
+            "protocol": "udp",
+            "start": 9103,
+            "end": 9103
+          },
+          {
+            "type": "jboss_management_port_t",
+            "protocol": "udp",
+            "start": 9123,
+            "end": 9123
+          },
+          {
+            "type": "glance_registry_port_t",
+            "protocol": "udp",
+            "start": 9191,
+            "end": 9191
+          },
+          {
+            "type": "wap_wsp_port_t",
+            "protocol": "udp",
+            "start": 9200,
+            "end": 9200
+          },
+          {
+            "type": "freeipmi_port_t",
+            "protocol": "udp",
+            "start": 9225,
+            "end": 9225
+          },
+          {
+            "type": "glance_port_t",
+            "protocol": "udp",
+            "start": 9292,
+            "end": 9292
+          },
+          {
+            "type": "git_port_t",
+            "protocol": "udp",
+            "start": 9418,
+            "end": 9418
+          },
+          {
+            "type": "condor_port_t",
+            "protocol": "udp",
+            "start": 9618,
+            "end": 9618
+          },
+          {
+            "type": "sap_port_t",
+            "protocol": "udp",
+            "start": 9875,
+            "end": 9875
+          },
+          {
+            "type": "sype_transport_port_t",
+            "protocol": "udp",
+            "start": 9911,
+            "end": 9911
+          },
+          {
+            "type": "boothd_port_t",
+            "protocol": "udp",
+            "start": 9929,
+            "end": 9929
+          },
+          {
+            "type": "amanda_port_t",
+            "protocol": "udp",
+            "start": 10080,
+            "end": 10082
+          },
+          {
+            "type": "nmea_port_t",
+            "protocol": "udp",
+            "start": 10110,
+            "end": 10110
+          },
+          {
+            "type": "snmp_port_t",
+            "protocol": "udp",
+            "start": 10161,
+            "end": 10162
+          },
+          {
+            "type": "trisoap_port_t",
+            "protocol": "udp",
+            "start": 10200,
+            "end": 10200
+          },
+          {
+            "type": "syslog_tls_port_t",
+            "protocol": "udp",
+            "start": 10514,
+            "end": 10514
+          },
+          {
+            "type": "ricci_port_t",
+            "protocol": "udp",
+            "start": 11111,
+            "end": 11111
+          },
+          {
+            "type": "memcache_port_t",
+            "protocol": "udp",
+            "start": 11211,
+            "end": 11211
+          },
+          {
+            "type": "pgpkeyserver_port_t",
+            "protocol": "udp",
+            "start": 11371,
+            "end": 11371
+          },
+          {
+            "type": "opendnssec_port_t",
+            "protocol": "udp",
+            "start": 15354,
+            "end": 15354
+          },
+          {
+            "type": "virt_port_t",
+            "protocol": "udp",
+            "start": 16509,
+            "end": 16509
+          },
+          {
+            "type": "virt_port_t",
+            "protocol": "udp",
+            "start": 16514,
+            "end": 16514
+          },
+          {
+            "type": "ricci_modcluster_port_t",
+            "protocol": "udp",
+            "start": 16851,
+            "end": 16851
+          },
+          {
+            "type": "radius_port_t",
+            "protocol": "udp",
+            "start": 18120,
+            "end": 18121
+          },
+          {
+            "type": "mountd_port_t",
+            "protocol": "udp",
+            "start": 20048,
+            "end": 20048
+          },
+          {
+            "type": "nfs_port_t",
+            "protocol": "udp",
+            "start": 20048,
+            "end": 20049
+          },
+          {
+            "type": "syslogd_port_t",
+            "protocol": "udp",
+            "start": 20514,
+            "end": 20514
+          },
+          {
+            "type": "pyzor_port_t",
+            "protocol": "udp",
+            "start": 24441,
+            "end": 24441
+          },
+          {
+            "type": "collectd_port_t",
+            "protocol": "udp",
+            "start": 25826,
+            "end": 25826
+          },
+          {
+            "type": "ephemeral_port_t",
+            "protocol": "udp",
+            "start": 32768,
+            "end": 60999
+          },
+          {
+            "type": "cyphesis_port_t",
+            "protocol": "udp",
+            "start": 32771,
+            "end": 32771
+          },
+          {
+            "type": "keystone_port_t",
+            "protocol": "udp",
+            "start": 35357,
+            "end": 35357
+          },
+          {
+            "type": "gear_port_t",
+            "protocol": "udp",
+            "start": 43273,
+            "end": 43273
+          },
+          {
+            "type": "matahari_port_t",
+            "protocol": "udp",
+            "start": 49000,
+            "end": 49000
+          },
+          {
+            "type": "cluster_port_t",
+            "protocol": "udp",
+            "start": 50006,
+            "end": 50008
+          },
+          {
+            "type": "unreserved_port_t",
+            "protocol": "udp",
+            "start": 61000,
+            "end": 65535
+          },
+          {
+            "type": "traceroute_port_t",
+            "protocol": "udp",
+            "start": 64000,
+            "end": 64010
+          }
+        ]
+      },
+      "effective_permissive_domains": {
+        "complete": true,
+        "domains": [
+          "bootupd_t",
+          "coreos_installer_t",
+          "dhcpc_hook_t",
+          "qgs_t",
+          "rhc_playbook_verifier_t",
+          "rhc_worker_playbook_t",
+          "rhcd_t",
+          "tuned_ppd_t"
+        ],
+        "extractor_semantics_version": 1,
+        "evaluator_version": "SETools 4.4.4"
+      }
+    }
+  },
+  "metadata": {
+    "collected_at": "2026-10-15T14:43:21.451736946Z",
+    "collector_version": "secentral-catalog-collector-v1"
+  }
+}

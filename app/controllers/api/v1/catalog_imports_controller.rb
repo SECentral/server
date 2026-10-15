@@ -37,7 +37,8 @@ class Api::V1::CatalogImportsController < Api::V1::BaseController
       acquisition: artifact.metadata.slice("collector_version", "collected_at"),
       families: {
         booleans: { status: "complete", count: artifact.catalog.dig("families", "booleans", "entries").size },
-        ports: { status: "complete", count: artifact.catalog.dig("families", "ports", "mappings").size, protocols: DistributionCatalogArtifact::PORT_PROTOCOLS }
+        ports: { status: "complete", count: artifact.catalog.dig("families", "ports", "mappings").size, protocols: DistributionCatalogArtifact::PORT_PROTOCOLS },
+        effective_permissive_domains: { status: "complete", count: artifact.catalog.dig("families", "effective_permissive_domains", "domains").size }
       },
       display_name: result.display_name, outcome: result.outcome,
       reason: { "create_new_revision" => "A new immutable revision will be created", "reuse_existing_revision" => "Identical content already exists; confirmation appends import evidence only and preserves its name/lifecycle", "conflict" => "Another content digest claims this loaded-policy identity" }.fetch(result.outcome),

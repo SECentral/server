@@ -8,7 +8,17 @@ class DistributionCatalogRevision < ApplicationRecord
   has_one :catalog_policy_artifact, dependent: :restrict_with_exception
 
   def reference_permissive_domains
-    PolicyPermissiveDomains.for_revision(self)
+    family = effective_permissive_domains
+    evidence = { policy_identity: loaded_policy_digest, provenance: "inline_catalog_extraction",
+      catalog_revision_id: id, content_digest: content_digest, evaluated_at: nil, semantics_version: nil, evaluator_version: nil }
+    unless collector_semantics_version == DistributionCatalogArtifact::COLLECTOR_SEMANTICS_VERSION && family.is_a?(Hash) && family["complete"] == true &&
+        PolicyPermissiveDomainAnalyzer.valid_domains?(family["domains"]) && family["domains"] == family["domains"].uniq.sort &&
+        PolicyPermissiveDomainAnalyzer.valid_evaluator_version?(family["evaluator_version"])
+      return evidence.merge(status: "unavailable", reason: "reference_inline_facts_unavailable", domains: nil)
+    end
+
+    evidence.merge(status: "observed", reason: nil, domains: family.fetch("domains"),
+      semantics_version: family["extractor_semantics_version"], evaluator_version: family.fetch("evaluator_version"))
   end
 
   def reference_policy_artifact

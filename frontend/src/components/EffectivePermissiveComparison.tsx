@@ -13,12 +13,9 @@ const REASONS: Record<string, string> = {
   reference_unavailable: "Reference selection is unavailable.",
   reference_archived: "The requested reference is archived and unavailable for new selection.",
   incompatible_policy_context: "The explicit reference's policy type or architecture is incompatible with this host.",
-  effective_policy_requires_exact_reference: "Exact reference policy is required; the current reference was selected using Boolean/port family agreement.",
-  reference_policy_artifact_unavailable: "The selected reference has no verified policy companion.",
-  reference_policy_artifact_invalid: "The selected reference's policy companion failed integrity verification.",
-  reference_permissive_analysis_pending: "Reference policy analysis is pending.",
-  reference_permissive_analysis_unavailable: "Reference policy analysis is unavailable.",
-  reference_permissive_analysis_error: "Reference policy analysis failed."
+  reference_inline_facts_unavailable: "At least one eligible catalog lacks usable inline permissive-domain facts.",
+  reference_extraction_semantics_incompatible: "The catalog's extraction semantics are incompatible with host analysis.",
+  effective_permissive_reference_ambiguous: "Eligible catalogs agree on Boolean/port facts but differ in effective permissive-domain membership."
 };
 
 function DomainList({ domains, label }: { domains: string[]; label: string }) {
@@ -36,7 +33,7 @@ function DomainList({ domains, label }: { domains: string[]; label: string }) {
 export function EffectivePermissiveComparison({ comparison }: { comparison: Comparison }) {
   return <section aria-label="Effective permissive-domain reference comparison" className="pf-v6-u-my-md">
     <h3>Effective permissive domains — reference comparison</h3>
-    <p>Effective permissive domains are derived from exact compiled policy. Differences show host versus selected reference state; they do not identify who changed the policy or why.</p>
+    <p>Host membership is extracted from exact compiled policy; reference membership is reported inline by the catalog collector. Differences show host versus selected reference state; they do not identify who changed the policy or why.</p>
     {comparison.selection.mode === "explicit" ? <p>Comparing host policy against an explicitly selected reference; selection does not assert binary equivalence.</p> : null}
     {comparison.selection.policy_identity_match === false ? <p>Exact policy identities differ.</p> : null}
     {comparison.status === "observed" && comparison.counts ? <>
@@ -53,7 +50,8 @@ export function EffectivePermissiveComparison({ comparison }: { comparison: Comp
       <dt>Reference revision</dt><dd>{comparison.reference?.revision_id ?? "unavailable"} · <code>{comparison.reference?.content_digest ?? "unavailable"}</code></dd>
       <dt>Reference policy SHA</dt><dd><code>{comparison.reference?.policy_identity ?? "unavailable"}</code></dd>
       <dt>Reference extraction</dt><dd>{comparison.reference?.status ?? "unavailable"} · semantics {comparison.reference?.semantics_version ?? "unavailable"} · {comparison.reference?.evaluator_version ?? "tool version unavailable"}</dd>
-      <dt>Selection</dt><dd>{comparison.selection.mode === "explicit" ? "Explicit comparison target, non-equivalent" : comparison.selection.basis === "exact_policy_identity" ? "Automatic exact policy identity" : "Automatic selection, exact-policy comparison unavailable"}</dd>
+      <dt>Reference source</dt><dd>{comparison.reference?.provenance === "inline_catalog_extraction" ? "Inline catalog extraction, collector-reported; not server-verified binary extraction." : "Unavailable"}</dd>
+      <dt>Selection</dt><dd>{comparison.selection.mode === "explicit" ? "Explicit comparison target, non-equivalent" : comparison.selection.basis === "exact_policy_identity" ? "Automatic exact policy identity" : comparison.status === "observed" ? "Automatic major-release family agreement; eligible effective permissive facts agree" : "Automatic major-release family agreement; effective permissive applicability is unverified"}</dd>
     </dl></details>
   </section>;
 }

@@ -3,13 +3,13 @@ require "tmpdir"
 
 RSpec.describe CatalogDistributionSource do
   def add_catalog(directory, distribution: "example", major: "9")
-    document = JSON.parse(File.binread(Rails.root.join("spec/fixtures/catalogs/v3.json")))
+    document = JSON.parse(File.binread(Rails.root.join("spec/fixtures/catalogs/v4.json")))
     document["catalog"]["platform"].merge!("distribution" => distribution, "major_version" => major)
     digest = "sha256:#{Digest::SHA256.hexdigest(DistributionCatalogCanonicalizer.call(document['catalog']))}"
     document["content_digest"] = digest
     record = {
       "review_record_version" => 1, "content_digest" => digest,
-      "review" => { "date" => "2026-10-11", "scope" => %w[booleans ports] },
+      "review" => { "date" => "2026-10-15", "scope" => %w[booleans ports effective_permissive_domains] },
       "known_limitations" => ["Synthetic fixture"]
     }
     artifact = Pathname.new(directory).join("#{distribution}/#{major}/targeted/#{digest.delete_prefix('sha256:')}.json")

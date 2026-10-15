@@ -12,7 +12,8 @@ RSpec.describe "Catalogs API", type: :request do
     DistributionCatalogRevision.create!({
       schema_version: 1,
       content_digest: "sha256:" + "1" * 64,
-      collector_semantics_version: 3,
+      collector_semantics_version: 4,
+      effective_permissive_domains: { "complete" => true, "domains" => ["example_t"], "extractor_semantics_version" => 1, "evaluator_version" => "SETools test" },
       loaded_policy_digest: "sha256:" + "a" * 64,
       policy_type: "targeted",
       kernel_policy_version: 33,
@@ -57,7 +58,7 @@ RSpec.describe "Catalogs API", type: :request do
       "policy_type" => "targeted",
       "kernel_policy_version" => 33,
       "schema_version" => 1,
-      "collector_semantics_version" => 3,
+      "collector_semantics_version" => 4,
       "content_digest" => revision.content_digest,
       "loaded_policy_digest" => revision.loaded_policy_digest,
       "booleans_complete" => true,
@@ -78,6 +79,7 @@ RSpec.describe "Catalogs API", type: :request do
     expect(response).to have_http_status(:ok)
     body = JSON.parse(response.body)["catalog"]
     expect(body["policy_packages"]).to eq([{ "name" => "selinux-policy-targeted", "version" => "38.1.75", "release" => "2.el9_8" }])
+    expect(body["effective_permissive_domains"]).to include("status" => "observed", "domains" => ["example_t"], "provenance" => "inline_catalog_extraction", "semantics_version" => 1, "evaluator_version" => "SETools test", "catalog_revision_id" => revision.id, "content_digest" => revision.content_digest)
     expect(body["imports"].size).to eq(1)
     import_entry = body["imports"].first
     expect(import_entry["id"]).to eq(import.id)
@@ -127,7 +129,7 @@ RSpec.describe "Catalogs API", type: :request do
 
   it "renames, archives and unarchives without touching immutable content or import evidence" do
     sign_in_operator
-    result = ImportDistributionCatalog.call(artifact: DistributionCatalogArtifact.read(Rails.root.join("spec/fixtures/catalogs/v3.json")))
+    result = ImportDistributionCatalog.call(artifact: DistributionCatalogArtifact.read(Rails.root.join("spec/fixtures/catalogs/v4.json")))
     revision = result.revision
     original = revision.attributes
     import = result.catalog_import.attributes

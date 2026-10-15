@@ -29,11 +29,13 @@ RSpec.describe "Effective permissive-domain reference comparison", type: :reques
     artifact
   end
 
-  def catalog(artifact, companion: true, type: "targeted", description: nil)
-    document = JSON.parse(File.binread(Rails.root.join("spec/fixtures/catalogs/v3.json")))
+  def catalog(artifact, companion: false, type: "targeted", description: nil)
+    document = JSON.parse(File.binread(Rails.root.join("spec/fixtures/catalogs/v4.json")))
     document["catalog"]["platform"]["distribution"] = "almalinux"
     document["catalog"]["policy"]["type"] = type
     document["catalog"]["policy"]["loaded_policy_digest"] = artifact.policy_identity
+    document["catalog"]["families"]["effective_permissive_domains"]["domains"] = artifact.permissive_domain_analysis.fetch("domains")
+    document["catalog"]["families"]["effective_permissive_domains"]["evaluator_version"] = artifact.permissive_domain_analysis.fetch("evaluator_version")
     document["catalog"]["families"]["booleans"]["entries"].first["description"] = description if description
     document["content_digest"] = "sha256:#{Digest::SHA256.hexdigest(DistributionCatalogCanonicalizer.call(document['catalog']))}"
     record = ImportDistributionCatalog.call(artifact: DistributionCatalogArtifact.new(JSON.generate(document))).revision
@@ -68,7 +70,8 @@ RSpec.describe "Effective permissive-domain reference comparison", type: :reques
     expect(result).to include("status" => "observed", "reason" => nil, "matching" => %w[bootupd_t rhcd_t], "unexpected_on_host" => [], "missing_from_host" => [])
     expect(result["counts"]).to eq("matching" => 2, "unexpected_on_host" => 0, "missing_from_host" => 0)
     expect(result["host"]).to include("policy_identity" => artifact.policy_identity, "snapshot_id" => record.current_snapshot.id, "semantics_version" => 1)
-    expect(result["reference"]).to include("revision_id" => revision.id, "content_digest" => revision.content_digest, "policy_identity" => artifact.policy_identity)
+    expect(result["reference"]).to include("revision_id" => revision.id, "content_digest" => revision.content_digest, "policy_identity" => artifact.policy_identity, "provenance" => "inline_catalog_extraction", "semantics_version" => 1, "evaluator_version" => "SETools test")
+    expect(revision.catalog_policy_artifact).to be_nil
     expect(result["selection"]).to include("basis" => "exact_policy_identity", "equivalence_asserted" => true)
     expect(response.parsed_body.dig("selection", "families", "effective_permissive_domains")).to include("status" => "comparable", "comparison_allowed" => true)
   end
@@ -91,19 +94,51 @@ RSpec.describe "Effective permissive-domain reference comparison", type: :reques
       result = compare(host(policy("host", status: status)), ref)
       expect(result).to include("status" => "unknown", "reason" => "host_permissive_analysis_#{status}", "matching" => nil, "counts" => nil)
     end
-    it "withholds sets when reference analysis is #{status}" do
+    it "uses inline facts even when a separately stored reference artifact analysis is #{status}" do
       ref = catalog(policy("reference", status: status))
       result = compare(host(policy("host")), ref)
-      expect(result).to include("status" => "unknown", "reason" => "reference_permissive_analysis_#{status}", "matching" => nil)
+      expect(result).to include("status" => "observed", "reason" => nil, "matching" => [])
     end
   end
 
-  it "rejects Boolean/port fallback even with observed sets and a verified reference companion" do
+  it "compares inline permissive membership on automatic major-release family agreement when the candidate set is unanimous" do
     ref = catalog(policy("reference", domains: %w[postgres_t]))
     result = compare(host(policy("host", domains: %w[postgres_t])))
-    expect(result).to include("status" => "unknown", "reason" => "effective_policy_requires_exact_reference", "matching" => nil)
+    expect(result).to include("status" => "observed", "reason" => nil, "matching" => ["postgres_t"], "unexpected_on_host" => [], "missing_from_host" => [])
     expect(response.parsed_body.dig("selection", "basis")).to eq("major_release_family_agreement")
+    expect(result.dig("selection", "equivalence_asserted")).to be(false)
     expect(ref.reference_permissive_domains[:status]).to eq("observed")
+  end
+
+  it "withholds only effective permissive comparison when major-release candidates disagree on inline membership" do
+    catalog(policy("reference one", domains: ["alpha_t"]))
+    catalog(policy("reference two", domains: ["beta_t"]))
+    result = compare(host(policy("host", domains: ["alpha_t"])))
+
+    expect(response.parsed_body.dig("selection", "basis")).to eq("major_release_family_agreement")
+    expect(response.parsed_body.dig("selection", "families", "booleans")).to include("comparison_allowed" => true)
+    expect(result).to include("status" => "unknown", "reason" => "effective_permissive_reference_ambiguous", "matching" => nil)
+  end
+
+  it "withholds effective membership when an eligible legacy candidate has no inline facts" do
+    complete = catalog(policy("v4 candidate", domains: ["postgres_t"]))
+    legacy = DistributionCatalogRevision.create!(schema_version: 1, collector_semantics_version: 3,
+      content_digest: "sha256:" + "b" * 64, loaded_policy_digest: "sha256:" + "c" * 64,
+      policy_type: "targeted", kernel_policy_version: 33, distribution: "almalinux", major_version: "9",
+      architecture: "x86_64", policy_packages: [], booleans_complete: true, ports_complete: true)
+    complete.distribution_catalog_booleans.each do |entry|
+      legacy.distribution_catalog_booleans.create!(name: entry.name, default_value: entry.default_value, description: entry.description)
+    end
+    complete.distribution_catalog_ports.each do |mapping|
+      legacy.distribution_catalog_ports.create!(protocol: mapping.protocol, start_port: mapping.start_port, end_port: mapping.end_port, selinux_type: mapping.selinux_type)
+    end
+
+    result = compare(host(policy("host", domains: ["postgres_t"])))
+
+    expect(response.parsed_body.dig("selection", "basis")).to eq("major_release_family_agreement")
+    expect(response.parsed_body.dig("selection", "families", "effective_permissive_domains")).to include(
+      "status" => "unknown", "comparison_allowed" => false, "reason" => "reference_inline_facts_unavailable")
+    expect(result).to include("status" => "unknown", "reason" => "reference_inline_facts_unavailable", "matching" => nil)
   end
 
   it "distinguishes absent, ambiguous, archived and incompatible reference selection" do
@@ -122,17 +157,35 @@ RSpec.describe "Effective permissive-domain reference comparison", type: :reques
     expect(compare(host(policy("host"), platform: {}))["reason"]).to eq("reference_unavailable")
   end
 
-  it "distinguishes missing and corrupt reference companions from missing host artifacts" do
+  it "uses inline reference facts independently of missing or corrupt companions, but still requires host artifacts" do
     artifact = policy("reference")
     revision = catalog(artifact, companion: false)
     record = host(policy("host"))
-    expect(compare(record, revision)["reason"]).to eq("reference_policy_artifact_unavailable")
+    expect(compare(record, revision)["status"]).to eq("observed")
     AttachCatalogPolicy.call(revision: revision, bytes: artifact.artifact, acquisition_basis: "Synthetic")
     PolicyArtifact.where(id: artifact.id).update_all(artifact: "corrupt")
-    expect(compare(record, revision)["reason"]).to eq("reference_policy_artifact_invalid")
+    expect(compare(record, revision)["status"]).to eq("observed")
     reference_two = catalog(policy("valid reference"))
     PolicyArtifact.where(policy_identity: record.current_policy_identity).delete_all
     expect(compare(record, reference_two)["reason"]).to eq("host_policy_artifact_unavailable")
+  end
+
+  it "compares JSON-only reference facts after reference policy bytes are absent" do
+    reference_artifact = policy("reference only", domains: ["reference_t"])
+    revision = catalog(reference_artifact)
+    reference_artifact.delete
+    record = host(policy("host only", domains: ["host_t"]))
+    expect(PolicyPermissiveDomainAnalyzer).not_to receive(:call)
+    expect do
+      result = compare(record, revision)
+      expect(result).to include("status" => "observed", "unexpected_on_host" => ["host_t"], "missing_from_host" => ["reference_t"])
+    end.not_to have_enqueued_job(AnalyzePolicyPermissiveDomainsJob)
+  end
+
+  it "keeps incompatible host cache semantics unknown" do
+    revision = catalog(policy("reference"))
+    result = compare(host(policy("host", semantics: 2)), revision)
+    expect(result).to include("status" => "unknown", "reason" => "host_permissive_analysis_unavailable", "counts" => nil)
   end
 
   it "does not borrow old membership for masked or stale checkpoints" do
@@ -148,9 +201,10 @@ RSpec.describe "Effective permissive-domain reference comparison", type: :reques
     expect(compare(record, revision)).to include("status" => "unknown", "reason" => "host_policy_identity_unavailable", "matching" => nil)
   end
 
-  it "refuses incompatible cache semantics without requiring identical tool versions" do
-    revision = catalog(policy("reference", semantics: 2))
+  it "refuses incompatible inline extraction semantics without requiring identical tool versions" do
+    revision = catalog(policy("reference"))
+    revision.update_column(:effective_permissive_domains, revision.effective_permissive_domains.merge("extractor_semantics_version" => 2))
     result = compare(host(policy("host")), revision)
-    expect(result).to include("status" => "unknown", "reason" => "reference_permissive_analysis_unavailable")
+    expect(result).to include("status" => "unknown", "reason" => "reference_extraction_semantics_incompatible")
   end
 end

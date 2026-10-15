@@ -103,7 +103,7 @@ class HostConfigurationComparison
   def permissive_evidence(state)
     { status: state[:status], policy_identity: state[:policy_identity],
       semantics_version: state[:status] == "observed" ? state[:semantics_version] : nil,
-      evaluator_version: state[:evaluator_version], evaluated_at: state[:evaluated_at] }
+      evaluator_version: state[:evaluator_version], evaluated_at: state[:evaluated_at], provenance: state[:provenance] }
   end
 
   def policy_identity_matches?

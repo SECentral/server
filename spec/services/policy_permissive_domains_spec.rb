@@ -63,6 +63,28 @@ RSpec.describe PolicyPermissiveDomains do
     end
   end
 
+  it "reextracts incompatible host cache semantics without letting stale jobs overwrite newer results" do
+    policy = artifact(domains: ["rhcd_t"], status: "observed")
+    policy.update_column(:permissive_domain_analysis, policy.permissive_domain_analysis.merge("semantics_version" => 0))
+    expect(described_class.lookup(policy.policy_identity)).to include(status: "pending", domains: nil)
+    pending = policy.reload.permissive_domain_analysis
+    AnalyzePolicyPermissiveDomainsJob.perform_now(policy.id, 0)
+    expect(policy.reload.permissive_domain_analysis).to eq(pending)
+    newer = pending.merge("status" => "observed", "semantics_version" => 2, "domains" => [], "evaluator_version" => "SETools future")
+    policy.update_column(:permissive_domain_analysis, newer)
+    expect(described_class.lookup(policy.policy_identity)).to include(status: "unavailable", domains: nil)
+    AnalyzePolicyPermissiveDomainsJob.perform_now(policy.id, 1)
+    expect(policy.reload.permissive_domain_analysis).to eq(newer)
+    policy.invalidate_permissive_domain_analysis!("corrupt bytes")
+    expect(policy.reload.permissive_domain_analysis).to include("status" => "unavailable", "semantics_version" => 2)
+  end
+
+  it "withholds host membership when retained exact policy bytes are corrupt" do
+    policy = artifact(domains: ["rhcd_t"], status: "observed")
+    PolicyArtifact.where(id: policy.id).update_all(artifact: "corrupt")
+    expect(described_class.lookup(policy.policy_identity)).to include(status: "unavailable", domains: nil)
+  end
+
   it "preserves AVC-local permissiveness separately from global Enforcing and historical membership" do
     permissive = artifact(domains: ["postgresql_t"], status: "observed")
     ordinary = artifact(domains: [], status: "observed", bytes: "ordinary policy")

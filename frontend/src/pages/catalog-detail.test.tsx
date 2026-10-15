@@ -19,9 +19,10 @@ const detailPayload: CatalogDetailResponse = {
     policy_type: "targeted",
     kernel_policy_version: 33,
     schema_version: 1,
-    collector_semantics_version: 3,
+    collector_semantics_version: 4,
     content_digest: "sha256:" + "1".repeat(64),
     loaded_policy_digest: loadedPolicyDigest,
+    effective_permissive_domains: { status: "observed", domains: ["example_t"], provenance: "inline_catalog_extraction", policy_identity: loadedPolicyDigest, catalog_revision_id: 7, content_digest: "sha256:" + "1".repeat(64), semantics_version: 1, evaluator_version: "SETools 4.5.1" },
     booleans_complete: true,
     ports_complete: false,
     booleans_count: 1,
@@ -113,6 +114,42 @@ describe("CatalogDetail", () => {
 
     expect(await screen.findByText("Could not load the catalog")).toBeInTheDocument();
     expect(screen.getByText("Resource not found")).toBeInTheDocument();
+  });
+
+  it("shows inline reference membership before any host comparison with collapsed membership and honest provenance", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = renderCatalogDetail();
+    expect(await screen.findByText("1 in reference")).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "Effective permissive domains (1)" }));
+    expect(screen.getByText(/Inline catalog extraction, collector-reported/)).toBeVisible();
+    expect(screen.getByText(/semantics 1 · SETools 4.5.1/)).toBeVisible();
+    const toggle = screen.getByRole("button", { name: "Reference membership (1)" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await user.click(toggle);
+    expect(within(screen.getByRole("table", { name: "Catalog permissive domains" })).getByText("example_t")).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("distinguishes a complete empty reference from unavailable facts", async () => {
+    const user = userEvent.setup();
+    const payload = structuredClone(detailPayload);
+    payload.catalog.effective_permissive_domains.domains = [];
+    renderCatalogDetail(payload);
+    expect(await screen.findByText("0 in reference")).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "Effective permissive domains (0)" }));
+    await user.click(screen.getByRole("button", { name: "Reference membership (0)" }));
+    expect(screen.getByText("The reference policy has no effective permissive domains.")).toBeVisible();
+  });
+
+  it("does not present unavailable inline facts as an empty reference", async () => {
+    const user = userEvent.setup();
+    const payload = structuredClone(detailPayload);
+    payload.catalog.effective_permissive_domains = { ...payload.catalog.effective_permissive_domains, status: "unavailable", domains: null, semantics_version: null, evaluator_version: null };
+    renderCatalogDetail(payload);
+    await screen.findByText("AlmaLinux 9 SELinux policy");
+    await user.click(screen.getByRole("tab", { name: "Effective permissive domains (unavailable)" }));
+    expect(screen.getByText(/Inline reference membership is unavailable/)).toBeVisible();
+    expect(screen.queryByText("The reference policy has no effective permissive domains.")).not.toBeInTheDocument();
   });
 
   it("renames, archives and unarchives while preserving identity/provenance", async () => {

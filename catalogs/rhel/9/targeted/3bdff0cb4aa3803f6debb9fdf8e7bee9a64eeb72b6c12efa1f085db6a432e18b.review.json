@@ -1,0 +1,14 @@
+{
+  "review_record_version": 1,
+  "content_digest": "sha256:3bdff0cb4aa3803f6debb9fdf8e7bee9a64eeb72b6c12efa1f085db6a432e18b",
+  "review": {
+    "date": "2026-10-15",
+    "scope": ["booleans", "ports", "effective_permissive_domains"]
+  },
+  "known_limitations": [
+    "Collector cleanliness checks cover local Boolean, port and file-context configuration but do not prove absence of custom policy modules.",
+    "Effective permissive-domain facts are collector-reported inline extraction, not independently server-verified from retained policy bytes.",
+    "Catalog families are bounded reference facts, not a complete SELinux policy representation or proof of administrator intent.",
+    "Loaded-policy SHA is exact observed identity, not a universally reproducible distribution build identifier."
+  ]
+}

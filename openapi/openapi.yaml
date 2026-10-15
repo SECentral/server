@@ -1571,8 +1571,10 @@ components:
               type: string
         families:
           type: object
-          required: [booleans, ports]
+          required: [booleans, ports, effective_permissive_domains]
           properties:
+            effective_permissive_domains:
+              $ref: "#/components/schemas/CatalogImportFamily"
             booleans:
               $ref: "#/components/schemas/CatalogImportFamily"
             ports:
@@ -3340,9 +3342,10 @@ components:
       description: |
         One domain selection contract. Selected revision is separate from family
         usability. Automatic exact/family-agreement and explicit request basis never fill
-        missing host evidence. Major-release family agreement grants only Boolean/port reference agreement,
-        not applicability for future exact-policy facts. Fresh evaluation uses
-        current active eligibility; there is no persisted historical selection pin.
+        missing host evidence. Effective permissive membership under family agreement
+        requires complete V4 inline facts with compatible extraction semantics and
+        unanimous candidate sets. Fresh evaluation uses current active eligibility;
+        there is no persisted historical selection pin.
       properties:
         mode:
           type: string
@@ -3389,7 +3392,7 @@ components:
         families:
           type: object
           required: [booleans, ports, effective_permissive_domains]
-          description: Effective permissive membership requires exact or explicit verified reference authority; Boolean/port agreement does not grant that eligibility.
+          description: Automatic major-release selection permits effective permissive comparison only when every eligible V4 catalog has complete facts under compatible extractor semantics and all candidate sets agree; otherwise this family is Unknown. Exact and compatible explicit selection remain supported.
           properties:
             booleans:
               $ref: "#/components/schemas/CatalogFamilyApplicability"
@@ -3401,6 +3404,10 @@ components:
       type: object
       required: [status, policy_identity, semantics_version, evaluator_version, evaluated_at]
       properties:
+        provenance:
+          type: [string, "null"]
+          enum: [exact_loaded_policy_artifact, inline_catalog_extraction, null]
+          description: Reference inline facts are collector-reported, not server-verified binary extraction.
         status:
           type: string
           enum: [observed, pending, unavailable, error]
@@ -3426,7 +3433,7 @@ components:
           type: string
     EffectivePermissiveComparison:
       type: object
-      description: Complete exact-policy-derived membership sets. Differences are state evidence, not administrative attribution, security judgment or binary equivalence. Unknown never supplies partial differences.
+      description: Complete host exact-policy and collector-reported catalog membership sets. Automatic major-release applicability requires complete, compatible, unanimous candidate facts. Differences are state evidence, not administrative attribution, security judgment or binary equivalence. Unknown never supplies partial differences.
       required: [status, reason, host, reference, selection, matching, unexpected_on_host, missing_from_host, counts]
       properties:
         status:
@@ -3434,7 +3441,7 @@ components:
           enum: [observed, unknown]
         reason:
           type: [string, "null"]
-          enum: [host_policy_identity_unavailable, stale_host_observation, host_policy_artifact_unavailable, host_permissive_analysis_pending, host_permissive_analysis_unavailable, host_permissive_analysis_error, reference_absent, reference_ambiguous, reference_unavailable, reference_archived, incompatible_policy_context, effective_policy_requires_exact_reference, reference_policy_artifact_unavailable, reference_policy_artifact_invalid, reference_permissive_analysis_pending, reference_permissive_analysis_unavailable, reference_permissive_analysis_error, null]
+          enum: [host_policy_identity_unavailable, stale_host_observation, host_policy_artifact_unavailable, host_permissive_analysis_pending, host_permissive_analysis_unavailable, host_permissive_analysis_error, reference_absent, reference_ambiguous, reference_unavailable, reference_archived, incompatible_policy_context, reference_inline_facts_unavailable, reference_extraction_semantics_incompatible, effective_permissive_reference_ambiguous, null]
         host:
           $ref: "#/components/schemas/EffectivePermissiveEvidence"
         reference:
@@ -3687,7 +3694,10 @@ components:
             - imports
             - booleans
             - port_mappings
+            - effective_permissive_domains
           properties:
+            effective_permissive_domains:
+              $ref: "#/components/schemas/CatalogPermissiveDomains"
             policy_packages:
               type: array
               items:
@@ -3731,6 +3741,20 @@ components:
                   type:
                     type: string
                     description: SELinux port type.
+    CatalogPermissiveDomains:
+      type: object
+      description: Collector-reported inline reference membership bound to catalog content and declared policy SHA, not server-verified binary extraction. Unavailable facts never imply an empty set.
+      required: [status, domains, policy_identity, provenance, catalog_revision_id, content_digest, semantics_version, evaluator_version]
+      properties:
+        status: {type: string, enum: [observed, unavailable]}
+        domains: {type: [array, 'null'], items: {type: string}}
+        policy_identity: {type: string}
+        provenance: {type: string, const: inline_catalog_extraction}
+        catalog_revision_id: {type: integer}
+        content_digest: {type: string}
+        semantics_version: {type: [integer, 'null']}
+        evaluator_version: {type: [string, 'null']}
+        reason: {type: [string, 'null']}
     CatalogListResponse:
       type: object
       required:

@@ -9,7 +9,7 @@ RSpec.describe CatalogImportComparison do
   end
 
   def import(index, **options)
-    document = JSON.parse(File.binread(Rails.root.join("spec/fixtures/catalogs/v3.json")))
+    document = JSON.parse(File.binread(Rails.root.join("spec/fixtures/catalogs/v4.json")))
     document["catalog"]["policy"]["loaded_policy_digest"] = "sha256:#{index.to_s(16).rjust(64, '0')}"
     yield document["catalog"] if block_given?
     document["content_digest"] = "sha256:#{Digest::SHA256.hexdigest(DistributionCatalogCanonicalizer.call(document.fetch('catalog')))}"

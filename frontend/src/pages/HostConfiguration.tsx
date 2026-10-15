@@ -479,7 +479,7 @@ export function HostConfiguration() {
   const configQuery = useQuery({
     queryKey: ["host-configuration", Number(id), view, q, page, referenceRevisionId, perPage],
     queryFn: () => fetchHostConfiguration(Number(id), { view, q: q || undefined, page, referenceRevisionId: referenceRevisionId ?? undefined, limit: searchParams.has("limit") ? perPage : undefined }),
-    refetchInterval: (query) => query.state.data?.selinux.effective_permissive_domains?.status === "pending" || query.state.data?.comparison.effective_permissive_domains.reference?.status === "pending" ? 2000 : false,
+    refetchInterval: (query) => query.state.data?.selinux.effective_permissive_domains?.status === "pending" ? 2000 : false,
     placeholderData: (previousData, previousQuery) => previousQuery?.queryKey[1] === Number(id) && previousQuery.queryKey[5] === referenceRevisionId ? previousData : undefined
   });
   const hostQuery = useQuery({

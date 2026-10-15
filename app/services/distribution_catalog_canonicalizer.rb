@@ -11,6 +11,8 @@ class DistributionCatalogCanonicalizer
     encode({
       "collector_semantics_version" => @catalog.fetch("collector_semantics_version"),
       "families" => {
+        "effective_permissive_domains" => @catalog.dig("families", "effective_permissive_domains").merge(
+          "domains" => @catalog.dig("families", "effective_permissive_domains", "domains").sort),
         "booleans" => {
           "complete" => @catalog.dig("families", "booleans", "complete"),
           "entries" => @catalog.dig("families", "booleans", "entries").sort_by { |entry| entry.fetch("name") }

@@ -22,9 +22,9 @@ class CatalogReferenceSelection
         elsif host_state[:semantics_version] != PolicyPermissiveDomainAnalyzer::SEMANTICS_VERSION
           "host_permissive_analysis_unavailable"
         elsif reference_state[:status] != "observed"
-          %w[reference_policy_artifact_unavailable reference_policy_artifact_invalid].include?(reference_state[:reason]) ? reference_state[:reason] : "reference_permissive_analysis_#{reference_state[:status]}"
+          "reference_inline_facts_unavailable"
         elsif reference_state[:semantics_version] != PolicyPermissiveDomainAnalyzer::SEMANTICS_VERSION
-          "reference_permissive_analysis_unavailable"
+          "reference_extraction_semantics_incompatible"
         end
       end
       resolved = entry.merge(status: reason ? "unknown" : "comparable", reason: reason,
@@ -148,14 +148,31 @@ class CatalogReferenceSelection
     elsif !revision
       %w[archived_reference archived_only].include?(reason) ? "reference_archived" : "reference_#{status == 'selected' ? 'unavailable' : status}"
     elsif basis == "major_release_family_agreement"
-      "effective_policy_requires_exact_reference"
+      effective_permissive_candidate_reason(candidates)
     elsif basis == "explicit_revision" && incompatible_context?(revision)
       "incompatible_policy_context"
     end
-    applicability[EFFECTIVE_FAMILY] = { status: "unknown", reference_status: "not_evaluated", host_status: "not_evaluated", comparison_allowed: false, reason: effective_reason }
+    reference_status = if effective_reason == "reference_inline_facts_unavailable"
+      "incomplete"
+    elsif revision
+      revision.reference_permissive_domains[:status]
+    else
+      "not_evaluated"
+    end
+    applicability[EFFECTIVE_FAMILY] = { status: effective_reason ? "unknown" : "comparable",
+      reference_status: reference_status, host_status: "not_evaluated", comparison_allowed: effective_reason.nil?, reason: effective_reason }
     Result.new(@mode, status, revision, basis, reason,
       candidates.first(CANDIDATE_LIMIT).map { |candidate| self.class.identity(candidate) }, count || candidates.size,
       @context, revision && valid_identity? ? revision.loaded_policy_digest == @identity : nil, applicability)
+  end
+
+  def effective_permissive_candidate_reason(candidates)
+    states = candidates.map(&:reference_permissive_domains)
+    return "reference_inline_facts_unavailable" if states.empty? || states.any? { |state| state[:status] != "observed" }
+    return "reference_extraction_semantics_incompatible" if states.any? { |state| state[:semantics_version] != PolicyPermissiveDomainAnalyzer::SEMANTICS_VERSION }
+    return "effective_permissive_reference_ambiguous" unless states.map { |state| state[:domains] }.uniq.one?
+
+    nil
   end
 
   def family_status(family, revision, basis)

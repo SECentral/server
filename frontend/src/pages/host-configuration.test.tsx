@@ -37,7 +37,7 @@ const base: HostConfigurationResponse = {
     families: {
       booleans: { status: "comparable", reference_status: "complete", host_status: "observed", comparison_allowed: true, reason: null },
       ports: { status: "comparable", reference_status: "complete", host_status: "observed", comparison_allowed: true, reason: null },
-      effective_permissive_domains: { status: "unknown", reference_status: "unavailable", host_status: "observed", comparison_allowed: false, reason: "effective_policy_requires_exact_reference" }
+      effective_permissive_domains: { status: "comparable", reference_status: "observed", host_status: "observed", comparison_allowed: true, reason: null }
     }
   },
   reference_options: { revisions: [], truncated: false },
@@ -45,9 +45,9 @@ const base: HostConfigurationResponse = {
     available: true,
     paused: false,
     effective_permissive_domains: {
-      status: "unknown", reason: "effective_policy_requires_exact_reference", counts: null, matching: null, unexpected_on_host: null, missing_from_host: null,
+      status: "observed", reason: null, counts: { matching: 1, unexpected_on_host: 0, missing_from_host: 0 }, matching: ["postgresql_t"], unexpected_on_host: [], missing_from_host: [],
       host: { status: "observed", policy_identity: identity, semantics_version: 1, evaluator_version: "SETools test", evaluated_at: null, snapshot_id: 1, observation_id: 1, evidence_basis: "trusted_current_checkpoint" },
-      reference: { status: "unavailable", policy_identity: identity, semantics_version: null, evaluator_version: null, evaluated_at: null, revision_id: 3, content_digest: "sha256:" + "1".repeat(64) },
+      reference: { status: "observed", policy_identity: identity, semantics_version: 1, evaluator_version: "SETools test", evaluated_at: null, revision_id: 3, content_digest: "sha256:" + "1".repeat(64), provenance: "inline_catalog_extraction" },
       selection: { mode: "automatic", basis: "major_release_family_agreement", policy_identity_match: false, equivalence_asserted: false }
     },
     summary: {
@@ -385,8 +385,8 @@ describe("HostConfiguration", () => {
       differences: { ...base.differences!, total: 0, booleans: [], ports: [] }
     });
 
-    expect(await screen.findByText("No observed Boolean/port differences — comparison limited")).toBeInTheDocument();
-    expect(screen.queryByText("Matches reference")).not.toBeInTheDocument();
+    expect(await screen.findByText("No Boolean/port differences")).toBeInTheDocument();
+    expect(screen.getByText("Matches reference")).toBeInTheDocument();
     expect(screen.getByText("No boolean or port differences were observed.")).toBeInTheDocument();
   });
 

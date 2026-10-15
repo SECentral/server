@@ -6,7 +6,7 @@ RSpec.describe AttachCatalogPolicy do
   let(:bytes) { "\x00exact synthetic policy\xff".b }
 
   def revision(policy_bytes = bytes, description: nil)
-    document = JSON.parse(File.binread(Rails.root.join("spec/fixtures/catalogs/v3.json")))
+    document = JSON.parse(File.binread(Rails.root.join("spec/fixtures/catalogs/v4.json")))
     document["catalog"]["policy"]["loaded_policy_digest"] = "sha256:#{Digest::SHA256.hexdigest(policy_bytes)}"
     document["catalog"]["families"]["booleans"]["entries"].first["description"] = description if description
     document["content_digest"] = "sha256:#{Digest::SHA256.hexdigest(DistributionCatalogCanonicalizer.call(document['catalog']))}"
@@ -122,7 +122,7 @@ RSpec.describe AttachCatalogPolicy do
     expect(fallback.basis).to eq("major_release_family_agreement")
     expect(explicit.as_json[:equivalence_asserted]).to be(false)
     expect(explicit.revision.reference_policy_artifact[:policy_artifact_digest]).to eq(record.loaded_policy_digest)
-    [exact, fallback, explicit].each { |selection| expect(selection.family("effective_permissive_domains")).to include(status: "unknown", comparison_allowed: false) }
+    [exact, fallback, explicit].each { |selection| expect(selection.family("effective_permissive_domains")).to include(status: "comparable", comparison_allowed: true) }
     record.catalog_management.change!(lifecycle: "archived", changed_by: "test")
     expect(CatalogReferenceSelection.call(snapshot: snapshot, revision_id: record.id).reason).to eq("archived_reference")
   end

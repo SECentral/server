@@ -7,12 +7,12 @@ import type { CatalogImportPreviewResponse } from "../api/catalogs";
 import { CatalogImport } from "./CatalogImport";
 
 const payload: CatalogImportPreviewResponse = { preview: {
-  validation_status: "valid", supported: true, schema_version: 1, collector_semantics_version: 3,
+  validation_status: "valid", supported: true, schema_version: 1, collector_semantics_version: 4,
   content_digest: "sha256:" + "1".repeat(64), loaded_policy_digest: "sha256:" + "a".repeat(64),
   platform: { distribution: "rhel", major_version: "9", architecture: "x86_64" }, policy_type: "targeted",
   policy_packages: [{ name: "selinux-policy-targeted", epoch: "0", version: "38", release: "1", architecture: "x86_64" }],
   acquisition: { collected_at: "2026-09-20T16:00:00Z", collector_version: "collector-v1" },
-  families: { booleans: { status: "complete", count: 350 }, ports: { status: "complete", count: 621, protocols: ["tcp", "udp", "sctp", "dccp"] } },
+  families: { booleans: { status: "complete", count: 350 }, ports: { status: "complete", count: 621, protocols: ["tcp", "udp", "sctp", "dccp"] }, effective_permissive_domains: { status: "complete", count: 7 } },
   display_name: "RHEL 9", outcome: "create_new_revision", reason: "A new immutable revision will be created", existing_revision: null,
   preview_token: "signed-receipt", expires_at: "2099-01-01T00:00:00Z"
 } };

@@ -3,7 +3,7 @@ require "rails_helper"
 RSpec.describe "Catalog product import", type: :request do
   include ActiveSupport::Testing::TimeHelpers
 
-  let(:bytes) { File.binread(Rails.root.join("spec/fixtures/catalogs/v3.json")) }
+  let(:bytes) { File.binread(Rails.root.join("spec/fixtures/catalogs/v4.json")) }
   before { sign_in_operator }
   after do
     DistributionCatalogImport.delete_all
@@ -38,8 +38,8 @@ RSpec.describe "Catalog product import", type: :request do
     original = counts
     result = preview(name: "  Named reference  ")
     expect(counts).to eq(original)
-    expect(result).to include("outcome" => "create_new_revision", "display_name" => "Named reference", "supported" => true, "validation_status" => "valid", "schema_version" => 1, "collector_semantics_version" => 3)
-    expect(result["families"]).to eq("booleans" => { "status" => "complete", "count" => 2 }, "ports" => { "status" => "complete", "count" => 2, "protocols" => %w[tcp udp sctp dccp] })
+    expect(result).to include("outcome" => "create_new_revision", "display_name" => "Named reference", "supported" => true, "validation_status" => "valid", "schema_version" => 1, "collector_semantics_version" => 4)
+    expect(result["families"]).to eq("booleans" => { "status" => "complete", "count" => 2 }, "ports" => { "status" => "complete", "count" => 2, "protocols" => %w[tcp udp sctp dccp] }, "effective_permissive_domains" => { "status" => "complete", "count" => 1 })
     expect(result["acquisition"].keys).to match_array(%w[collected_at collector_version])
     upload("confirm", token: result.fetch("preview_token"))
     expect(response).to have_http_status(:created)

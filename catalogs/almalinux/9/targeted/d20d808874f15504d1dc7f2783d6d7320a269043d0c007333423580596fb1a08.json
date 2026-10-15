@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "content_digest": "sha256:f463bc7ace7608df93d9626567bfc3db315dcf9d09765ca7ff25d8fa76473713",
+  "content_digest": "sha256:d20d808874f15504d1dc7f2783d6d7320a269043d0c007333423580596fb1a08",
   "catalog": {
-    "collector_semantics_version": 3,
+    "collector_semantics_version": 4,
     "policy": {
-      "loaded_policy_digest": "sha256:646dfbc98b55dba4e8622f4fbb1b23cb5e0c2c133144361d05cbc2a0c6cd2cff",
+      "loaded_policy_digest": "sha256:93b454e0e48bbd0e6a9f3d2a9dfc212311f7215acd211bbc15712e0e50e8e9d5",
       "type": "targeted",
       "kernel_policy_version": 33,
       "packages": [
@@ -12,7 +12,7 @@
           "name": "selinux-policy-targeted",
           "epoch": "0",
           "version": "38.1.75",
-          "release": "2.el9_8",
+          "release": "2.el9_8.1",
           "architecture": "noarch"
         }
       ]
@@ -405,6 +405,26 @@
             "name": "global_ssp",
             "default": false,
             "description": "Allow global to ssp"
+          },
+          {
+            "name": "gluster_anon_write",
+            "default": false,
+            "description": "Allow gluster to anon write"
+          },
+          {
+            "name": "gluster_export_all_ro",
+            "default": false,
+            "description": "Allow gluster to export all ro"
+          },
+          {
+            "name": "gluster_export_all_rw",
+            "default": true,
+            "description": "Allow gluster to export all rw"
+          },
+          {
+            "name": "gluster_use_execmem",
+            "default": false,
+            "description": "Allow gluster to use execmem"
           },
           {
             "name": "gpg_web_anon_write",
@@ -5508,11 +5528,25 @@
             "end": 64010
           }
         ]
+      },
+      "effective_permissive_domains": {
+        "complete": true,
+        "domains": [
+          "bootupd_t",
+          "coreos_installer_t",
+          "dhcpc_hook_t",
+          "qgs_t",
+          "rhc_playbook_verifier_t",
+          "rhc_worker_playbook_t",
+          "tuned_ppd_t"
+        ],
+        "extractor_semantics_version": 1,
+        "evaluator_version": "SETools 4.4.4"
       }
     }
   },
   "metadata": {
-    "collected_at": "2026-09-24T10:21:56.678824184Z",
+    "collected_at": "2026-10-15T14:29:45.694723847Z",
     "collector_version": "secentral-catalog-collector-v1"
   }
 }

@@ -9,8 +9,9 @@ RSpec.describe CatalogReferenceSelection do
     DistributionCatalogRevision.delete_all
   end
 
-  def revision(index, default: false, complete: true, distribution: "almalinux", architecture: "x86_64", policy_type: "targeted")
-    DistributionCatalogRevision.create!(schema_version: 1, collector_semantics_version: 3, content_digest: "sha256:#{index.to_s(16).rjust(64, '0')}", loaded_policy_digest: "sha256:#{(index + 100).to_s(16).rjust(64, '0')}", distribution: distribution, major_version: "9", architecture: architecture, policy_type: policy_type, kernel_policy_version: 33, policy_packages: [], booleans_complete: complete, ports_complete: true).tap do |record|
+  def revision(index, default: false, complete: true, distribution: "almalinux", architecture: "x86_64", policy_type: "targeted", semantics: 4, domains: ["example_t"], evaluator: "SETools test")
+    inline_domains = semantics == 4 ? { "complete" => true, "domains" => domains, "extractor_semantics_version" => 1, "evaluator_version" => evaluator } : nil
+    DistributionCatalogRevision.create!(schema_version: 1, collector_semantics_version: semantics, effective_permissive_domains: inline_domains, content_digest: "sha256:#{index.to_s(16).rjust(64, '0')}", loaded_policy_digest: "sha256:#{(index + 100).to_s(16).rjust(64, '0')}", distribution: distribution, major_version: "9", architecture: architecture, policy_type: policy_type, kernel_policy_version: 33, policy_packages: [], booleans_complete: complete, ports_complete: true).tap do |record|
       record.distribution_catalog_booleans.create!(name: "httpd_can_network_connect", default_value: default, description: "Allow network")
       record.distribution_catalog_ports.create!(protocol: "tcp", start_port: 8080, end_port: 8080, selinux_type: "http_port_t")
     end
@@ -34,14 +35,51 @@ RSpec.describe CatalogReferenceSelection do
     expect(described_class.call(snapshot: host_snapshot).revision).to eq(exact)
   end
 
-  it "collapses all equivalent complete families without package/recency preference" do
+  it "allows effective permissive fallback when all compatible candidates agree on complete inline membership" do
     first = revision(1)
-    revision(2)
+    revision(2, evaluator: "SETools different compatible build")
     result = described_class.call(snapshot: snapshot)
     expect(result).to have_attributes(status: "selected", revision: first, basis: "major_release_family_agreement", candidate_count: 2, policy_identity_match: false)
     expect(result.as_json[:equivalence_asserted]).to be(false)
-    expect(result.family("effective_permissive_domains")).to include(status: "unknown", comparison_allowed: false, reason: "effective_policy_requires_exact_reference")
+    expect(result.family("effective_permissive_domains")).to include(status: "comparable", reference_status: "observed", comparison_allowed: true, reason: nil)
     expect(result.family("future_policy_family")).to include(status: "unsupported", comparison_allowed: false)
+  end
+
+  it "withholds only effective permissive comparison when equivalent Boolean/port candidates disagree on inline domains" do
+    revision(1, domains: ["first_t"])
+    revision(2, domains: ["second_t"])
+
+    result = described_class.call(snapshot: snapshot)
+
+    expect(result).to have_attributes(status: "selected", basis: "major_release_family_agreement")
+    expect(result.family("booleans")).to include(status: "comparable", comparison_allowed: true)
+    expect(result.family("ports")).to include(status: "comparable", comparison_allowed: true)
+    expect(result.family("effective_permissive_domains")).to include(status: "unknown", reference_status: "observed",
+      comparison_allowed: false, reason: "effective_permissive_reference_ambiguous")
+  end
+
+  it "withholds automatic effective comparison when an eligible legacy candidate lacks inline facts" do
+    revision(1, semantics: 3)
+    revision(2)
+
+    result = described_class.call(snapshot: snapshot)
+
+    expect(result).to have_attributes(status: "selected", basis: "major_release_family_agreement")
+    expect(result.family("effective_permissive_domains")).to include(status: "unknown", reference_status: "incomplete",
+      comparison_allowed: false, reason: "reference_inline_facts_unavailable")
+  end
+
+  it "withholds automatic effective comparison when inline extraction semantics differ" do
+    first = revision(1)
+    second = revision(2)
+    second.update_column(:effective_permissive_domains, second.effective_permissive_domains.merge("extractor_semantics_version" => 2))
+
+    result = described_class.call(snapshot: snapshot)
+
+    expect(result).to have_attributes(status: "selected", basis: "major_release_family_agreement")
+    expect(result.family("effective_permissive_domains")).to include(status: "unknown", comparison_allowed: false,
+      reason: "reference_extraction_semantics_incompatible")
+    expect(first).to be_persisted
   end
 
   it "exposes bounded incompatible candidates and changes eligibility on archive/unarchive" do

@@ -23,23 +23,6 @@ class PolicyPermissiveDomains
     end
   end
 
-  # Artifact authority only. Selection applicability is deliberately a separate boundary.
-  def self.for_revision(revision)
-    companion = revision.catalog_policy_artifact
-    companion&.policy_artifact&.reload
-    availability = revision.reference_policy_artifact
-    if availability[:status] != "available"
-      companion.policy_artifact.invalidate_permissive_domain_analysis!(availability[:reason]) if companion && availability[:reason] == "reference_policy_artifact_invalid"
-      return { status: "unavailable", reason: availability[:reason], policy_identity: revision.loaded_policy_digest,
-        domains: nil, evaluator_version: nil, provenance: "exact_reference_policy_artifact",
-        semantics_version: PolicyPermissiveDomainAnalyzer::SEMANTICS_VERSION }
-    end
-
-    lookup(availability[:policy_artifact_digest]).merge(provenance: "exact_reference_policy_artifact",
-      semantics_version: PolicyPermissiveDomainAnalyzer::SEMANTICS_VERSION,
-      catalog_revision_id: revision.id, content_digest: revision.content_digest)
-  end
-
   def self.lookup(identity, facts = nil)
     return { status: "unavailable", policy_identity: nil, domains: nil, provenance: "exact_loaded_policy_artifact", reason: "Trusted exact policy identity is unavailable" } unless identity.to_s.match?(PolicyArtifact::IDENTITY_FORMAT)
 

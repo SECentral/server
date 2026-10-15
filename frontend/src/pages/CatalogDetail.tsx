@@ -105,6 +105,7 @@ export function CatalogDetail() {
   const location = useLocation();
   const { id } = useParams();
   const [technicalCatalogId, setTechnicalCatalogId] = useState<string | null>(null);
+  const [membershipCatalogId, setMembershipCatalogId] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const catalogQuery = useQuery({
     queryKey: ["catalog", id],
@@ -114,7 +115,7 @@ export function CatalogDetail() {
 
   const catalog = catalogQuery.data?.catalog;
   const technicalExpanded = technicalCatalogId === id;
-  const family = searchParams.get("family") === "ports" ? "ports" : "booleans";
+  const family = ["ports", "effective_permissive_domains"].includes(searchParams.get("family") ?? "") ? searchParams.get("family")! : "booleans";
   const booleanSearch = searchParams.get("boolean_q") ?? "";
   const portSearch = searchParams.get("port_q") ?? "";
   const booleans = catalog?.booleans.filter((item) => `${item.name} ${item.description}`.toLowerCase().includes(booleanSearch.toLowerCase())) ?? [];
@@ -123,6 +124,11 @@ export function CatalogDetail() {
   const portSize = pageSize(searchParams.get("port_limit"));
   const booleanPage = inventoryPage(searchParams.get("boolean_page"), booleans.length, booleanSize);
   const portPage = inventoryPage(searchParams.get("port_page"), ports.length, portSize);
+  const permissive = catalog?.effective_permissive_domains;
+  const domainSearch = searchParams.get("domain_q") ?? "";
+  const domains = permissive?.domains?.filter((domain) => domain.toLowerCase().includes(domainSearch.toLowerCase())) ?? [];
+  const domainSize = pageSize(searchParams.get("domain_limit"));
+  const domainPage = inventoryPage(searchParams.get("domain_page"), domains.length, domainSize);
   const update = (values: Record<string, string | null>) => setSearchParams((previous) => {
     const next = new URLSearchParams(previous);
     for (const [key, value] of Object.entries(values)) {
@@ -166,6 +172,7 @@ export function CatalogDetail() {
                   <DescriptionListGroup><DescriptionListTerm>Policy</DescriptionListTerm><DescriptionListDescription>{catalog.policy_type} / {catalog.architecture} · kernel policy format {catalog.kernel_policy_version}</DescriptionListDescription></DescriptionListGroup>
                   <DescriptionListGroup><DescriptionListTerm>Policy packages</DescriptionListTerm><DescriptionListDescription>{catalog.policy_packages.length ? catalog.policy_packages.map((package_, index) => <div key={index}>{policyPackageLabel(package_)}</div>) : "Not recorded"}</DescriptionListDescription></DescriptionListGroup>
                   <DescriptionListGroup><DescriptionListTerm>Family completeness</DescriptionListTerm><DescriptionListDescription>Booleans: {catalog.booleans_complete ? "complete" : "incomplete"} · Ports: {catalog.ports_complete ? "complete" : "incomplete"}</DescriptionListDescription></DescriptionListGroup>
+                  <DescriptionListGroup><DescriptionListTerm>Effective permissive domains</DescriptionListTerm><DescriptionListDescription>{permissive?.status === "observed" ? `${permissive.domains?.length} in reference` : "Unavailable"}</DescriptionListDescription></DescriptionListGroup>
                   <DescriptionListGroup><DescriptionListTerm>Imported</DescriptionListTerm><DescriptionListDescription><time dateTime={catalog.created_at}>{utcTimestamp(catalog.created_at)}</time></DescriptionListDescription></DescriptionListGroup>
                 </DescriptionList>
               </CardBody>
@@ -210,6 +217,24 @@ export function CatalogDetail() {
               </Table> : <p>{portSearch ? "No port mappings match this search." : "No port mappings included in this catalog."}</p>}
               <div className="table-pagination"><Pagination itemCount={ports.length} page={portPage} perPage={portSize} perPageOptions={PAGE_SIZES.map((value) => ({ title: String(value), value }))} titles={{ paginationAriaLabel: "Catalog port pagination" }} onSetPage={(_event, page) => update({ port_page: String(page) })} onPerPageSelect={(_event, size) => update({ port_limit: String(size), port_page: null })} /></div>
               </CardBody></Card>
+              </Tab>
+              <Tab eventKey="effective_permissive_domains" title={<TabTitleText>Effective permissive domains ({permissive?.status === "observed" ? permissive.domains?.length : "unavailable"})</TabTitleText>}>
+                <Card component="section" aria-label="Permissive-domain reference"><CardTitle component="h2">Effective permissive domains</CardTitle><CardBody>
+                  <p>Inline catalog extraction, collector-reported; not server-verified binary extraction. Membership does not establish administrator intent or that a permissive domain is safe.</p>
+                  {permissive?.status === "observed" ? <>
+                    <p>Complete reference membership · semantics {permissive.semantics_version} · {permissive.evaluator_version}</p>
+                    <ExpandableSection toggleText={`Reference membership (${permissive.domains?.length})`} isExpanded={membershipCatalogId === id} onToggle={(_event, open) => setMembershipCatalogId(open ? id ?? null : null)}>
+                      <Toolbar aria-label="Catalog permissive-domain filters" hasNoPadding className="pf-v6-u-mb-md"><ToolbarContent><ToolbarItem>
+                        <SearchInput aria-label="Search catalog permissive domains" value={domainSearch} onChange={(_event, value) => update({ domain_q: value, domain_page: null })} onClear={() => update({ domain_q: null, domain_page: null })} />
+                      </ToolbarItem></ToolbarContent></Toolbar>
+                      {domains.length ? <Table role="table" aria-label="Catalog permissive domains" variant="compact" gridBreakPoint="grid-lg">
+                        <Thead><Tr><Th>SELinux type</Th></Tr></Thead>
+                        <Tbody>{domains.slice((domainPage - 1) * domainSize, domainPage * domainSize).map((domain) => <Tr key={domain}><Td dataLabel="SELinux type"><code>{domain}</code></Td></Tr>)}</Tbody>
+                      </Table> : <p>{domainSearch ? "No permissive domains match this search." : "The reference policy has no effective permissive domains."}</p>}
+                      <div className="table-pagination"><Pagination itemCount={domains.length} page={domainPage} perPage={domainSize} perPageOptions={PAGE_SIZES.map((value) => ({ title: String(value), value }))} titles={{ paginationAriaLabel: "Catalog permissive-domain pagination" }} onSetPage={(_event, page) => update({ domain_page: String(page) })} onPerPageSelect={(_event, size) => update({ domain_limit: String(size), domain_page: null })} /></div>
+                    </ExpandableSection>
+                  </> : <p>Inline reference membership is unavailable. Regenerate this catalog with a supported collector.</p>}
+                </CardBody></Card>
               </Tab>
             </Tabs>
 

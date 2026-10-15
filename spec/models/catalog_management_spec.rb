@@ -2,7 +2,7 @@ require "rails_helper"
 
 RSpec.describe CatalogManagement do
   let(:revision) do
-    ImportDistributionCatalog.call(artifact: DistributionCatalogArtifact.read(Rails.root.join("spec/fixtures/catalogs/v3.json"))).revision
+    ImportDistributionCatalog.call(artifact: DistributionCatalogArtifact.read(Rails.root.join("spec/fixtures/catalogs/v4.json"))).revision
   end
 
   after do

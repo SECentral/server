@@ -1,7 +1,9 @@
 # Exact-policy companions for catalog references
 
-Catalog JSON remains the authoritative observed Boolean/port reference. An optional
-compiled companion enables future exact-policy-derived reference facts only when
+Catalog JSON is the authoritative observed Boolean/port and effective permissive-domain
+reference. Effective permissive membership is extracted by the standalone collector
+and included inline; it requires neither a companion nor server reference analysis.
+An optional compiled companion retains exact reference bytes for other uses only when
 its exact SHA-256 equals that immutable revision's `loaded_policy_digest`.
 Package/OS/module/filename similarity and Boolean/port fallback cannot authorize it.
 
@@ -86,9 +88,11 @@ administrators must account for database/backups capacity.
 
 ## Reference selection and applicability
 
-Consume `CatalogReferenceSelection` unchanged. Automatic exact selection can supply
-a verified reference input; major-release family-agreement fallback supplies
-Boolean/port authority only.
+Consume `CatalogReferenceSelection`. Automatic exact selection can supply a
+reference. Major-release family-agreement fallback supplies Boolean/port authority;
+it also supplies effective permissive authority only when all eligible candidates
+have complete V4 inline membership, compatible extraction semantics and identical
+domain sets.
 An active explicit nonidentical revision can supply a chosen, non-equivalent target;
 new explicit archived selection remains unavailable. Future effective-policy families
 require their own comparison and applicability rules; only effective permissive
@@ -97,45 +101,33 @@ membership is currently added alongside Boolean/port comparisons.
 Availability is not extraction status or applicability. Existing host analysis caches
 are exact-SHA-only and reusable; catalog-only creation defers automatic analysis.
 Extraction uses bounded execution and versioned results. The host's SELinux
-configuration page compares effective permissive membership under exact or explicit
-reference authority, independently of Boolean/port comparison availability.
+configuration page compares effective permissive membership under exact,
+unanimous compatible major-release-family, or explicit reference authority,
+independently of Boolean/port comparison availability.
 Retained results must pin host policy/checkpoint authority, catalog revision/content
 digest, reference SHA and extractor/evaluator semantics; no historical result store
 is added here.
 
-### Reference extraction
+### Inline reference extraction
 
-`revision.reference_permissive_domains` verifies companion authority and requests
-the shared asynchronous exact-artifact analysis on first need. It never parses
-in the caller. Attachment remains byte-only; an observed compatible host result
-can be reused immediately without another job.
+`revision.reference_permissive_domains` reads the immutable imported inline family.
+It does not read companion bytes, reuse a host cache, or enqueue reference jobs.
+Semantics V4 catalogs require complete sorted unique domains (including `[]`),
+extraction semantics 1 and the actual SETools version. All fields participate in
+the canonical content digest. Missing facts remain unavailable, never empty;
+incompatible extraction semantics prevent comparison.
 
-| Bytes / extraction | Reference result |
-| --- | --- |
-| No verified companion | unavailable; `reference_policy_artifact_unavailable` |
-| Invalid retained bytes | unavailable; `reference_policy_artifact_invalid` |
-| Verified bytes, queued/incomplete analysis | pending; domains=null |
-| Parser/tool/resource failure | error or unavailable; domains=null |
-| Successful complete extraction | observed; sorted unique domains, including [] |
+These are collector-reported facts, not server-verified binary extraction. The
+declared policy SHA binds the collector's claimed input identity; digest validation
+does not independently prove the derivation or publisher authenticity. Archive
+retains inline facts as well as any separately acquired companion. No dual-source
+fallback or companion-storage purge is introduced.
 
-The existing cache records exact SHA, result semantics version 1, actual SETools
-version and evaluation time. Unversioned/incompatible old results require current
-analysis; failures are not automatically retried. Operators can explicitly reset
-the artifact cache to `{}` under its row lock and enqueue after correcting the
-underlying problem. Restart application/job processes when deploying extraction
-changes; do not manually stamp legacy results as current-version facts.
-
-Hardened shared SETools execution enforces wall/CPU 30 seconds, address space
-512 MiB and combined output 1 MiB, kills/reaps the helper process group and descendants,
-and discards partial/invalid output. Cached byte SHA/size are checked before facts
-are exposed; detected corruption invalidates certainty without repairing identity.
-
-Archive retains both companion and cache. Extracted facts are derived policy-state
-evidence, not administrative intent/actor/time, global mode or AVC-local behavior.
-Extraction alone grants no selection applicability: major-release family-agreement fallback remains
-ineligible. Effective permissive comparison additionally requires trusted current
-host identity, compatible observed extraction on both sides and exact or compatible
-explicit selection. It adds no V3 JSON family.
+Host analysis still uses verified exact retained bytes and bounded asynchronous
+SETools execution. Host pending/failure/retry and cache-integrity behavior is
+unchanged. Major-release agreement does not grant permissive authority by itself:
+every eligible reference candidate must have current complete inline facts and the
+same domain membership. Tool versions may differ when extraction semantics agree.
 
 ### Compare effective permissive membership
 
@@ -145,13 +137,16 @@ and counts under `comparison.effective_permissive_domains`; Unknown has null set
 and counts with a stable side-specific reason. Successful empty sets on both sides
 are a valid match. Tool versions may differ when both use current extraction semantics.
 
-Automatic use requires exact host/reference policy identity. An active explicit
-target with compatible architecture/policy type can compare nonidentical policies,
-without binary-equivalence assertion. Boolean/port family agreement never grants
-effective-policy authority. Missing/masked or stale host evidence, absent/ambiguous/
-archived selection, missing/invalid companions and pending/failed analysis remain
-Unknown. Pending analysis refreshes asynchronously; terminal failures are not reset
-by page reads and parser diagnostics are not exposed as product reasons.
+Automatic exact selection permits comparison when both sides are observed under
+compatible extraction semantics. Automatic major-release-family selection permits
+it only when all eligible references agree on complete inline membership under
+compatible semantics. An active explicit target with compatible architecture/policy
+type can compare nonidentical policies, without binary-equivalence assertion.
+Missing/masked or stale host evidence, absent/ambiguous/archived selection,
+unavailable/incompatible inline facts, candidate disagreement and pending/failed
+host analysis remain Unknown. Pending host analysis refreshes asynchronously;
+terminal failures are not reset by page reads and parser diagnostics are not
+exposed as product reasons.
 
 Counts and differences are prominent; matching membership and SHA/evaluator details
 are secondary expandable information. Each domain list displays 20 rows per page.

@@ -9,7 +9,12 @@ reference facts, including platform, policy/packages, collector semantics,
 collection metadata and family contents. The JSON artifact is the shareable unit;
 `content_digest` identifies canonical semantic catalog content, not its sidecar,
 acquisition metadata or database representation. Current schema 1 / collector
-semantics V3 provides complete Boolean and port families.
+semantics V4 provides complete Boolean, port and effective permissive-domain families.
+
+The checked-in references use semantics V4 and include the complete inline
+effective permissive-domain family. AlmaLinux 9 uses the post-update reference
+capture; the earlier pre-update capture is not bundled. Each artifact has its own
+loaded-policy identity and review record.
 
 ## License and attribution
 
@@ -48,8 +53,10 @@ lifecycle; directory names are navigation, not mutable revision identity.
 
 Current references:
 
-- AlmaLinux 9, x86_64, targeted:
-  [`f463bc7a…73713`](almalinux/9/targeted/f463bc7ace7608df93d9626567bfc3db315dcf9d09765ca7ff25d8fa76473713.json).
+- AlmaLinux 9, x86_64, targeted (policy `38.1.75-2.el9_8.1`):
+  [`d20d8088…b1a08`](almalinux/9/targeted/d20d808874f15504d1dc7f2783d6d7320a269043d0c007333423580596fb1a08.json).
+- RHEL 9, x86_64, targeted (policy `38.1.75-2.el9_8.1`):
+  [`3bdff0cb…2e18b`](rhel/9/targeted/3bdff0cb4aa3803f6debb9fdf8e7bee9a64eeb72b6c12efa1f085db6a432e18b.json).
 
 ## Review record
 
@@ -60,7 +67,7 @@ artifact digest, review date/scope and known interpretation limits:
 {
   "review_record_version": 1,
   "content_digest": "sha256:<content-sha256>",
-  "review": { "date": "YYYY-MM-DD", "scope": ["booleans", "ports"] },
+  "review": { "date": "YYYY-MM-DD", "scope": ["booleans", "ports", "effective_permissive_domains"] },
   "known_limitations": ["Product-relevant interpretation limits"]
 }
 ```
@@ -115,7 +122,7 @@ reference selection and archive behavior.
 An optional exact compiled-policy companion is attached separately through
 [local administrative tooling](../docs/catalog-policy-companions.md). It does not
 change JSON/content identity or the review sidecar. JSON-only catalogs remain valid;
-missing companion means unavailable future effective-policy facts, not empty facts.
+effective permissive-domain comparison uses inline JSON facts without a companion.
 Binaries are operator-supplied offline and stored in the existing database, not
 added to this Git source tree or fetched automatically.
 

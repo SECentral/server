@@ -89,7 +89,8 @@ class ImportDistributionCatalog
       architecture: platform.fetch("architecture"),
       policy_packages: policy.fetch("packages"),
       booleans_complete: families.dig("booleans", "complete"),
-      ports_complete: families.dig("ports", "complete")
+      ports_complete: families.dig("ports", "complete"),
+      effective_permissive_domains: families.fetch("effective_permissive_domains")
     }
   end
 

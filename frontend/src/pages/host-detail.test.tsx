@@ -564,7 +564,7 @@ describe("HostDetail", () => {
       effective_permissive_domains: { status: "observed", domains: ["example_t"], policy_identity: "sha256:host", provenance: "exact_loaded_policy_artifact" }
     } } }, configuration: { ...matchingConfiguration, comparison: { ...matchingConfiguration.comparison,
       effective_permissive_domains: { ...matchingConfiguration.comparison.effective_permissive_domains,
-        status: "unknown", reason: "reference_permissive_analysis_pending", counts: null }
+        status: "unknown", reason: "host_permissive_analysis_pending", counts: null }
     } } });
     expect(await screen.findByText("1 observed · Comparison unavailable")).toBeVisible();
     expect(screen.getByText("Partially compared")).toBeVisible();

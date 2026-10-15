@@ -4,7 +4,7 @@ require "rake"
 Rails.application.load_tasks unless Rake::Task.task_defined?("secentral:catalog:validate")
 
 RSpec.describe "SECentral catalog tasks" do
-  let(:file) { Rails.root.join("spec/fixtures/catalogs/v3.json").to_s }
+  let(:file) { Rails.root.join("spec/fixtures/catalogs/v4.json").to_s }
 
   around do |example|
     CatalogPolicyArtifact.delete_all
@@ -40,14 +40,14 @@ RSpec.describe "SECentral catalog tasks" do
     expect { expect { task.execute(Rake::TaskArguments.new([], [])) }.to raise_error(SystemExit) }.to output(/requires/).to_stderr
   end
 
-  it "validates and imports a V3 artifact" do
+  it "validates and imports a V4 artifact" do
     validate = Rake::Task["secentral:catalog:validate"]
     validate.reenable
-    expect { validate.invoke(file) }.to output(/Valid: sha256:3d8d/).to_stdout
+    expect { validate.invoke(file) }.to output(/Valid: sha256:ac82f6/).to_stdout
 
     import = Rake::Task["secentral:catalog:import"]
     import.reenable
-    expect { import.invoke(file) }.to output(/Imported: sha256:3d8d/).to_stdout
+    expect { import.invoke(file) }.to output(/Imported: sha256:ac82f6/).to_stdout
     expect(DistributionCatalogRevision.count).to eq(1)
     expect(DistributionCatalogImport.count).to eq(1)
   end
