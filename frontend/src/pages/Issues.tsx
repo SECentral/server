@@ -3,21 +3,25 @@ import {
   Button,
   Card,
   CardBody,
-  CardTitle,
   EmptyState,
   EmptyStateBody,
+  FormSelect,
+  FormSelectOption,
   Grid,
   GridItem,
   Label,
-  SearchInput,
+  Pagination,
   Select,
   SelectOption,
   Spinner,
+  Stack,
   TextInput,
   Title,
+  ToggleGroup,
+  ToggleGroupItem,
   Toolbar,
   ToolbarContent,
-  ToolbarFilter,
+  ToolbarGroup,
   ToolbarItem
 } from "@patternfly/react-core";
 import { ExpandableRowContent, Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
@@ -25,15 +29,14 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { fetchIssues, fetchUngroupableEvents } from "../api/issues";
+import { MetricCard } from "../components/MetricCard";
 
-const TEXT_FILTERS = [
+const ATTRIBUTE_FILTERS = [
+  { key: "q", label: "Any field", placeholder: "Search source, target, path, host..." },
   { key: "source_type", label: "Source", placeholder: "Source" },
   { key: "target_type", label: "Target", placeholder: "Target" },
   { key: "permission", label: "Permission", placeholder: "Permission" },
-  { key: "target_class", label: "Class", placeholder: "Class" }
-] as const;
-
-const MORE_FILTERS = [
+  { key: "target_class", label: "Class", placeholder: "Class" },
   { key: "path", label: "Path", placeholder: "Path" },
   { key: "name", label: "Object name", placeholder: "Object name" },
   { key: "target", label: "Any target", placeholder: "Any target" },
@@ -72,7 +75,8 @@ function formatUtc(iso: string): string {
 
 export function Issues() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [moreOpen, setMoreOpen] = useState(false);
+  const [attribute, setAttribute] = useState<string>("q");
+  const [filterValue, setFilterValue] = useState(() => searchParams.get("q") ?? "");
   const [hostMenuOpen, setHostMenuOpen] = useState(false);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const [expandedIssue, setExpandedIssue] = useState<number | null>(null);
@@ -91,6 +95,7 @@ export function Issues() {
   });
 
   const setParams = (updates: Record<string, string | null>) => {
+    setExpandedIssue(null);
     const next = new URLSearchParams(searchParams);
     for (const [key, value] of Object.entries(updates)) {
       if (value === null || value === "") {
@@ -105,14 +110,24 @@ export function Issues() {
     setSearchParams(next);
   };
 
+  const clearFilters = () => {
+    setFilterValue("");
+    setExpandedIssue(null);
+    setSearchParams(new URLSearchParams());
+  };
+
   const data = issuesQuery.data;
   const issues = data?.issues ?? [];
   const events = eventsQuery.data?.events ?? [];
   const selectedHost = data?.host_options.find((host) => String(host.id) === hostId);
-  const selectedHostLabel = selectedHost ? (selectedHost.hostname ?? `Host ${selectedHost.id}`) : "All servers";
+  const selectedHostLabel = selectedHost ? (selectedHost.hostname ?? `Host ${selectedHost.id}`) : hostId ? `Host ${hostId}` : "All servers";
   const selectedStatusLabel = STATUS_OPTIONS.find((option) => option.value === status)?.label ?? STATUS_OPTIONS[0].label;
 
   const hasFilters = [...searchParams.keys()].some((key) => key !== "page");
+  const selectedAttribute = ATTRIBUTE_FILTERS.find((filter) => filter.key === attribute)!;
+  const activeAttributes = ATTRIBUTE_FILTERS.filter((filter) => searchParams.get(filter.key));
+  const newOnly = ["1", "true"].includes(searchParams.get("new") ?? "");
+  const multipleHosts = ["1", "true"].includes(searchParams.get("multiple_hosts") ?? "");
 
   return (
     <div className="app-resource-page">
@@ -121,22 +136,25 @@ export function Issues() {
         <p className="pf-v6-u-color-200">Grouped SELinux denials across your monitored infrastructure.</p>
       </header>
 
-      <Toolbar id="issues-filter-toolbar" className="pf-v6-u-mb-md">
+      <Stack hasGutter>
+      {(data || eventsQuery.data) && <Grid hasGutter aria-label="Issue summary">
+        {data && <GridItem sm={12} md={6}><MetricCard label="Regressed issues" value={data.summary.regressed_count} detail="Across the fleet" href="/issues?status=regressed" /></GridItem>}
+        {eventsQuery.data && !eventsQuery.isError && <GridItem sm={12} md={6}><MetricCard label="Unclassified events" value={eventsQuery.data.total_count} detail={hostId ? "On the selected server" : "Across the fleet"} href={events.length > 0 ? "#unclassified-events" : undefined} /></GridItem>}
+      </Grid>}
+
+      <form onSubmit={(event) => { event.preventDefault(); setParams({ [attribute]: filterValue || null }); }}>
+      <Toolbar id="issues-filter-toolbar" aria-label="Issue filters" hasNoPadding>
         <ToolbarContent>
+          <ToolbarGroup gap={{ default: "gapMd" }} rowWrap={{ default: "wrap" }}>
           <ToolbarItem>
-            <SearchInput
-              value={searchParams.get("q") ?? ""}
-              onChange={(_event, value) => setParams({ q: value })}
-              onClear={() => setParams({ q: null })}
-              aria-label="Search issues"
-              placeholder="Search source, target, path, host..."
-            />
+            <FormSelect aria-label="Filter attribute" value={attribute} onChange={(_event, value) => { setAttribute(value); setFilterValue(searchParams.get(value) ?? ""); }}>
+              {ATTRIBUTE_FILTERS.map((filter) => <FormSelectOption key={filter.key} value={filter.key} label={filter.label} />)}
+            </FormSelect>
           </ToolbarItem>
-          <ToolbarFilter
-            categoryName="Server"
-            labels={hostId ? [selectedHostLabel] : []}
-            deleteLabelGroup={() => setParams({ host_id: null })}
-          >
+          <ToolbarItem><TextInput aria-label="Filter value" placeholder={selectedAttribute.placeholder} value={filterValue} onChange={(_event, value) => setFilterValue(value)} /></ToolbarItem>
+          <ToolbarItem><Button type="submit" variant="secondary">Apply filter</Button>
+          </ToolbarItem>
+          <ToolbarItem>
             <Select
               isOpen={hostMenuOpen}
               selected={selectedHostLabel}
@@ -164,19 +182,16 @@ export function Issues() {
                 </SelectOption>
               ))}
             </Select>
-          </ToolbarFilter>
-          <ToolbarFilter
-            categoryName="Status"
-            labels={status ? [selectedStatusLabel] : []}
-            deleteLabelGroup={() => setParams({ status: null })}
-          >
+          </ToolbarItem>
+          <ToolbarItem>
             <Select
               isOpen={statusMenuOpen}
               selected={selectedStatusLabel}
               onOpenChange={(isOpen) => setStatusMenuOpen(isOpen)}
               onSelect={(_event, value) => {
                 setStatusMenuOpen(false);
-                setParams({ status: value === "Open + regressed" ? null : value });
+                const option = STATUS_OPTIONS.find((option) => option.label === value);
+                setParams({ status: option?.value === "open" ? null : option?.value ?? null });
               }}
               toggle={(toggleRef) => (
                 <Button
@@ -196,95 +211,33 @@ export function Issues() {
                 </SelectOption>
               ))}
             </Select>
-          </ToolbarFilter>
-          {TEXT_FILTERS.map((filter) => (
-            <ToolbarFilter
-              key={filter.key}
-              categoryName={filter.label}
-              labels={searchParams.get(filter.key) ? [searchParams.get(filter.key)!] : []}
-              deleteLabelGroup={() => setParams({ [filter.key]: null })}
-            >
-              <TextInput
-                id={`issue-filter-${filter.key}`}
-                value={searchParams.get(filter.key) ?? ""}
-                onChange={(_event, value) => setParams({ [filter.key]: value })}
-                placeholder={filter.placeholder}
-                aria-label={filter.label}
-              />
-            </ToolbarFilter>
-          ))}
-          <ToolbarItem>
-            <Button variant="link" isExpanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>
-              More filters
-            </Button>
           </ToolbarItem>
-          {moreOpen &&
-            MORE_FILTERS.map((filter) => (
-              <ToolbarFilter
-                key={filter.key}
-                categoryName={filter.label}
-                labels={searchParams.get(filter.key) ? [searchParams.get(filter.key)!] : []}
-                deleteLabelGroup={() => setParams({ [filter.key]: null })}
-              >
-                <TextInput
-                  id={`issue-filter-${filter.key}`}
-                  value={searchParams.get(filter.key) ?? ""}
-                  onChange={(_event, value) => setParams({ [filter.key]: value })}
-                  placeholder={filter.placeholder}
-                  aria-label={filter.label}
-                />
-              </ToolbarFilter>
-            ))}
+          <ToolbarItem>
+            <ToggleGroup aria-label="Quick issue filters">
+              <ToggleGroupItem text="New" buttonId="issues-new" isSelected={newOnly} onChange={() => setParams({ new: newOnly ? null : "1" })} />
+              <ToggleGroupItem text="Multiple hosts" buttonId="issues-multiple-hosts" isSelected={multipleHosts} onChange={() => setParams({ multiple_hosts: multipleHosts ? null : "1" })} />
+            </ToggleGroup>
+          </ToolbarItem>
+          </ToolbarGroup>
         </ToolbarContent>
+        {hasFilters && <ToolbarContent aria-label="Active issue filters" className="pf-v6-u-mt-md">
+          <ToolbarGroup gap={{ default: "gapSm" }} rowWrap={{ default: "wrap" }}>
+          {activeAttributes.map((filter) => <ToolbarItem key={filter.key}><Label isCompact closeBtnAriaLabel={`Remove ${filter.label} filter`} onClose={() => { setParams({ [filter.key]: null }); if (attribute === filter.key) setFilterValue(""); }}>{filter.label}: {searchParams.get(filter.key)}</Label></ToolbarItem>)}
+          {hostId && <ToolbarItem><Label isCompact closeBtnAriaLabel="Remove server filter" onClose={() => setParams({ host_id: null })}>Server: {selectedHostLabel}</Label></ToolbarItem>}
+          {status && <ToolbarItem><Label isCompact closeBtnAriaLabel="Remove status filter" onClose={() => setParams({ status: null })}>Status: {selectedStatusLabel}</Label></ToolbarItem>}
+          {newOnly && <ToolbarItem><Label isCompact closeBtnAriaLabel="Remove new filter" onClose={() => setParams({ new: null })}>New</Label></ToolbarItem>}
+          {multipleHosts && <ToolbarItem><Label isCompact closeBtnAriaLabel="Remove multiple hosts filter" onClose={() => setParams({ multiple_hosts: null })}>Multiple hosts</Label></ToolbarItem>}
+          <ToolbarItem><Button variant="link" onClick={clearFilters}>Reset filters</Button></ToolbarItem>
+          </ToolbarGroup>
+        </ToolbarContent>}
       </Toolbar>
+      </form>
 
-      <div aria-label="Active filters and quick filters" className="pf-v6-u-mb-md">
-        {searchParams.has("new") ? (
-          <Label color="blue" isCompact onClose={() => setParams({ new: null })} className="pf-v6-u-mr-sm">New</Label>
-        ) : (
-          <Button variant="secondary" size="sm" className="pf-v6-u-mr-sm" onClick={() => setParams({ new: "1", status: status === "" || status === "all" ? null : status })}>New</Button>
-        )}
-        {searchParams.has("multiple_hosts") ? (
-          <Label color="blue" isCompact onClose={() => setParams({ multiple_hosts: null })} className="pf-v6-u-mr-sm">Multiple hosts</Label>
-        ) : (
-          <Button variant="secondary" size="sm" className="pf-v6-u-mr-sm" onClick={() => setParams({ multiple_hosts: "1", status: status === "" || status === "all" ? null : status })}>Multiple hosts</Button>
-        )}
-        {hasFilters && (
-          <Button variant="link" size="sm" onClick={() => setSearchParams(new URLSearchParams())}>
-            Reset filters
-          </Button>
-        )}
+      <Card component="section" aria-label="Grouped issues" className="resource-table-card"><CardBody>
+      <div className="table-section-heading">
+        <Title headingLevel="h2" size="lg">Grouped issues</Title>
+        {data && !issuesQuery.isError && <span className="pf-v6-u-color-200">{data.meta.total} result{data.meta.total === 1 ? "" : "s"}</span>}
       </div>
-
-      {data && (
-        <Grid hasGutter className="pf-v6-u-mb-lg">
-          <GridItem sm={12} md={4}>
-            <Card isCompact className="resource-summary-card">
-              <CardTitle>Monitored servers</CardTitle>
-              <CardBody>
-                <Title headingLevel="h3" size="2xl">{data.summary.monitored_hosts}</Title>
-                <span className="pf-v6-u-color-200">{data.summary.enforcing_hosts} enforcing ({data.summary.enforcement_percent}%)</span>
-              </CardBody>
-            </Card>
-          </GridItem>
-          <GridItem sm={12} md={4}>
-            <Card isCompact className="resource-summary-card">
-              <CardTitle>Open issues</CardTitle>
-              <CardBody>
-                <Title headingLevel="h3" size="2xl">{data.summary.open_count}</Title>
-                <span className="pf-v6-u-color-200">{data.summary.regressed_count} regressed</span>
-              </CardBody>
-            </Card>
-          </GridItem>
-          <GridItem sm={12} md={4}>
-            <Card isCompact className="resource-summary-card">
-              <CardTitle>Unclassified events</CardTitle>
-              <CardBody><Title headingLevel="h3" size="2xl">{data.summary.ungroupable_count}</Title></CardBody>
-            </Card>
-          </GridItem>
-        </Grid>
-      )}
-
       {issuesQuery.isPending ? (
         <div aria-label="Loading issues" style={{ padding: "var(--pf-v6-global--spacer--xl)" }}>
           <Spinner />
@@ -293,20 +246,14 @@ export function Issues() {
         <Alert variant="danger" title="Could not load issues">
           {issuesQuery.error instanceof Error ? issuesQuery.error.message : "Unknown error"}
         </Alert>
-      ) : (
+      ) : issues.length > 0 && data ? (
         <>
-          {issues.length > 0 && data && (
-            <section aria-label="Grouped issues">
-              <div className="pf-v6-u-display-flex pf-v6-u-justify-content-space-between pf-v6-u-align-items-baseline">
-                <Title headingLevel="h2" size="lg">Grouped issues</Title>
-                <span className="pf-v6-u-color-200">{data.meta.total} result{data.meta.total === 1 ? "" : "s"}</span>
-              </div>
-              <Table aria-label="Grouped issues" gridBreakPoint="grid-md" isExpandable>
+              <Table aria-label="Grouped issues" variant="compact" gridBreakPoint="grid-lg" isExpandable>
                 <Thead>
                   <Tr>
                     <Th width={40}>Issue</Th>
-                    <Th width={10}>Hosts</Th>
-                    <Th width={10}>Occurrences</Th>
+                    <Th width={10} className="pf-v6-u-text-align-right">Hosts</Th>
+                    <Th width={10} className="pf-v6-u-text-align-right">Occurrences</Th>
                     <Th width={15}>Last seen</Th>
                     <Th width={15}>Status</Th>
                     <Th width={10} screenReaderText="Actions" />
@@ -324,8 +271,8 @@ export function Issues() {
                           </a>
                           <div className="issue-secondary-line pf-v6-u-color-200"><code>{issue.target_class}</code> · {issue.permissions.join(", ")}</div>
                         </Td>
-                        <Td width={10} dataLabel="Hosts" modifier="fitContent"><strong>{issue.hosts_count}</strong></Td>
-                        <Td width={10} dataLabel="Occurrences" modifier="fitContent"><strong>{issue.occurrences_count}</strong></Td>
+                         <Td width={10} dataLabel="Hosts" modifier="fitContent" className="pf-v6-u-text-align-right"><strong>{issue.hosts_count}</strong></Td>
+                         <Td width={10} dataLabel="Occurrences" modifier="fitContent" className="pf-v6-u-text-align-right"><strong>{issue.occurrences_count}</strong></Td>
                         <Td width={15} dataLabel="Last seen" modifier="nowrap">
                           <time dateTime={issue.last_seen_at} title={formatUtc(issue.last_seen_at)}>{timeAgo(issue.last_seen_at)} ago</time>
                         </Td>
@@ -384,72 +331,42 @@ export function Issues() {
                 })}
               </Table>
               {data.meta.total > data.meta.page_size && (
-                <nav aria-label="Issue pages" className="pf-v6-u-mt-md">
-                  <Button
-                    variant="link"
-                    isDisabled={data.meta.page === 1}
-                    onClick={() => setParams({ page: String(data.meta.page - 1) })}
-                  >
-                    Previous
-                  </Button>{" "}
-                  <span>
-                    Page {data.meta.page} of {data.meta.total_pages}
-                  </span>{" "}
-                  <Button
-                    variant="link"
-                    isDisabled={data.meta.page >= data.meta.total_pages}
-                    onClick={() => setParams({ page: String(data.meta.page + 1) })}
-                  >
-                    Next
-                  </Button>
-                </nav>
+                <div className="table-pagination">
+                  <Pagination itemCount={data.meta.total} page={data.meta.page} perPage={data.meta.page_size}
+                    perPageOptions={[{ title: String(data.meta.page_size), value: data.meta.page_size }]}
+                    titles={{ paginationAriaLabel: "Grouped issues pagination" }} isDisabled={issuesQuery.isFetching}
+                    onSetPage={(_event, page) => setParams({ page: String(page) })} />
+                </div>
               )}
-            </section>
-          )}
-
-          {events.length > 0 && (
-            <section aria-label="Unclassified events" className="pf-v6-u-mt-lg">
-              <div style={{ display: "flex", alignItems: "baseline", gap: "var(--pf-v6-global--spacer--sm)" }}>
-                <Title headingLevel="h2" size="lg">
-                  Unclassified events
-                </Title>
-                <Label color="orange">{events.length}</Label>
-              </div>
-              <p>Evidence was retained, but it lacks the AVC fields needed for grouping.</p>
-              {events.map((event) => (
-                <Card key={event.id} isCompact isPlain className="pf-v6-u-mb-sm">
-                  <CardBody>
-                    <dl style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "var(--pf-v6-global--spacer--sm)" }}>
-                      <div>
-                        <dt>Server</dt>
-                        <dd>
-                          <a href={`/hosts?host_id=${event.host.id}`}>{event.host.hostname ?? `Host ${event.host.id}`}</a>
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Missing fields</dt>
-                        <dd>{event.missing.join(", ")}</dd>
-                      </div>
-                      <div>
-                        <dt>Occurred</dt>
-                        <dd>
-                          <time dateTime={event.occurred_at}>{formatUtc(event.occurred_at)}</time>
-                        </dd>
-                      </div>
-                    </dl>
-                  </CardBody>
-                </Card>
-              ))}
-            </section>
-          )}
-
-          {issues.length === 0 && events.length === 0 && (
-            <EmptyState titleText="No ingested errors found.">
-              <EmptyStateBody>Adjust the filters to widen the result set.</EmptyStateBody>
-            </EmptyState>
-          )}
         </>
+      ) : (
+        <EmptyState titleText={hasFilters ? "No issues match the filters." : "No grouped issues to show."}>
+          <EmptyStateBody>{hasFilters ? "Clear filters to widen the result set." : "No grouped issues were returned for this view."}</EmptyStateBody>
+          {hasFilters && <Button variant="link" onClick={clearFilters}>Clear filters</Button>}
+        </EmptyState>
       )}
+      </CardBody></Card>
+
+      {(eventsQuery.isPending || eventsQuery.isError || events.length > 0) && (
+        <Card component="section" id="unclassified-events" aria-label="Unclassified events" className="resource-table-card"><CardBody>
+          <div className="table-section-heading">
+            <Title headingLevel="h2" size="lg">Unclassified events</Title>
+            {eventsQuery.data && !eventsQuery.isError && <span className="pf-v6-u-color-200">{eventsQuery.data.total_count} event{eventsQuery.data.total_count === 1 ? "" : "s"}</span>}
+          </div>
+          <p className="pf-v6-u-mb-md">Evidence was retained, but it lacks the AVC fields needed for grouping. Only the server filter applies to this list.</p>
+          {eventsQuery.isPending ? <Spinner aria-label="Loading unclassified events" />
+            : eventsQuery.isError ? <Alert variant="warning" isInline title="Could not load unclassified events">{eventsQuery.error.message}</Alert>
+            : <Table role="table" aria-label="Unclassified events" variant="compact" gridBreakPoint="grid-lg">
+              <Thead><Tr><Th>Server</Th><Th>Missing fields</Th><Th>Occurred (UTC)</Th></Tr></Thead>
+              <Tbody>{events.map((event) => <Tr key={event.id}>
+                <Td dataLabel="Server"><a href={`/hosts?host_id=${event.host.id}`}>{event.host.hostname ?? `Host ${event.host.id}`}</a></Td>
+                <Td dataLabel="Missing fields">{event.missing.join(", ") || "Not recorded"}</Td>
+                <Td dataLabel="Occurred (UTC)"><time dateTime={event.occurred_at}>{formatUtc(event.occurred_at)}</time></Td>
+              </Tr>)}</Tbody>
+            </Table>}
+        </CardBody></Card>
+      )}
+      </Stack>
     </div>
   );
 }

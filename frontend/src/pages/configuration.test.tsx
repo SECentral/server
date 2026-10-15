@@ -113,7 +113,7 @@ function jsonResponse(status: number, body: unknown): Response {
   } as unknown as Response;
 }
 
-function renderConfiguration(initialEntry = "/configuration?family=booleans") {
+function renderConfiguration(initialEntry = "/configuration?family=booleans", override?: ConfigurationFleetResponse) {
   const fetchMock = vi.fn();
   fetchMock.mockImplementation((url: string) => {
     const search = new URL(url, "http://localhost").searchParams;
@@ -135,7 +135,7 @@ function renderConfiguration(initialEntry = "/configuration?family=booleans") {
     } else {
       payload = overviewPayload;
     }
-    return Promise.resolve(jsonResponse(200, payload));
+    return Promise.resolve(jsonResponse(200, override ?? payload));
   });
   vi.stubGlobal("fetch", fetchMock);
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -158,8 +158,8 @@ describe("Configuration", () => {
     await screen.findByText("1 fresh · 0 stale · 1 outside cohort · 0 without current configuration");
     expect((await screen.findAllByText("virt_use_nfs")).length).toBe(2);
     expect(screen.getByText("2 monitored hosts")).toBeInTheDocument();
-    expect(screen.getByText("sha256:" + "d".repeat(64))).toBeInTheDocument();
-    expect(screen.getByText((content) => content.includes("Imported distribution catalog"))).toBeInTheDocument();
+    expect(screen.queryByText("sha256:" + "d".repeat(64))).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View reference catalog" })).toHaveAttribute("href", "/catalogs/1");
     expect(screen.getByText("1 fresh · 0 stale · 1 outside cohort · 0 without current configuration")).toBeInTheDocument();
     expect(screen.getByText("not_defined")).toBeInTheDocument();
     expect(screen.getByText("on 1 / 2")).toBeInTheDocument();
@@ -172,7 +172,10 @@ describe("Configuration", () => {
     const { fetchMock } = renderConfiguration("/configuration");
 
     await screen.findByText("2 monitored hosts");
-    expect(screen.getByText("Select a family")).toBeInTheDocument();
+    expect(screen.queryByText("Select a family")).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Booleans" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByRole("tab", { name: "Overview" })).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/configuration?family=booleans", expect.anything());
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("tab", { name: "Ports" }));
@@ -180,6 +183,26 @@ describe("Configuration", () => {
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("family=ports"), expect.objectContaining({ method: "GET" }));
     expect(screen.getByText("http_port_t")).toBeInTheDocument();
     expect(screen.getByText("config-01")).toBeInTheDocument();
+  });
+
+  it.each(["/configuration", "/configuration?family=overview", "/configuration?family=invalid"])("loads useful inventory for %s", async (entry) => {
+    renderConfiguration(entry);
+    expect(await screen.findByRole("table", { name: "Boolean inventory rows" })).toBeVisible();
+    expect(screen.queryByText("Select a family")).not.toBeInTheDocument();
+  });
+
+  it.each(["absent", "ambiguous", "unavailable"] as const)("preserves inventory with %s reference selection and only offers import for a missing catalog", async (status) => {
+    const family = { status: "unknown", reference_status: "unavailable", host_status: "observed", comparison_allowed: false, reason: "reference_not_selected" } as const;
+    const selection = { mode: "automatic" as const, status, reason: status === "absent" ? "no_matching_candidates" : "host_policy_identity_unavailable", basis: null, selected_revision: null,
+      candidates: [], candidate_count: 0, candidates_truncated: false, context: { distribution: "", major_version: "", architecture: "", policy_type: "" }, policy_identity_match: null,
+      equivalence_asserted: false, families: { booleans: family, ports: family, effective_permissive_domains: family } };
+    const noCatalog: ConfigurationFleetResponse = { ...booleansPayload, booleans: { ...booleansPayload.booleans!, selection, catalog: { ...booleansCatalog, available: false }, catalog_overlay: null } };
+    renderConfiguration("/configuration", noCatalog);
+    expect(await screen.findByRole("table", { name: "Boolean inventory rows" })).toBeVisible();
+    if (status === "absent") expect(screen.getByRole("link", { name: "Import a catalog" })).toHaveAttribute("href", "/catalogs/import");
+    else expect(screen.queryByRole("link", { name: "Import a catalog" })).not.toBeInTheDocument();
+    expect(screen.queryByText("unknown version")).not.toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Catalog booleans" })).not.toBeInTheDocument();
   });
 
   it("shows rows families with observed host counts", async () => {

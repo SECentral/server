@@ -373,7 +373,7 @@ describe("HostConfiguration", () => {
     expect(screen.getByText("No boolean or port differences were observed.")).toBeInTheDocument();
   });
 
-  it("keeps the stale comparison visible and warns that the data is old", async () => {
+  it("retains the baseline while replacing stale match and difference summaries with an explicit paused state", async () => {
     renderHostConfiguration({
       ...base,
       observation: { ...base.observation!, status: "stale" },
@@ -381,8 +381,12 @@ describe("HostConfiguration", () => {
     });
 
     expect(await screen.findByText("Comparison based on stale host configuration")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Differences (3)" })).toBeInTheDocument();
-    expect(screen.getByText("httpd_can_network_connect")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Differences" })).toBeInTheDocument();
+    expect(screen.getByText("Comparison paused — current matches and differences are unverified.")).toBeVisible();
+    expect(screen.queryByLabelText("Differences found: 3")).not.toBeInTheDocument();
+    expect(screen.queryAllByText(/\d+ \/ \d+ match/)).toHaveLength(0);
+    expect(screen.queryByRole("table", { name: "Configuration differences" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "AlmaLinux 9" })).toBeVisible();
   });
 
   it("shows a relative observation time with the UTC timestamp as secondary metadata", async () => {

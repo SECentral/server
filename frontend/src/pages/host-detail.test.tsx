@@ -518,7 +518,11 @@ describe("HostDetail", () => {
     } });
 
     expect((await screen.findAllByText("Comparison paused")).length).toBeGreaterThan(0);
-    expect(screen.getByText("Counts reflect last-observed data.")).toBeInTheDocument();
+    expect(screen.getByText(/current matches and differences are unverified/)).toBeVisible();
+    expect(screen.getAllByText("Paused — current state unverified")).toHaveLength(3);
+    expect(screen.queryByText("350 / 350 match")).not.toBeInTheDocument();
+    expect(screen.queryByText("621 / 621 match")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Comparison paused")).toHaveLength(1);
   });
 
   it("shows differences already computed by the host configuration endpoint", async () => {
@@ -572,7 +576,7 @@ describe("HostDetail", () => {
     renderHostDetail(10, { configuration: { ...matchingConfiguration,
       comparison: { ...matchingConfiguration.comparison, paused: true }
     } });
-    expect(await screen.findByText("Unknown · Comparison paused")).toBeVisible();
+    expect((await screen.findAllByText("Paused — current state unverified"))).toHaveLength(3);
     expect(screen.queryByText("0 match · both sets empty")).not.toBeInTheDocument();
     expect(screen.queryByText("Matches reference")).not.toBeInTheDocument();
   });

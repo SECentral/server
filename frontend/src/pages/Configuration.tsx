@@ -16,12 +16,11 @@ import {
 } from "@patternfly/react-core";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { fetchConfiguration } from "../api/configuration";
 import type { ConfigurationFleetResponse, ConfigurationFamily } from "../api/configuration";
 
 const FAMILIES: { value: ConfigurationFamily; label: string }[] = [
-  { value: "overview", label: "Overview" },
   { value: "booleans", label: "Booleans" },
   { value: "ports", label: "Ports" },
   { value: "file_contexts", label: "File contexts" },
@@ -63,11 +62,14 @@ function CoverageCards({ items, counts }: { items: [string, string][]; counts: R
 
 function CatalogCard({ data }: { data: ConfigurationFleetResponse }) {
   const catalog = data.booleans?.catalog ?? data.ports?.catalog;
-  if (!catalog) {
+  const selection = data.booleans?.selection ?? data.ports?.selection;
+  const missing = selection?.status === "absent" && selection.reason === "no_matching_candidates";
+  if (!catalog?.available) {
     return (
-      <Alert variant="info" isInline title="No catalog for this cohort">
-        No reference catalog is available for the selected policy cohort.
-      </Alert>
+      <section aria-label="Reference availability" className="pf-v6-u-mb-md">
+        <p>{missing ? "No active catalog reference matches the selected policy cohort." : selection?.status === "ambiguous" ? "Reference selection is ambiguous for the selected policy cohort." : "Reference comparison is unavailable for the selected policy cohort."}</p>
+        {missing && <Link to="/catalogs/import">Import a catalog</Link>}
+      </section>
     );
   }
   return (
@@ -76,16 +78,10 @@ function CatalogCard({ data }: { data: ConfigurationFleetResponse }) {
         <Title headingLevel="h3" size="md">
           Reference catalog
         </Title>
-        <p>
-          <strong>{catalog.version ?? "unknown version"}</strong> · {catalog.provenance ?? "unknown provenance"}
-          {typeof catalog.completeness === "string" && catalog.completeness ? ` · ${catalog.completeness}` : ""}
-        </p>
-        {catalog.loaded_policy_digest && (
-          <small className="pf-v6-u-color-200">
-            {catalog.loaded_policy_digest}
-            {catalog.distribution_catalog_revision_id ? ` · revision ${catalog.distribution_catalog_revision_id}` : ""}
-          </small>
-        )}
+        <p>{catalog.distribution_catalog_revision_id
+          ? <Link to={`/catalogs/${catalog.distribution_catalog_revision_id}`}>{selection?.selected_revision?.display_name ?? "View reference catalog"}</Link>
+          : "Reference available for the selected policy cohort."}</p>
+        {catalog.completeness === "incomplete" && <Label status="warning" isCompact>Incomplete reference facts</Label>}
       </CardBody>
     </Card>
   );
@@ -377,14 +373,13 @@ function CohortSelect({ data, policyIdentity, onSelect }: { data: ConfigurationF
 
 export function Configuration() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const family = (FAMILIES.some((entry) => entry.value === searchParams.get("family")) ? searchParams.get("family") : "overview") as ConfigurationFamily;
+  const family = (FAMILIES.some((entry) => entry.value === searchParams.get("family")) ? searchParams.get("family") : "booleans") as ConfigurationFamily;
   const policyIdentity = searchParams.get("policy_identity");
   const hasCohort = family === "booleans" || family === "ports";
 
   const configQuery = useQuery({
     queryKey: ["configuration", family, policyIdentity ?? ""],
     queryFn: () => fetchConfiguration(family, policyIdentity ?? undefined),
-    placeholderData: (previousData) => previousData
   });
 
   const setParams = (updates: Record<string, string | null>) => {
@@ -437,11 +432,6 @@ export function Configuration() {
               <div className="pf-v6-u-mb-md" style={{ display: "flex", gap: "var(--pf-v6-global--spacer--sm)" }}>
                 <CohortSelect data={data} policyIdentity={policyIdentity} onSelect={(identity) => setParams({ policy_identity: identity })} />
               </div>
-            )}
-            {family === "overview" && (
-              <Alert variant="info" isInline title="Select a family">
-                Choose booleans, ports, file contexts, or modules to explore fleet configuration.
-              </Alert>
             )}
             {family === "booleans" && data.booleans && (
               <>

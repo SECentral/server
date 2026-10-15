@@ -52,6 +52,12 @@ describe("Global log", () => {
   it("shows mixed entries with evidence distinctions and correct host, occurrence and issue links", async () => {
     renderLog();
     const table = await screen.findByRole("table", { name: "Global SELinux log" });
+    const entries = screen.getByRole("region", { name: "Global log entries" });
+    expect(entries).toHaveClass("pf-v6-c-card");
+    expect(entries).toContainElement(table);
+    expect(within(entries).getByRole("heading", { name: "Entries" })).toBeVisible();
+    expect(table).toHaveClass("pf-m-compact", "pf-m-grid-lg");
+    expect(screen.getByRole("region", { name: "Global log controls" })).not.toHaveClass("pf-v6-c-page__main-section");
     expect(within(table).getAllByRole("row")).toHaveLength(4);
     expect(within(table).getByText("httpd_can_network_connect").closest("td")).toHaveTextContent("Reported: Off → On · state change not established");
     expect(within(table).getByText("Non-enforced (AVC permissive=1)")).toBeVisible();
@@ -173,7 +179,7 @@ describe("Global log", () => {
     expect(typeRow).toHaveClass("pf-v6-u-mb-md");
     expect(typeRow).not.toContainElement(screen.getByRole("textbox", { name: "Search hosts" }));
     const navigation = screen.getByLabelText("Global log table navigation");
-    expect(navigation).toHaveClass("pf-v6-u-mt-md");
+    expect(navigation).toHaveClass("table-pagination");
     expect(screen.getByRole("region", { name: "Global log entries" })).toContainElement(navigation);
   });
 
@@ -196,6 +202,7 @@ describe("Global log", () => {
   it("distinguishes request failure from an empty timeline", async () => {
     renderLog("/log?range=all", new Error("Exactly one organization is required"));
     expect(await screen.findByText("Could not load global log")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Global log entries" })).toHaveClass("pf-v6-c-card");
     expect(screen.getByText("Exactly one organization is required")).toBeVisible();
     expect(screen.queryByText("No retained SELinux activity")).not.toBeInTheDocument();
   });
@@ -203,6 +210,7 @@ describe("Global log", () => {
   it("shows a retained-history empty state and disabled pagination", async () => {
     renderLog("/log", { ...payload, items: [], meta: { page: 1, total: 0, total_pages: 0, page_size: 10, next_cursor: null } });
     expect(await screen.findByText("No retained SELinux activity")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Global log entries" })).toContainElement(screen.getByText("No retained SELinux activity"));
     expect(screen.getByRole("button", { name: "Go to next page" })).toBeDisabled();
   });
 });

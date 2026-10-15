@@ -31,6 +31,19 @@
   margin-block-end: var(--pf-t--global--spacer--lg);
 }
 
+.app-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--pf-t--global--spacer--md);
+}
+
+.app-page-header > div {
+  flex: 1 1 24rem;
+  min-width: 0;
+}
+
 .app-resource-header h1 {
   margin-block-end: var(--pf-t--global--spacer--xs);
 }
@@ -157,29 +170,6 @@
   text-decoration: underline;
 }
 
-.catalog-digest-line {
-  display: flex;
-  align-items: center;
-  gap: var(--pf-t--global--spacer--xs);
-  min-width: 0;
-}
-
-.catalog-digest-line > span {
-  flex: none;
-  width: 3.5rem;
-}
-
-.catalog-digest-line .pf-v6-c-clipboard-copy {
-  flex: 1;
-  min-width: 0;
-}
-
-.catalog-digest-line .pf-v6-c-clipboard-copy__text {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
 .catalog-inventory {
   display: flex;
   flex-direction: column;
@@ -304,18 +294,33 @@
   row-gap: var(--pf-t--global--spacer--md);
 }
 
-.host-detail-page .host-surface-card {
-  --pf-v6-c-card--BackgroundColor: var(--pf-t--global--background--color--primary--default);
-  --pf-v6-c-card--BorderColor: var(--pf-t--global--border--color--default);
-  --pf-v6-c-card--BorderWidth: 1px;
+.app-page .pf-v6-c-card:where(:not(.pf-m-plain)) {
   box-shadow: var(--pf-t--global--box-shadow--sm);
 }
 
-.pf-v6-theme-dark .host-detail-page .host-surface-card {
-  --pf-v6-c-card--BackgroundColor: var(--pf-v5-global--BackgroundColor--dark-100, var(--host-dark-raised));
+.app-page .pf-v6-c-card:where(:not(.pf-m-plain, .pf-m-current, .pf-m-selected, .pf-m-disabled)) {
+  --pf-v6-c-card--BorderColor: var(--pf-t--global--border--color--default);
+  --pf-v6-c-card--BorderWidth: var(--pf-t--global--border--width--box--default);
 }
 
-.host-table-card .pf-v6-c-table {
+.app-page .pf-v6-c-card.pf-m-clickable:where(:not(.pf-m-plain))::before {
+  border: var(--pf-v6-c-card--BorderWidth) solid var(--pf-v6-c-card--BorderColor);
+}
+
+.app-page .pf-v6-c-card.pf-m-clickable:where(:not(.pf-m-disabled)):is(:hover, :focus-visible) {
+  --pf-v6-c-card--BorderColor: var(--pf-t--global--border--color--hover);
+}
+
+.app-page .pf-v6-c-card.pf-m-clickable:where(:not(.pf-m-disabled)):active {
+  --pf-v6-c-card--BorderColor: var(--pf-t--global--border--color--clicked);
+}
+
+.app-page .pf-v6-c-card.pf-m-clickable:focus-visible {
+  outline: 2px solid var(--pf-t--global--border--color--brand--default);
+  outline-offset: 2px;
+}
+
+.app-page .pf-v6-c-card .pf-v6-c-table {
   --pf-v6-c-table--BackgroundColor: var(--pf-v6-c-card--BackgroundColor);
 }
 
@@ -444,7 +449,8 @@
   border-inline-start: 2px solid var(--pf-t--global--border--color--default);
 }
 
-.host-table-pagination {
+.host-table-pagination,
+.table-pagination {
   display: flex;
   justify-content: flex-end;
   flex-wrap: wrap;
@@ -452,10 +458,21 @@
   margin-block-start: var(--pf-t--global--spacer--sm);
 }
 
-/* All host-detail text palettes are >= 8:1 against the dark surfaces below. */
+.table-section-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--pf-t--global--spacer--sm);
+  margin-block-end: var(--pf-t--global--spacer--md);
+}
+
+.table-section-heading h2 {
+  margin: 0;
+}
+
+/* Host status-label text and icons have >= 8:1 contrast on the control surface. */
 .pf-v6-theme-dark .host-detail-page {
-  --host-dark-surface: #1b1d21;
-  --host-dark-raised: #23262b;
   --host-dark-control: #30343b;
   --host-dark-text: #f5f5f5;
   --host-dark-muted: #dedee3;
@@ -463,9 +480,6 @@
   --host-dark-success: #b6f2bd;
   --host-dark-warning: #ffdb8a;
   --host-dark-danger: #ffd0d0;
-  --pf-t--global--background--color--primary--default: var(--host-dark-surface);
-  --pf-t--global--background--color--secondary--default: var(--host-dark-raised);
-  --pf-t--global--background--color--control--default: var(--host-dark-control);
   --pf-t--global--text--color--regular: var(--host-dark-text);
   --pf-t--global--text--color--subtle: var(--host-dark-muted);
   --pf-t--global--text--color--link--default: var(--host-dark-link);
@@ -996,12 +1010,6 @@
   height: 100%;
   color: inherit;
   text-decoration: none;
-}
-
-.metric-card:focus-visible,
-.overview-status-card:focus-visible {
-  outline: 2px solid var(--pf-t--global--border--color--brand--default);
-  outline-offset: 2px;
 }
 
 .overview-status-card .pf-v6-c-card__body {

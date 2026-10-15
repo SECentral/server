@@ -20,6 +20,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { fetchHosts } from "../api/hosts";
+import { osDisplayName } from "../platform";
 
 const TEXT_FILTERS = [
   { key: "os_id", label: "OS", placeholder: "OS" },
@@ -312,7 +313,7 @@ export function Hosts() {
                         </Label>
                       </Td>
                       <Td width={15} dataLabel="Operating system">
-                        {host.platform.os_id ? `${host.platform.os_id} ${host.platform.os_version ?? ""}`.trim() : <span className="pf-v6-u-color-200">unknown</span>}
+                        {host.platform.os_id ? `${osDisplayName(host.platform.os_id)} ${host.platform.os_version ?? ""}`.trim() : <span className="pf-v6-u-color-200">unknown</span>}
                       </Td>
                       <Td width={15} dataLabel="SELinux">
                         {host.selinux.enforcement ? (

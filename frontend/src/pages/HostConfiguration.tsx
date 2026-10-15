@@ -139,7 +139,7 @@ function ComparisonHeader({ data, host }: { data: HostConfigurationResponse; hos
         <Label color={stale ? "orange" : data.observation ? "green" : "grey"}>
           {stale ? "Stale observation" : data.observation ? "Current observation" : "No observation"}
         </Label>
-        {data.comparison.available && (
+        {data.comparison.available && !stale && (
           <Label color={differenceCount > 0 || limited ? "orange" : "green"} aria-label={differenceCount > 0 ? `Differences found: ${differenceCount}` : limited ? "Comparison limited" : "Matches reference"}>
             {differenceCount > 0 ? plural(differenceCount, "difference") : limited ? "Comparison limited" : "Matches reference"}
           </Label>
@@ -183,6 +183,9 @@ function ComparisonSummary({ data }: { data: HostConfigurationResponse }) {
   const booleans = data.comparison.summary.booleans;
   const ports = data.comparison.summary.ports;
   if (!booleans && !ports) return null;
+  if (data.comparison.paused || data.observation?.status === "stale") {
+    return <p role="status" className="pf-v6-u-mb-md">Comparison paused — current matches and differences are unverified.</p>;
+  }
   return (
     <div className="configuration-summary-grid" aria-label="Comparison summary">
       {booleans && data.selection.families.booleans.comparison_allowed && (
@@ -519,6 +522,7 @@ export function HostConfiguration() {
 
   const data = configQuery.data;
   const comparisonAvailable = data?.comparison.available ?? false;
+  const comparisonPaused = data?.comparison.paused || data?.observation?.status === "stale";
 
   return (
     <>
@@ -567,7 +571,7 @@ export function HostConfiguration() {
                   const count = entry.value === "differences"
                     ? data?.differences?.total ?? (booleans && ports ? booleans.differ + booleans.host_only + ports.differ : 0)
                     : entry.value === "booleans" ? booleans?.reference_entries ?? 0 : (ports?.compared ?? 0) + (ports?.not_observed ?? 0);
-                  return <Tab key={entry.value} eventKey={entry.value} title={<TabTitleText>{entry.label} ({count})</TabTitleText>} />;
+                   return <Tab key={entry.value} eventKey={entry.value} title={<TabTitleText>{entry.label}{comparisonPaused ? "" : ` (${count})`}</TabTitleText>} />;
                 })}
               </Tabs>
               {configQuery.isPending ? (
@@ -577,7 +581,7 @@ export function HostConfiguration() {
               ) : (
                 data && (
                   <>
-                    {view === "differences" && <Differences data={data} />}
+                    {view === "differences" && (comparisonPaused ? <p>Current differences cannot be determined from a stale observation. Inspect the Booleans or Ports view for retained inventory state.</p> : <Differences data={data} />)}
                     {view === "booleans" && <BooleansView data={data} query={q} onSearch={commitViewSearch} onPage={setPage} />}
                     {view === "ports" && <PortsView data={data} query={q} onSearch={commitViewSearch} onPage={setPage} />}
                   </>

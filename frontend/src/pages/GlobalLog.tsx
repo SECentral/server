@@ -1,4 +1,4 @@
-import { Alert, Button, EmptyState, EmptyStateBody, Form, FormGroup, FormSelect, FormSelectOption, Label, MenuFooter, MenuToggle, PageSection, Pagination, SearchInput, Select, SelectList, SelectOption, Spinner, TextInput, Title, ToggleGroup, ToggleGroupItem, Toolbar, ToolbarContent, ToolbarGroup, ToolbarItem } from "@patternfly/react-core";
+import { Alert, Button, Card, CardBody, EmptyState, EmptyStateBody, Form, FormGroup, FormSelect, FormSelectOption, Label, MenuFooter, MenuToggle, Pagination, SearchInput, Select, SelectList, SelectOption, Spinner, Stack, TextInput, Title, ToggleGroup, ToggleGroupItem, Toolbar, ToolbarContent, ToolbarGroup, ToolbarItem } from "@patternfly/react-core";
 import { Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
 import { useQuery } from "@tanstack/react-query";
 import { useDeferredValue, useState } from "react";
@@ -19,7 +19,7 @@ function preset(hours: number) {
 function CustomRange({ start, end, apply }: { start: string; end: string; apply: (start: string, end: string) => void }) {
   const [from, setFrom] = useState(start);
   const [until, setUntil] = useState(end);
-  return <Form onSubmit={(event) => { event.preventDefault(); apply(from, until); }} className="pf-v6-u-mb-md">
+  return <Form onSubmit={(event) => { event.preventDefault(); apply(from, until); }}>
     <FormGroup label="Start (UTC, inclusive)" fieldId="log-start" isRequired>
       <TextInput id="log-start" value={from} onChange={(_event, value) => setFrom(value)} isRequired placeholder="2026-10-13T00:00:00.000000Z" />
     </FormGroup>
@@ -92,8 +92,9 @@ export function GlobalLog() {
       <Title headingLevel="h1" size="2xl">Global log</Title>
       <p className="pf-v6-u-color-200">Observed SELinux AVCs and administrative activity across monitored servers.</p>
     </header>
-    <PageSection hasBodyWrapper isFilled={false} aria-label="Global log controls">
-    <Toolbar aria-label="Global log filters" className="pf-v6-u-mb-md">
+    <Stack hasGutter>
+    <section aria-label="Global log controls">
+    <Toolbar aria-label="Global log filters" hasNoPadding>
       <ToolbarContent className="pf-v6-u-mb-md">
         <ToolbarItem><ToggleGroup aria-label="Activity type">
           {CATEGORIES.map((entry) => <ToggleGroupItem key={entry.value} text={entry.label} buttonId={`log-type-${entry.value}`} isSelected={category === entry.value} onChange={() => update({ category: entry.value === "all" ? null : entry.value })} />)}
@@ -138,8 +139,12 @@ export function GlobalLog() {
     </ToolbarContent> : null}
     </Toolbar>
     {hosts.isError || selectedHosts.isError ? <Alert isInline variant="warning" title="Could not load host options">{hosts.error?.message ?? selectedHosts.error?.message}</Alert> : null}
-    </PageSection>
-    <PageSection hasBodyWrapper isFilled={false} aria-label="Global log entries">
+    </section>
+    <Card component="section" className="resource-table-card" aria-label="Global log entries"><CardBody>
+    <div className="table-section-heading">
+      <Title headingLevel="h2" size="lg">Entries</Title>
+      {log.data?.meta.total != null && !log.isError && <span className="pf-v6-u-color-200">{log.data.meta.total.toLocaleString("en-US")} entries</span>}
+    </div>
     {log.isPending ? <Spinner aria-label="Loading global log" /> : log.isError ? <Alert variant="danger" isInline title="Could not load global log">{log.error.message}</Alert> : <>
       {log.data.items.length === 0 ? <EmptyState titleText={!activeFilters ? "No retained SELinux activity" : "No entries match this selection"}>
         <EmptyStateBody>Try another host or broaden the interval.</EmptyStateBody>
@@ -155,16 +160,15 @@ export function GlobalLog() {
           <Td dataLabel="Details"><Link to={item.category === "avc" ? `/hosts/${item.host.id}/occurrences/${item.id}` : `/hosts/${item.host.id}?selinux_activity=${item.id}#selinux-activity`}>View {item.category === "avc" ? "occurrence" : "activity"}</Link>{item.issue_id ? <div><Link to={`/issues/${item.issue_id}`}>Issue #{item.issue_id}</Link></div> : null}</Td>
         </Tr>)}</Tbody>
       </Table>}
-      <Toolbar aria-label="Global log table navigation" className="pf-v6-u-mt-md">
-        <ToolbarContent><ToolbarItem variant="pagination" align={{ default: "alignEnd" }}>
+      <div aria-label="Global log table navigation" className="table-pagination">
         <Pagination itemCount={log.data.meta.total ?? 0} page={log.data.meta.page ?? page} perPage={perPage}
           perPageOptions={[10, 25, 50].map((value) => ({ title: String(value), value }))}
           titles={{ paginationAriaLabel: "Global log pagination" }} isDisabled={log.isFetching}
           onSetPage={(_event, value) => update({ page: String(value) }, true)}
           onPerPageSelect={(_event, value) => update({ limit: String(value), page: "1" }, true)} />
-        </ToolbarItem></ToolbarContent>
-      </Toolbar>
+      </div>
     </>}
-    </PageSection>
+    </CardBody></Card>
+    </Stack>
   </div>;
 }

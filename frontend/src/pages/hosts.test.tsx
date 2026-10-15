@@ -93,7 +93,7 @@ describe("Hosts", () => {
     ]);
     expect(screen.queryByRole("button", { name: /Copy host ID/ })).not.toBeInTheDocument();
     expect(screen.queryByText("host-abc123def456")).not.toBeInTheDocument();
-    expect(screen.getByText("almalinux 9.3")).toBeInTheDocument();
+    expect(screen.getByText("AlmaLinux 9.3")).toBeInTheDocument();
     expect(screen.getByText("v0.2.0")).toBeInTheDocument();
     expect(screen.getByRole("grid", { name: "Hosts" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Operating system" })).toBeInTheDocument();
@@ -102,6 +102,12 @@ describe("Hosts", () => {
     expect(screen.queryByRole("heading", { name: "Hosts" })).not.toBeInTheDocument();
     expect(screen.queryByText("2 hosts")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Monitored servers" })).toBeInTheDocument();
+  });
+
+  it("uses the shared RHEL display name while preserving the OS version", async () => {
+    renderHosts({ ...hostsPayload, hosts: [{ ...hostsPayload.hosts[0], platform: { os_id: "rhel", os_version: "10.1" } }] });
+    expect(await screen.findByText("RHEL 10.1")).toBeVisible();
+    expect(screen.queryByText("rhel 10.1")).not.toBeInTheDocument();
   });
 
   it("keeps filter state in the URL and refetches when it changes", async () => {

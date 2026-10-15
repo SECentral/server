@@ -65,14 +65,17 @@ describe("Catalogs", () => {
 
     const name = await screen.findByText("AlmaLinux 9");
     expect(screen.getByRole("grid", { name: "Imported SELinux distribution catalogs" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Policy identity" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Policy identity" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Import catalog" }).closest("header")).toHaveClass("app-page-header");
     expect(name.closest("a")).toHaveAttribute("href", "/catalogs/7");
     expect(screen.getByText("targeted · x86_64 · policy 33")).toBeInTheDocument();
     expect(screen.getByText("12 booleans · complete")).toBeInTheDocument();
     expect(screen.getByText("4 port mappings · complete")).toBeInTheDocument();
     expect(screen.getByText("Sep 20, 2026")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copy loaded policy digest for AlmaLinux 9" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copy catalog digest for AlmaLinux 9" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Copy .* digest/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/sha256:/)).not.toBeInTheDocument();
+    expect(screen.getByText("12 booleans · complete").closest(".pf-v6-c-label")).toBeNull();
+    expect(screen.getByRole("region", { name: "Distribution catalogs" })).toHaveClass("pf-v6-c-card");
 
     expect(screen.getByRole("link", { name: "Compare in configuration" })).toHaveAttribute(
       "href",
@@ -91,7 +94,14 @@ describe("Catalogs", () => {
     expect(await screen.findByText("Archived", { exact: true })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View archived reference" })).toHaveAttribute("href", "/catalogs/7");
     expect(screen.queryByRole("link", { name: "Compare in configuration" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copy catalog digest for AlmaLinux 9" })).toBeInTheDocument();
+    expect(screen.queryByText(/sha256:/)).not.toBeInTheDocument();
     expect(screen.getByText(/excluded from new automatic selection/)).toBeInTheDocument();
+  });
+
+  it("keeps incomplete inventory prominent without coloring ordinary inventory counts", async () => {
+    renderCatalogs({ catalogs: [{ ...listPayload.catalogs[0], booleans_complete: false }] });
+    expect(await screen.findByText("incomplete")).toBeVisible();
+    expect(screen.getByText("incomplete").closest(".pf-v6-c-label")).not.toBeNull();
+    expect(screen.getByText("4 port mappings · complete").closest(".pf-v6-c-label")).toBeNull();
   });
 });

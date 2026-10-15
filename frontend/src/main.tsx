@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 import { App } from "./App";
 import "@patternfly/react-core/dist/styles/base.css";
+import "@patternfly/react-styles/css/utilities/Spacing/spacing.css";
 import "./app.css";
 
 const queryClient = new QueryClient({
