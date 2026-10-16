@@ -2,13 +2,17 @@ class ConfigurationQuery
   FAMILIES = %w[overview booleans ports file_contexts modules].freeze
   POLICY_IDENTITY_FORMAT = /\Asha256:[0-9a-f]{64}\z/
 
-  def self.call(family:, policy_identity: nil)
-    new(family, policy_identity).call
+  def self.call(family:, policy_identity: nil, page: 1, limit: 25, query: nil, protocol: nil)
+    new(family, policy_identity, page, limit, query, protocol).call
   end
 
-  def initialize(family, requested_identity)
+  def initialize(family, requested_identity, page, page_size, query, protocol)
     @family = family
     @requested_identity = requested_identity
+    @page = page
+    @page_size = page_size
+    @query = query.to_s.strip.downcase
+    @protocol = protocol
     @hosts = Host.includes(:host_snapshots).order(:hostname, :external_id).to_a
   end
 
@@ -23,17 +27,46 @@ class ConfigurationQuery
     when "ports" then payload[:ports] = ports_family
     when "file_contexts", "modules"
       rows = configuration_rows
-      payload[:rows] = rows
       payload[:observed_host_count] = rows.flat_map { |row| row[:host_ids] }.uniq.size
+      payload[:rows], payload[:pagination] = paginate(rows)
     end
     payload
   end
 
   def policy_cohorts
-    @policy_cohorts ||= @hosts.filter_map do |host|
+    policy_cohort_details.map { |cohort| cohort[:policy_identity] }
+  end
+
+  def policy_cohort_details
+    @policy_cohort_details ||= @hosts.filter_map do |host|
       observation = host.current_state_observation
-      host.policy_identity_for(observation) if observation && !observation.stale?
-    end.uniq.sort
+      next unless observation && !observation.stale?
+
+      identity = host.policy_identity_for(observation)
+      next unless identity
+
+      details = observation.host_snapshot.details
+      platform = details.fetch("platform", {})
+      selinux = host.selinux_state_for(observation)
+      {
+        policy_identity: identity,
+        os_id: platform["os_id"],
+        os_version: platform["os_version"],
+        policy_type: selinux["configured_policy_type"],
+        architecture: platform["architecture"],
+        last_observed_at: observation.last_observed_at
+      }
+    end.group_by { |entry| entry[:policy_identity] }.map do |identity, entries|
+      platforms = entries.group_by { |entry| entry.values_at(:os_id, :os_version, :policy_type, :architecture) }.map do |(os_id, os_version, policy_type, architecture), hosts|
+        { os_id: os_id, os_version: os_version, policy_type: policy_type, architecture: architecture, host_count: hosts.size }
+      end
+      {
+        policy_identity: identity,
+        host_count: entries.size,
+        latest_observation_at: entries.map { |entry| entry[:last_observed_at] }.compact.max,
+        platforms: platforms
+      }
+    end.sort_by { |cohort| cohort[:policy_identity] }
   end
 
   private
@@ -45,10 +78,14 @@ class ConfigurationQuery
   def booleans_family
     identity = select_identity { |candidate| BooleanCatalog.for(candidate) }
     overlay = identity ? BooleanCatalogOverlay.call(hosts: @hosts, policy_identity: identity) : nil
+    inventory, inventory_page = paginate(boolean_inventory)
+    overlay = paginate_overlay(overlay)
     {
       coverage: @hosts.map { |host| boolean_configuration_state(host) }.tally.merge(observed: 0, unavailable: 0, stale: 0, unknown: 0) { |_key, counted, _zero| counted },
-      inventory: boolean_inventory,
+      inventory: inventory,
+      pagination: overlay ? overlay[:pagination] : inventory_page,
       policy_cohorts: policy_cohorts,
+      cohort_details: policy_cohort_details,
       selected_policy_identity: identity,
       selection: CatalogReferenceSelection.for_policy_identity(identity).as_json,
       catalog: overlay && overlay.dig(:catalog),
@@ -56,17 +93,45 @@ class ConfigurationQuery
     }
   end
 
+  def paginate_overlay(overlay)
+    return overlay unless overlay
+    observed = overlay.dig(:observed)
+    observed[:rows], pagination = paginate(observed[:rows])
+    overlay.merge(pagination: pagination)
+  end
+
+  def paginate(rows)
+    rows = rows.select { |row| search_text(row).include?(@query) } if @query.present?
+    total = rows.size
+    pages = (total / @page_size.to_f).ceil
+    page = pages.zero? ? 1 : [@page, pages].min
+    [rows.slice((page - 1) * @page_size, @page_size) || [], { total: total, page: page, page_size: @page_size, total_pages: pages }]
+  end
+
   def ports_family
     identity = select_identity { |candidate| PortCatalog.for(candidate) }
     overlay = identity ? PortCatalogOverlay.call(hosts: @hosts, policy_identity: identity) : nil
+    if overlay
+      observed = overlay[:observed]
+      catalog_available = overlay.dig(:catalog, :available) || overlay.dig(:catalog, "available")
+      key = catalog_available ? :segments : :observed_mappings
+      rows = observed.fetch(key).select { |row| protocol_matches?(row) }
+      observed[key], pagination = paginate(aggregate_port_rows(rows))
+      observed[:stale_observed_mappings] = aggregate_port_rows(observed[:stale_observed_mappings]) unless key == :segments
+      overlay = overlay.merge(pagination: pagination)
+    else
+      rows, pagination = paginate(configuration_rows.select { |row| protocol_matches?(row) })
+    end
     {
       coverage: @hosts.map { |host| port_inventory_state(host) }.tally.merge(observed: 0, partial: 0, unavailable: 0, unknown: 0, stale: 0, no_heartbeat: 0) { |_key, counted, _zero| counted },
       policy_cohorts: policy_cohorts,
+      cohort_details: policy_cohort_details,
       selected_policy_identity: identity,
       selection: CatalogReferenceSelection.for_policy_identity(identity).as_json,
       catalog: overlay && overlay.dig(:catalog),
-      catalog_overlay: overlay
-    }
+      catalog_overlay: overlay,
+      pagination: overlay ? overlay[:pagination] : pagination
+    }.tap { |family| family[:rows] = rows unless overlay }
   end
 
   def configuration_rows
@@ -93,6 +158,26 @@ class ConfigurationQuery
     grouped.values.sort_by { |row| row.values_at(:type, :pattern, :name, :protocol, :ports).compact.join(" ") }
   end
 
+  def aggregate_port_rows(rows)
+    rows.group_by { |row| row.except(:host_id, :hostname, :host_count) }.map do |attributes, hosts|
+      host_ids = hosts.filter_map { |host| host[:host_id] }.uniq
+      attributes.merge(host_count: host_ids.empty? ? hosts.size : host_ids.size)
+    end
+  end
+
+  def protocol_matches?(row)
+    @protocol.nil? || row[:protocol] == @protocol
+  end
+
+  def search_text(row)
+    text = row.values.join(" ").downcase
+    return text unless @family == "ports" && row[:protocol]
+
+    ranges = row[:ports].presence || [row]
+    ports = ranges.map { |range| "#{row[:protocol]}/#{range[:start]}-#{range[:end]}" }
+    "#{text} #{ports.join(' ')}".downcase
+  end
+
   def normalize_configuration_value(value)
     case @family
     when "ports"
@@ -116,25 +201,11 @@ class ConfigurationQuery
   end
 
   def boolean_configuration_state(host)
-    observation = host.current_state_observation
-    return :unknown unless observation
-    return :stale if observation.stale?
-
-    selinux = selinux_state(host)
-    return :unavailable if selinux["boolean_status"] == "unavailable"
-    return :observed if Array(selinux["booleans"]).any? { |boolean| boolean["status"] == "observed" && boolean["current"].in?([true, false]) }
-    return :unavailable if Array(selinux["booleans"]).any? { |boolean| boolean["status"] == "unavailable" }
-
-    :unknown
+    host.boolean_configuration_state
   end
 
   def port_inventory_state(host)
-    observation = host.current_state_observation
-    return :no_heartbeat unless observation
-    return :stale if observation.stale?
-
-    status = host.port_inventory_for(observation)["status"]
-    %w[observed partial unavailable unknown].include?(status) ? status.to_sym : :unknown
+    host.port_inventory_state
   end
 
   def boolean_inventory

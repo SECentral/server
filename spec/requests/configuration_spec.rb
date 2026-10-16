@@ -64,6 +64,18 @@ RSpec.describe "Configuration API", type: :request do
     get "/api/v1/configuration", params: { family: "booleans", policy_identity: "sha256:zzz" }
     expect(response).to have_http_status(:unprocessable_content)
     expect(JSON.parse(response.body)).to eq("error" => { "code" => "invalid_value", "message" => "Invalid policy identity" })
+
+    get "/api/v1/configuration", params: { family: "modules", limit: 101 }
+    expect(response).to have_http_status(:unprocessable_content)
+
+    get "/api/v1/configuration", params: { family: "modules", q: "x" * 201 }
+    expect(response).to have_http_status(:unprocessable_content)
+
+    get "/api/v1/configuration", params: { family: "ports", protocol: "icmp" }
+    expect(response).to have_http_status(:unprocessable_content)
+
+    get "/api/v1/configuration", params: { family: "booleans", protocol: "tcp" }
+    expect(response).to have_http_status(:unprocessable_content)
   end
 
   it "returns host totals for the overview family" do
@@ -151,10 +163,10 @@ RSpec.describe "Configuration API", type: :request do
     expect(ports.fetch("selected_policy_identity")).to eq(demo_identity)
     expect(ports.dig("catalog", "available")).to be true
     expect(ports.dig("catalog", "version")).to eq(catalog.content_digest)
-    expect(ports.dig("catalog_overlay", "observed", "segments").map { |segment| segment.except("host_id") }).to eq([
-      { "protocol" => "tcp", "start" => 80, "end" => 80, "catalog_types" => ["http_port_t"], "observed_types" => ["http_port_t"], "relation" => "matching_effective_type", "local_classification" => "not_confirmed_custom", "inventory_status" => "observed", "hostname" => "config-01" },
-      { "protocol" => "tcp", "start" => 81, "end" => 90, "catalog_types" => ["http_port_t"], "observed_types" => [], "relation" => "catalog_defined_not_observed", "local_classification" => nil, "inventory_status" => "observed", "hostname" => "config-01" },
-      { "protocol" => "tcp", "start" => 8080, "end" => 8080, "catalog_types" => ["http_port_t"], "observed_types" => [], "relation" => "catalog_defined_not_observed", "local_classification" => nil, "inventory_status" => "observed", "hostname" => "config-01" }
+    expect(ports.dig("catalog_overlay", "observed", "segments")).to eq([
+      { "protocol" => "tcp", "start" => 80, "end" => 80, "catalog_types" => ["http_port_t"], "observed_types" => ["http_port_t"], "relation" => "matching_effective_type", "local_classification" => "not_confirmed_custom", "inventory_status" => "observed", "host_count" => 1 },
+      { "protocol" => "tcp", "start" => 81, "end" => 90, "catalog_types" => ["http_port_t"], "observed_types" => [], "relation" => "catalog_defined_not_observed", "local_classification" => nil, "inventory_status" => "observed", "host_count" => 1 },
+      { "protocol" => "tcp", "start" => 8080, "end" => 8080, "catalog_types" => ["http_port_t"], "observed_types" => [], "relation" => "catalog_defined_not_observed", "local_classification" => nil, "inventory_status" => "observed", "host_count" => 1 }
     ])
 
     get "/api/v1/configuration", params: { family: "file_contexts" }
@@ -182,6 +194,44 @@ RSpec.describe "Configuration API", type: :request do
     rows = JSON.parse(response.body).fetch("rows")
     expect(rows.map { |row| row["name"] }).to eq(["fresh_module"])
     expect(rows.first["host_ids"]).to eq([fresh.id])
+  end
+
+  it "paginates deduplicated configuration rows with bounded page sizes" do
+    org = organization
+    host = Host.create!(organization: org, external_id: "paged-config", hostname: "paged-config")
+    modules = 31.times.map { |index| { "name" => "module_%02d" % index, "provenance" => "unknown" } }
+    observe(host, { "selinux" => { "policy" => { "modules" => modules } } })
+
+    get "/api/v1/configuration", params: { family: "modules", page: 2, limit: 10 }
+
+    payload = JSON.parse(response.body)
+    expect(payload.fetch("rows").map { |row| row.fetch("name") }).to eq((10..19).map { |index| "module_%02d" % index })
+    expect(payload.fetch("pagination")).to eq("total" => 31, "page" => 2, "page_size" => 10, "total_pages" => 4)
+  end
+
+  it "summarizes fresh policy cohorts without losing platform variants" do
+    org = organization
+    identity = "sha256:" + "a" * 64
+    latest = Time.current.utc.change(usec: 0)
+    alma_a = Host.create!(organization: org, external_id: "alma-a", hostname: "alma-a")
+    alma_b = Host.create!(organization: org, external_id: "alma-b", hostname: "alma-b")
+    rhel = Host.create!(organization: org, external_id: "rhel", hostname: "rhel")
+    details = lambda do |os_id, version|
+      { "platform" => { "os_id" => os_id, "os_version" => version, "architecture" => "x86_64" },
+        "selinux" => { "policy_identity" => identity, "configured_policy_type" => "targeted", "booleans" => [] } }
+    end
+    observe(alma_a, details.call("almalinux", "9.4"), at: latest - 10.minutes)
+    observe(alma_b, details.call("almalinux", "9.4"), at: latest)
+    observe(rhel, details.call("rhel", "9.5"), at: latest - 5.minutes)
+
+    get "/api/v1/configuration", params: { family: "booleans" }
+
+    cohort = JSON.parse(response.body).dig("booleans", "cohort_details").first
+    expect(cohort).to include("policy_identity" => identity, "host_count" => 3, "latest_observation_at" => latest.iso8601(3))
+    expect(cohort.fetch("platforms")).to contain_exactly(
+      { "os_id" => "almalinux", "os_version" => "9.4", "policy_type" => "targeted", "architecture" => "x86_64", "host_count" => 2 },
+      { "os_id" => "rhel", "os_version" => "9.5", "policy_type" => "targeted", "architecture" => "x86_64", "host_count" => 1 }
+    )
   end
 
   it "keeps complete, empty, partial, unavailable, unknown, stale, and missing port inventory distinct" do
@@ -216,8 +266,8 @@ RSpec.describe "Configuration API", type: :request do
     expect(ports.dig("catalog_overlay", "observed", "outside_cohort_host_count")).to eq(2)
     expect(ports.dig("catalog_overlay", "observed", "no_current_configuration_host_count")).to eq(2)
     segments = ports.dig("catalog_overlay", "observed", "segments")
-    expect(segments.map { |segment| segment["hostname"] }).not_to include("ports-stale", "ports-event")
-    expect(segments.count { |segment| segment["relation"] == "catalog_defined_not_observed" && segment["start"] == 80 && segment["end"] == 90 }).to eq(2)
+    expect(segments.none? { |segment| segment.key?("hostname") }).to be true
+    expect(segments.find { |segment| segment["relation"] == "catalog_defined_not_observed" && segment["start"] == 80 && segment["end"] == 90 }.fetch("host_count")).to eq(2)
     expect(segments.count { |segment| segment["relation"] == "matching_effective_type" }).to eq(2)
     expect(segments.count { |segment| segment["relation"] == "comparison_unknown" }).to eq(1)
   end
@@ -233,9 +283,47 @@ RSpec.describe "Configuration API", type: :request do
     ports = JSON.parse(response.body).fetch("ports")
     expect(ports.dig("catalog", "available")).to be false
     expect(ports.dig("catalog_overlay", "observed", "segments")).to eq([])
-    expect(ports.dig("catalog_overlay", "observed", "observed_mappings").map { |mapping| mapping.except("host_id") }).to eq([
-      { "protocol" => "tcp", "type" => "http_port_t", "start" => 8080, "end" => 8080, "provenance" => "custom", "inventory_status" => "observed", "hostname" => "uncataloged-port" }
+    expect(ports.dig("catalog_overlay", "observed", "observed_mappings")).to eq([
+      { "protocol" => "tcp", "type" => "http_port_t", "start" => 8080, "end" => 8080, "provenance" => "custom", "inventory_status" => "observed", "host_count" => 1 }
     ])
+  end
+
+  it "aggregates equivalent catalog-comparison port segments by distinct hosts" do
+    import_demo_catalog
+    org = organization
+    2.times do |index|
+      host = Host.create!(organization: org, external_id: "same-port-#{index}", hostname: "same-port-#{index}")
+      observe(host, { "selinux" => { "policy_identity" => demo_identity, "policy" => {
+        "port_inventory" => { "status" => "observed", "local_classification_status" => "observed", "mappings" => [{ "type" => "http_port_t", "protocol" => "tcp", "ports" => [{ "start" => 80, "end" => 80, "provenance" => "custom" }] }] }
+      } } })
+    end
+
+    get "/api/v1/configuration", params: { family: "ports" }
+
+    segments = JSON.parse(response.body).dig("ports", "catalog_overlay", "observed", "segments")
+    expect(segments.map { |segment| segment.fetch("host_count") }).to eq([2, 2, 2])
+    expect(segments.none? { |segment| segment.key?("hostname") || segment.key?("host_id") }).to be true
+  end
+
+  it "returns searchable, paginated port inventory when no policy cohort is available" do
+    org = organization
+    host = Host.create!(organization: org, external_id: "unidentified-port", hostname: "unidentified-port")
+    mappings = [
+      { "type" => "http_port_t", "protocol" => "tcp", "ports" => [{ "start" => 8080, "end" => 8080, "provenance" => "custom" }] },
+      { "type" => "dns_port_t", "protocol" => "udp", "ports" => [{ "start" => 53, "end" => 53, "provenance" => "distribution" }] }
+    ]
+    observe(host, { "selinux" => { "policy" => { "port_inventory" => { "status" => "observed", "local_classification_status" => "observed", "mappings" => mappings } } } })
+
+    get "/api/v1/configuration", params: { family: "ports", q: "tcp/8080", limit: 10 }
+
+    payload = JSON.parse(response.body).fetch("ports")
+    expect(payload.fetch("catalog_overlay")).to be_nil
+    expect(payload.fetch("rows").map { |row| row.fetch("type") }).to eq(["http_port_t"])
+    expect(payload.fetch("pagination")).to include("total" => 1, "page" => 1, "page_size" => 10)
+
+    get "/api/v1/configuration", params: { family: "ports", protocol: "udp" }
+    payload = JSON.parse(response.body).fetch("ports")
+    expect(payload.fetch("rows").map { |row| row.fetch("type") }).to eq(["dns_port_t"])
   end
 
   it "renders a selected catalog cohort without filling unknown observations" do

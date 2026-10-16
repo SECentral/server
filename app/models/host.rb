@@ -57,4 +57,24 @@ class Host < ApplicationRecord
   def file_context_mappings_for(observation = current_state_observation)
     checkpoint_trust_for(observation).file_context_mappings
   end
+
+  def boolean_configuration_state(observation = current_state_observation)
+    return :unknown unless observation
+    return :stale if observation.stale?
+
+    selinux = selinux_state_for(observation)
+    return :unavailable if selinux["boolean_status"] == "unavailable"
+    return :observed if Array(selinux["booleans"]).any? { |boolean| boolean["status"] == "observed" && boolean["current"].in?([true, false]) }
+    return :unavailable if Array(selinux["booleans"]).any? { |boolean| boolean["status"] == "unavailable" }
+
+    :unknown
+  end
+
+  def port_inventory_state(observation = current_state_observation)
+    return :no_heartbeat unless observation
+    return :stale if observation.stale?
+
+    status = port_inventory_for(observation)["status"]
+    %w[observed partial unavailable unknown].include?(status) ? status.to_sym : :unknown
+  end
 end

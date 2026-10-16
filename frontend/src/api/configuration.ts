@@ -3,14 +3,17 @@ import type * as Types from "./generated/types.gen";
 
 export type ConfigurationFamily = Types.ConfigurationFamily;
 export type ConfigurationFleetResponse = Types.ConfigurationFleetResponse;
+export type ConfigurationPolicyCohort = Types.ConfigurationPolicyCohort;
 export type HostConfigurationResponse = Types.HostConfigurationResponse;
 
-export function fetchConfiguration(family: ConfigurationFamily, policyIdentity?: string): Promise<ConfigurationFleetResponse> {
+export function fetchConfiguration(family: ConfigurationFamily, params: { policyIdentity?: string; page?: number; limit?: number; q?: string; protocol?: "tcp" | "udp" } = {}): Promise<ConfigurationFleetResponse> {
   const query = new URLSearchParams();
   query.set("family", family);
-  if (policyIdentity) {
-    query.set("policy_identity", policyIdentity);
-  }
+  if (params.policyIdentity) query.set("policy_identity", params.policyIdentity);
+  if (params.page && params.page > 1) query.set("page", String(params.page));
+  if (params.limit) query.set("limit", String(params.limit));
+  if (params.q) query.set("q", params.q);
+  if (params.protocol) query.set("protocol", params.protocol);
   return apiFetch<ConfigurationFleetResponse>(`/api/v1/configuration?${query.toString()}`);
 }
 

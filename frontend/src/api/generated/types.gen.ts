@@ -665,6 +665,7 @@ export type ConfigurationBooleanOverlay = {
          */
         unmatched_observed_names: Array<string>;
     };
+    pagination?: PageMeta;
 };
 
 export type ConfigurationBooleanFamily = {
@@ -694,9 +695,11 @@ export type ConfigurationBooleanFamily = {
         };
     }>;
     policy_cohorts: Array<string>;
+    cohort_details: Array<ConfigurationPolicyCohort>;
     selected_policy_identity: string | null;
     catalog: ConfigurationCatalog | null;
     catalog_overlay: ConfigurationBooleanOverlay | null;
+    pagination: PageMeta;
 };
 
 export type ConfigurationPortSegment = {
@@ -716,9 +719,13 @@ export type ConfigurationPortSegment = {
      */
     host_id?: number | null;
     /**
-     * Present in fleet overlays.
+     * Legacy per-host label; absent from aggregated fleet rows.
      */
     hostname?: string | null;
+    /**
+     * Distinct hosts with this equivalent comparison segment.
+     */
+    host_count?: number;
 };
 
 /**
@@ -736,9 +743,13 @@ export type ConfigurationPortMapping = {
      */
     host_id?: number | null;
     /**
-     * Present in fleet overlays.
+     * Legacy per-host label; absent from aggregated fleet rows.
      */
     hostname?: string | null;
+    /**
+     * Distinct hosts with this equivalent mapping.
+     */
+    host_count?: number | null;
 };
 
 export type ConfigurationPortOverlay = {
@@ -778,13 +789,32 @@ export type ConfigurationPortFamily = {
         no_heartbeat: number;
     };
     policy_cohorts: Array<string>;
+    cohort_details: Array<ConfigurationPolicyCohort>;
     selected_policy_identity: string | null;
     catalog: ConfigurationCatalog | null;
     catalog_overlay: ConfigurationPortOverlay | null;
+    pagination: PageMeta;
+    /**
+     * Observed mappings when there is no usable loaded-policy cohort.
+     */
+    rows?: Array<ConfigurationRow>;
+};
+
+export type ConfigurationPolicyCohort = {
+    policy_identity: string;
+    host_count: number;
+    latest_observation_at: string | null;
+    platforms: Array<{
+        os_id?: string | null;
+        os_version?: string | null;
+        policy_type?: string | null;
+        architecture?: string | null;
+        host_count: number;
+    }>;
 };
 
 /**
- * Deduplicated observed row for the file_contexts and modules families.
+ * Deduplicated observed row for Ports without a cohort overlay, File contexts, or Modules.
  */
 export type ConfigurationRow = {
     pattern?: string | null;
@@ -827,6 +857,7 @@ export type ConfigurationFleetResponse = {
      * Fresh hosts with at least one observed row; present for row families.
      */
     observed_host_count?: number | null;
+    pagination?: PageMeta;
 };
 
 /**
@@ -2725,6 +2756,11 @@ export type ListHostsData = {
          */
         status?: 'reporting' | 'stale' | 'offline';
         host_id?: number;
+        configuration_family?: 'booleans' | 'ports';
+        /**
+         * Requires configuration_family; filters to the selected family's coverage state.
+         */
+        configuration_status?: 'observed' | 'unavailable' | 'stale' | 'unknown' | 'partial' | 'no_heartbeat';
         page?: number;
         /**
          * Number of hosts per page. Omit for 25; explicit 50 preserves the previous page size.
@@ -2932,6 +2968,19 @@ export type GetConfigurationData = {
          * Loaded-policy cohort to compare against, `sha256:<64 hex>`.
          */
         policy_identity?: string;
+        /**
+         * Case-insensitive search of the selected family's visible inventory fields; maximum 200 characters.
+         */
+        q?: string;
+        /**
+         * Ports family only; filter to one transport protocol before search and pagination.
+         */
+        protocol?: 'tcp' | 'udp';
+        page?: number;
+        /**
+         * Full-page inventory size, default 25, maximum 100.
+         */
+        limit?: number;
     };
     url: '/api/v1/configuration';
 };

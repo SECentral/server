@@ -127,6 +127,27 @@ RSpec.describe "Hosts API", type: :request do
     expect(hostnames(response)).to eq(["agent-offline"])
   end
 
+  it "filters configuration snapshot freshness separately from agent reporting state" do
+    stale_snapshot = observe_host("stale-snapshot", { "selinux" => { "boolean_status" => "observed", "booleans" => [] } }, received_at: 20.minutes.ago)
+    stale_snapshot.agent_installations.first.update!(last_seen_at: Time.current)
+    stale_agent = observe_host("stale-agent", { "selinux" => { "boolean_status" => "observed", "booleans" => [{ "name" => "httpd_can_network_connect", "current" => true, "status" => "observed" }] } })
+    stale_agent.agent_installations.first.update!(last_seen_at: 30.minutes.ago)
+
+    get "/api/v1/hosts", params: { configuration_family: "booleans", configuration_status: "stale" }
+    expect(hostnames(response)).to eq(["stale-snapshot"])
+
+    get "/api/v1/hosts", params: { status: "stale" }
+    expect(hostnames(response)).to eq(["stale-agent"])
+  end
+
+  it "requires a valid family and status for configuration coverage filters" do
+    get "/api/v1/hosts", params: { configuration_status: "stale" }
+    expect(response).to have_http_status(:unprocessable_content)
+
+    get "/api/v1/hosts", params: { configuration_family: "booleans", configuration_status: "partial" }
+    expect(response).to have_http_status(:unprocessable_content)
+  end
+
   it "restricts the list to a single host by host_id" do
     selected = observe_host("selected", { "selinux" => {} })
     other = observe_host("other", { "selinux" => {} })

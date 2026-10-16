@@ -1,4 +1,8 @@
 class HostListQuery
+  CONFIGURATION_STATES = {
+    "booleans" => %w[observed unavailable stale unknown].freeze,
+    "ports" => %w[observed partial unavailable unknown stale no_heartbeat].freeze
+  }.freeze
   Result = Struct.new(:hosts, :total_count, :page, :page_size, :agent_state_counts, keyword_init: true)
 
   def initialize(filters: {}, page: 1, limit: nil)
@@ -55,6 +59,13 @@ class HostListQuery
     hosts = hosts.to_a
     if @filters["enforcement"].present?
       hosts = hosts.select { |host| host.current_configuration? && host.enforcement_for == @filters["enforcement"] }
+    end
+    family = @filters["configuration_family"]
+    status = @filters["configuration_status"]
+    if family == "booleans"
+      hosts = hosts.select { |host| host.boolean_configuration_state.to_s == status }
+    elsif family == "ports"
+      hosts = hosts.select { |host| host.port_inventory_state.to_s == status }
     end
     if AgentInstallation::REPORTING_STATES.include?(@filters["status"])
       hosts = hosts.select { |host| self.class.host_agent(host)&.reporting_state == @filters["status"] }

@@ -44,6 +44,11 @@ const STATUS_OPTIONS = [
   { value: "offline", label: "Offline" },
 ] as const;
 
+const CONFIGURATION_FILTER_LABELS: Record<string, Record<string, string>> = {
+  booleans: { observed: "Observed hosts", unavailable: "Boolean data unavailable", stale: "Stale host snapshots", unknown: "Unknown Boolean state" },
+  ports: { observed: "Complete port inventory", partial: "Partial port inventory", unavailable: "Unavailable port inventory", unknown: "Unknown port inventory", stale: "Stale host snapshots", no_heartbeat: "No configuration snapshot" }
+};
+
 const AGENT_STATUS: Record<string, "success" | "warning" | "danger" | "info"> = {
   reporting: "success",
   stale: "warning",
@@ -143,7 +148,7 @@ export function Hosts() {
   const enforcementLabel = ENFORCEMENT_OPTIONS.find((option) => option.value === enforcement)?.label ?? "Any mode";
   const statusLabel = STATUS_OPTIONS.find((option) => option.value === status)?.label ?? "All agent states";
   const counts = data?.summary.agent_state_counts;
-  const activeFilters = [...searchParams.entries()].filter(([key, value]) => !["page", "limit"].includes(key) && value !== "");
+  const activeFilters = [...searchParams.entries()].filter(([key, value]) => !["page", "limit", "configuration_family"].includes(key) && value !== "");
 
   return (
     <div className="app-resource-page">
@@ -261,8 +266,8 @@ export function Hosts() {
         <div className="pf-v6-u-mb-md" aria-label="Active filters">
           <span className="pf-v6-u-mr-sm">Active filters:</span>
           {activeFilters.map(([key, value]) => (
-            <Label key={key} color="blue" isCompact onClose={() => setParams({ [key]: null })} className="pf-v6-u-mr-sm">
-              {key}: {value}
+            <Label key={key} color="blue" isCompact onClose={() => key === "configuration_status" ? setParams({ configuration_family: null, configuration_status: null }) : setParams({ [key]: null })} className="pf-v6-u-mr-sm">
+              {key === "configuration_status" ? `${searchParams.get("configuration_family") === "ports" ? "Port coverage" : "Boolean coverage"}: ${CONFIGURATION_FILTER_LABELS[searchParams.get("configuration_family") ?? ""]?.[value] ?? value}` : `${key}: ${value}`}
             </Label>
           ))}
           <Button variant="link" size="sm" onClick={() => setSearchParams(new URLSearchParams())}>

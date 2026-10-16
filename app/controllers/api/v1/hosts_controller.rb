@@ -1,6 +1,13 @@
 class Api::V1::HostsController < Api::V1::BaseController
   def index
-    filters = params.permit(:os_id, :policy_type, :kernel_policy_version, :enforcement, :agent_version, :status, :host_id).to_h
+    filters = params.permit(:os_id, :policy_type, :kernel_policy_version, :enforcement, :agent_version, :status, :host_id, :configuration_family, :configuration_status).to_h
+    if filters["configuration_family"].present? || filters["configuration_status"].present?
+      family = filters["configuration_family"]
+      state = filters["configuration_status"]
+      unless HostListQuery::CONFIGURATION_STATES.fetch(family, []).include?(state)
+        return render json: { error: { code: "invalid_value", message: "Invalid configuration coverage filter" } }, status: :unprocessable_content
+      end
+    end
     result = HostListQuery.new(filters: filters, page: params[:page], limit: params[:limit]).call
     counts = host_counts(result.hosts)
     render json: {

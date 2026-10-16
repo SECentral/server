@@ -28,8 +28,8 @@ module ApplicationHelper
   def port_provenance_label(value)
     case value
     when "custom" then "Local customization"
-    when "not_confirmed_custom" then "Not in local port list"
-    when "unknown" then "Local list not observed"
+    when "not_confirmed_custom" then "Policy default"
+    when "unknown" then "Source unknown"
     else "Not recorded"
     end
   end

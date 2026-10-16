@@ -153,4 +153,11 @@ describe("Hosts", () => {
     expect(screen.getByRole("spinbutton", { name: "Current page" })).toHaveValue(1);
     expect(screen.queryByText("limit: 100")).not.toBeInTheDocument();
   });
+
+  it("shows configuration snapshot filters separately from agent reporting filters", async () => {
+    const { fetchMock } = renderHosts(hostsPayload, "/hosts?configuration_family=booleans&configuration_status=stale");
+    expect(await screen.findByText("Boolean coverage: Stale host snapshots")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/hosts?configuration_family=booleans&configuration_status=stale", expect.anything());
+    expect(screen.getByRole("button", { name: "Agent state filter" })).toHaveTextContent("All agent states");
+  });
 });
