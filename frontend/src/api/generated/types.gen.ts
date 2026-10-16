@@ -852,6 +852,39 @@ export type HostConfigurationPortSummary = {
     not_observed: number;
 } | null;
 
+/**
+ * Baseline-wide, unfiltered deviation counts, including unobserved entries. Null when comparison is unavailable or paused. Category and family totals each sum to total; collection/analysis failures are not deviations.
+ */
+export type HostConfigurationDeviations = {
+    total: number;
+    by_result: {
+        differs: number;
+        not_observed: number;
+        host_only: number;
+        reference_only: number;
+    };
+    by_family: {
+        boolean: number;
+        port: number;
+        domain: number;
+    };
+} | null;
+
+export type HostConfigurationEntryPage = {
+    total: number;
+    page: number;
+    page_size: number;
+    pages: number;
+    rows: Array<{
+        kind: 'boolean' | 'port' | 'domain';
+        name: string;
+        host_value: string | null;
+        reference_value: string | null;
+        result: 'match' | 'differs' | 'host_only' | 'reference_only' | 'not_observed' | 'not_compared' | 'stale';
+        description: string | null;
+    }>;
+};
+
 export type HostConfigurationDifferences = {
     total: number;
     booleans: Array<{
@@ -957,6 +990,7 @@ export type HostConfigurationResponse = {
     };
     comparison: {
         effective_permissive_domains: EffectivePermissiveComparison;
+        deviations?: HostConfigurationDeviations;
         /**
          * Reference overlays can be displayed under the existing trusted identity gate; individual comparison usability is in selection.families, and stale results are paused.
          */
@@ -970,7 +1004,11 @@ export type HostConfigurationResponse = {
             ports: HostConfigurationPortSummary;
         };
     };
-    view: 'differences' | 'booleans' | 'ports';
+    view: 'differences' | 'booleans' | 'ports' | 'effective_permissive_domains';
+    /**
+     * Paginated, filtered baseline deviations for view=differences, or membership for effective_permissive_domains. Known mismatches and set differences precede unobserved entries, in stable family/name order. Deviation results distinguish value mismatches, host-only settings, reference-only domain membership, and unobserved reference entries (including port mappings). entries.total counts filtered rows; comparison.deviations contains unfiltered deviation totals. Unknown membership is never treated as an empty set. Legacy differences and comparison set fields retain their complete scope and confirmed-difference semantics.
+     */
+    entries?: HostConfigurationEntryPage;
     /**
      * Present when `view` is `differences`.
      */
@@ -2930,14 +2968,18 @@ export type GetHostConfigurationData = {
          * Temporary immutable active revision target for this request. Never saves a host preference or establishes policy equivalence. Omit for automatic selection; archived targets return normal unavailable selection without substitution.
          */
         reference_revision_id?: number;
-        view?: 'differences' | 'booleans' | 'ports';
+        view?: 'differences' | 'booleans' | 'ports' | 'effective_permissive_domains';
         /**
-         * Search within the booleans or ports view.
+         * Search boolean names/descriptions, port numbers/protocols/types, or difference/domain names, states and descriptions within the active view.
          */
         q?: string;
+        /**
+         * Comma-separated deviation results (differs, not_observed, host_only, reference_only), applied only to view=differences before pagination. Omit for all categories; an empty string selects none. Unknown categories return 422. Does not filter baseline-wide deviation summary counts.
+         */
+        results?: string;
         page?: number;
         /**
-         * Page size for the booleans and ports views; does not truncate the differences summary.
+         * Page size for all table views. Deviations (legacy view=differences) and effective permissive domains use the additive entries page; legacy differences summaries and comparison sets remain complete and unfiltered.
          */
         limit?: number;
     };

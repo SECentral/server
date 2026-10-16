@@ -5,10 +5,12 @@ class Api::V1::HostConfigurationsController < Api::V1::BaseController
       host,
       view: params[:view].to_s,
       q: params[:q],
-      page: params[:page], limit: params[:limit],
+      page: params[:page], limit: params[:limit], results: params[:results],
       reference_revision_id: params[:reference_revision_id]
     )
   rescue CatalogReferenceSelection::InvalidRevision => error
     render json: { error: { code: "invalid_reference_revision", message: error.message } }, status: :unprocessable_content
+  rescue HostConfigurationQuery::InvalidResults => error
+    render json: { error: { code: "invalid_deviation_categories", message: error.message } }, status: :unprocessable_content
   end
 end

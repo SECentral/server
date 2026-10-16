@@ -188,6 +188,52 @@ RSpec.describe "Effective permissive-domain reference comparison", type: :reques
     expect(result).to include("status" => "unknown", "reason" => "host_permissive_analysis_unavailable", "counts" => nil)
   end
 
+  it "pages and searches domain rows, with differences before matches, without filtering retained sets" do
+    shared = 30.times.map { |index| "shared_#{format('%02d', index)}_t" }
+    reference = catalog(policy("reference rows", domains: (shared + ["reference_t"]).sort))
+    record = host(policy("host rows", domains: (shared + ["host_t"]).sort))
+    get "/api/v1/hosts/#{record.id}/configuration", params: { view: "effective_permissive_domains", reference_revision_id: reference.id, limit: 10 }
+    expect(response).to have_http_status(:ok)
+    expect(response.parsed_body.fetch("view")).to eq("effective_permissive_domains")
+    page = response.parsed_body.fetch("entries")
+    expect(page).to include("total" => 32, "page" => 1, "page_size" => 10, "pages" => 4)
+    expect(page["rows"].first(2)).to eq([
+      { "kind" => "domain", "name" => "host_t", "host_value" => "Permissive", "reference_value" => "Not in set", "result" => "host_only", "description" => nil },
+      { "kind" => "domain", "name" => "reference_t", "host_value" => "Not in set", "reference_value" => "Permissive", "result" => "reference_only", "description" => nil }
+    ])
+    get "/api/v1/hosts/#{record.id}/configuration", params: { view: "effective_permissive_domains", reference_revision_id: reference.id, page: 2, limit: 10 }
+    expect(response.parsed_body.dig("entries", "rows", 0, "name")).to eq("shared_08_t")
+    get "/api/v1/hosts/#{record.id}/configuration", params: { view: "effective_permissive_domains", reference_revision_id: reference.id, q: "SHARED_29", page: 99, limit: 100 }
+    expect(response.parsed_body.fetch("entries")).to include("total" => 1, "page" => 1, "page_size" => 100)
+    expect(response.parsed_body.dig("entries", "rows", 0, "result")).to eq("match")
+    expect(response.parsed_body.dig("comparison", "effective_permissive_domains", "matching").size).to eq(30)
+    get "/api/v1/hosts/#{record.id}/configuration", params: { reference_revision_id: reference.id }
+    expect(response.parsed_body.dig("entries", "rows").select { |row| row["kind"] == "domain" }.map { |row| row["name"] }).to eq(%w[host_t reference_t])
+  end
+
+  it "keeps observed membership separate from unavailable reference comparison and stale results" do
+    artifact = policy("inventory rows", domains: ["host_t"])
+    record = host(artifact)
+    get "/api/v1/hosts/#{record.id}/configuration", params: { view: "effective_permissive_domains" }
+    expect(response.parsed_body.dig("entries", "rows", 0)).to include("name" => "host_t", "reference_value" => nil, "result" => "not_compared")
+    record.host_snapshot_observations.sole.update!(first_observed_at: 1.hour.ago, last_observed_at: 1.hour.ago, first_received_at: 1.hour.ago, last_received_at: 1.hour.ago)
+    get "/api/v1/hosts/#{record.id}/configuration", params: { view: "effective_permissive_domains" }
+    expect(response).to have_http_status(:ok)
+    expect(response.parsed_body.dig("entries", "rows", 0)).to include("result" => "stale", "reference_value" => nil)
+    get "/api/v1/hosts/#{record.id}/configuration", params: { view: "differences" }
+    expect(response.parsed_body.dig("entries", "rows")).to be_empty
+  end
+
+  %w[pending error unavailable].each do |status|
+    it "does not manufacture domain rows for #{status} analysis" do
+      reference = catalog(policy("reference rows"))
+      record = host(policy("unknown rows", status: status))
+      get "/api/v1/hosts/#{record.id}/configuration", params: { view: "effective_permissive_domains", reference_revision_id: reference.id }
+      expect(response.parsed_body.fetch("entries")).to include("rows" => [], "total" => 0)
+      expect(response.parsed_body.dig("comparison", "effective_permissive_domains", "status")).to eq("unknown")
+    end
+  end
+
   it "does not borrow old membership for masked or stale checkpoints" do
     artifact = policy("exact", domains: %w[postgres_t])
     revision = catalog(artifact)

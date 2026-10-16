@@ -30,33 +30,23 @@ export function CatalogReferenceSelection({ data, requestedRevision, onSelect }:
   const options = [...data.reference_options.revisions];
   if (selected && !options.some((entry) => entry.id === selected.id)) options.unshift(selected);
   const missingOption = requestedRevision !== null && !options.some((entry) => String(entry.id) === requestedRevision);
-  const label = selection.mode === "explicit" ? "Explicit reference" : selection.basis === "exact_policy_identity" ? "Exact policy reference" : "Distribution reference — Boolean/port agreement";
 
   return (
-    <section aria-label="Catalog reference selection" className="pf-v6-u-my-md">
-      <FormGroup label="Comparison reference" fieldId="comparison-reference">
+    <section aria-label="Catalog reference selection" className="configuration-baseline-selector">
+      <FormGroup label="Comparison baseline" fieldId="comparison-reference">
         <FormSelect id="comparison-reference" value={requestedRevision ?? "automatic"} onChange={(_event, value) => onSelect(value === "automatic" ? null : value)}>
-          <FormSelectOption value="automatic" label="Automatic" />
+          <FormSelectOption value="automatic" label={selection.mode === "automatic" && selected ? `Automatic (${selected.display_name})` : "Automatic"} />
           {missingOption && <FormSelectOption value={requestedRevision} label={`Requested revision ${requestedRevision} — unavailable`} isDisabled />}
-          {options.map((entry) => <FormSelectOption key={entry.id} value={String(entry.id)} label={`${entry.display_name} · revision ${entry.id} · ${entry.content_digest.slice(0, 23)}`} />)}
+          {options.map((entry) => <FormSelectOption key={entry.id} value={String(entry.id)} label={`${entry.display_name} · revision ${entry.id}`} />)}
         </FormSelect>
       </FormGroup>
-      <p>Active revisions are listed with relevant platform context first. Relevance and display names do not establish policy equivalence.</p>
       {requestedRevision !== null && <Button variant="link" onClick={() => onSelect(null)}>Return to automatic</Button>}
       {data.reference_options.truncated && <p>The first 50 active references are listed. <Link to="/catalogs">Browse catalogs</Link> for other immutable revisions.</p>}
-      {selection.status === "selected" && selected ? (
-        <Alert isInline variant="info" title={label}>
-          <p><Link to={`/catalogs/${selected.id}`}>{selected.display_name}</Link> · revision {selected.id} · <code>{selected.content_digest}</code> · {selected.lifecycle}</p>
-          {selection.mode === "explicit" ? <p>This request uses a selected comparison target. Selection does not establish that this catalog matches the host's loaded policy and does not save a host preference.</p>
-            : selection.basis === "major_release_family_agreement" ? <p>Complete Boolean/port families agree across eligible major-release candidates. Effective permissive domains are compared when every eligible candidate has complete, compatible inline facts and the sets agree. This is not exact binary-policy equivalence.</p>
-              : <p>Automatic selection used the trusted host's exact loaded-policy digest. Family availability and host evidence limits still apply.</p>}
-          {selection.policy_identity_match === false && <p>Loaded policy identity differs from selected reference.</p>}
-        </Alert>
-      ) : (
+      {selection.status !== "selected" && (
         <Alert isInline variant={selection.status === "ambiguous" ? "warning" : "info"} title={STATUS_TITLES[selection.status]}>
           <p>{selection.reason ? REASONS[selection.reason] ?? selection.reason.replaceAll("_", " ") : "Reference selection is unavailable."}</p>
           {selection.candidates.length > 0 && <ul aria-label="Reference candidates">{selection.candidates.map((entry) => <li key={entry.id}>
-            <Link to={`/catalogs/${entry.id}`}>{entry.display_name} · revision {entry.id}</Link> · <code>{entry.content_digest}</code> · {entry.lifecycle} · {entry.distribution} {entry.major_version} / {entry.architecture} / {entry.policy_type}
+            <Link to={`/catalogs/${entry.id}`}>{entry.display_name} · revision {entry.id}</Link> · {entry.lifecycle} · {entry.distribution} {entry.major_version} / {entry.architecture} / {entry.policy_type}
           </li>)}</ul>}
           {selection.candidates_truncated && <p>Showing {selection.candidates.length} of {selection.candidate_count} candidates.</p>}
         </Alert>

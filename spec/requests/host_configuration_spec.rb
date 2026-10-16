@@ -109,7 +109,7 @@ RSpec.describe "Host SELinux configuration API", type: :request do
     expect(payload.fetch("reference")).to eq("kind" => "distribution_catalog", "catalog_revision" => {
       "id" => catalog.id, "display_name" => "AlmaLinux 9", "policy_type" => "targeted", "architecture" => "x86_64", "loaded_policy_digest" => identity, "content_digest" => catalog.content_digest, "lifecycle" => "active", "applicability" => "major_release"
     })
-    expect(payload.fetch("comparison").except("effective_permissive_domains")).to eq("available" => true, "paused" => false, "summary" => {
+    expect(payload.fetch("comparison").except("effective_permissive_domains", "deviations")).to eq("available" => true, "paused" => false, "summary" => {
       "booleans" => { "reference_entries" => 2, "compared" => 2, "match" => 1, "differ" => 1, "host_only" => 1, "not_observed" => 0, "unavailable" => 0 },
       "ports" => { "compared" => 2, "match" => 1, "differ" => 1, "not_observed" => 0 }
     })
@@ -169,6 +169,9 @@ RSpec.describe "Host SELinux configuration API", type: :request do
     expect(differences.fetch("booleans")).to be_empty
     expect(differences.fetch("ports")).to be_empty
     expect(differences.dig("limitations", "reference_only_booleans")).to eq(["httpd_can_network_connect"])
+    expect(payload.fetch("entries")).to include("total" => 1, "rows" => [
+      { "kind" => "boolean", "name" => "httpd_can_network_connect", "host_value" => nil, "reference_value" => "Off", "result" => "not_observed", "description" => "Allow network" }
+    ])
   end
 
   it "returns full flat boolean rows in the booleans view" do
@@ -184,6 +187,107 @@ RSpec.describe "Host SELinux configuration API", type: :request do
       { "name" => "extra_local_boolean", "current" => true, "host_default" => true, "reference_default" => nil, "description" => nil, "catalog_status" => "not_defined", "status" => "observed" },
       { "name" => "named_file_trusted_context", "current" => true, "host_default" => true, "reference_default" => true, "description" => "Trust named files", "catalog_status" => "defined", "status" => "observed" }
     ])
+  end
+
+  it "pages and filters difference entries without truncating legacy summaries" do
+    revision
+    details = demo_host.current_snapshot.details.deep_dup
+    details["selinux"]["booleans"] += 30.times.map { |index| { "name" => "local_#{format('%02d', index)}", "current" => true, "status" => "observed" } }
+    record = host(details)
+
+    get "/api/v1/hosts/#{record.id}/configuration", params: { view: "differences", page: 2, limit: 10 }
+    page = response.parsed_body.fetch("entries")
+    expect(page).to include("total" => 33, "page" => 2, "page_size" => 10, "pages" => 4)
+    expect(page.fetch("rows").size).to eq(10)
+    expect(response.parsed_body.dig("differences", "total")).to eq(33)
+    expect(response.parsed_body.dig("differences", "booleans").size).to eq(32)
+
+    get "/api/v1/hosts/#{record.id}/configuration", params: { view: "differences", q: "LOCAL_29", page: 99, limit: 10 }
+    expect(response.parsed_body.fetch("entries")).to include("total" => 1, "page" => 1, "pages" => 1)
+    expect(response.parsed_body.dig("entries", "rows", 0)).to include("name" => "local_29", "host_value" => "On", "reference_value" => nil, "result" => "host_only")
+    expect(response.parsed_body.dig("differences", "total")).to eq(33)
+  end
+
+  it "pages and searches not-observed booleans after confirmed differences without counting them as drift" do
+    catalog = revision
+    26.times do |index|
+      catalog.distribution_catalog_booleans.create!(name: "coverage_#{format('%02d', index)}", default_value: index.even?, description: "Reference setting #{index}")
+    end
+    record = demo_host
+
+    get "/api/v1/hosts/#{record.id}/configuration", params: { limit: 10 }
+    payload = response.parsed_body
+    expect(payload.dig("entries", "total")).to eq(29)
+    expect(payload.dig("differences", "total")).to eq(3)
+    expect(payload.dig("comparison", "summary", "booleans")).to include("differ" => 1, "host_only" => 1, "not_observed" => 26)
+    expect(payload.dig("entries", "rows").first(3).map { |row| row["result"] }).to eq(%w[host_only differs host_only])
+    expect(payload.dig("entries", "rows", 3)).to include("name" => "coverage_00", "host_value" => nil, "reference_value" => "On", "result" => "not_observed")
+
+    get "/api/v1/hosts/#{record.id}/configuration", params: { limit: 10, page: 3 }
+    expect(response.parsed_body.fetch("entries")).to include("total" => 29, "page" => 3, "pages" => 3)
+    expect(response.parsed_body.dig("entries", "rows").size).to eq(9)
+
+    get "/api/v1/hosts/#{record.id}/configuration", params: { q: "COVERAGE_25", page: 99 }
+    expect(response.parsed_body.fetch("entries")).to include("total" => 1, "page" => 1)
+    expect(response.parsed_body.dig("entries", "rows", 0)).to include("name" => "coverage_25", "reference_value" => "Off", "result" => "not_observed")
+    expect(response.parsed_body.dig("differences", "total")).to eq(3)
+  end
+
+  it "counts six baseline deviations and filters categories before search and pagination" do
+    catalog = revision
+    4.times { |index| catalog.distribution_catalog_booleans.create!(name: "unobserved_#{index}", default_value: false, description: "Unobserved reference setting") }
+    details = demo_host.current_snapshot.details.deep_dup
+    details["selinux"]["booleans"].reject! { |row| row["name"] == "extra_local_boolean" }
+    details["selinux"]["booleans"].find { |row| row["name"] == "named_file_trusted_context" }["current"] = false
+    details["selinux"]["policy"]["port_inventory"]["mappings"].reject! { |row| row["type"] == "my_app_port_t" }
+    record = host(details)
+    expected = { "total" => 6, "by_result" => { "differs" => 2, "not_observed" => 4, "host_only" => 0, "reference_only" => 0 }, "by_family" => { "boolean" => 6, "port" => 0, "domain" => 0 } }
+
+    get "/api/v1/hosts/#{record.id}/configuration"
+    expect(response.parsed_body.dig("comparison", "deviations")).to eq(expected)
+    expect(response.parsed_body.dig("entries", "total")).to eq(6)
+
+    get "/api/v1/hosts/#{record.id}/configuration", params: { results: "differs", page: 2, limit: 1 }
+    expect(response.parsed_body.fetch("entries")).to include("total" => 2, "page" => 2, "pages" => 2)
+    expect(response.parsed_body.dig("entries", "rows", 0)).to include("name" => "named_file_trusted_context", "result" => "differs")
+    expect(response.parsed_body.dig("comparison", "deviations")).to eq(expected)
+
+    get "/api/v1/hosts/#{record.id}/configuration", params: { results: "not_observed", q: "unobserved_3", page: 99 }
+    expect(response.parsed_body.fetch("entries")).to include("total" => 1, "page" => 1)
+    expect(response.parsed_body.dig("entries", "rows", 0, "result")).to eq("not_observed")
+    expect(response.parsed_body.dig("comparison", "deviations")).to eq(expected)
+    expect(response.parsed_body.dig("differences", "total")).to eq(2)
+
+    get "/api/v1/hosts/#{record.id}/configuration", params: { results: "" }
+    expect(response.parsed_body.fetch("entries")).to include("rows" => [], "total" => 0)
+    expect(response.parsed_body.dig("comparison", "deviations")).to eq(expected)
+
+    get "/api/v1/hosts/#{record.id}/configuration", params: { results: "match" }
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(response.parsed_body.dig("error", "code")).to eq("invalid_deviation_categories")
+  end
+
+  it "classifies host-only port mappings separately from value mismatches" do
+    revision
+    record = demo_host
+    get "/api/v1/hosts/#{record.id}/configuration", params: { results: "host_only" }
+    expect(response.parsed_body.dig("entries", "rows").map { |row| row["name"] }).to eq(%w[extra_local_boolean tcp/8443])
+    expect(response.parsed_body.dig("comparison", "deviations")).to include("total" => 3, "by_result" => { "differs" => 1, "not_observed" => 0, "host_only" => 2, "reference_only" => 0 })
+
+    details = record.current_snapshot.details.deep_dup
+    details["selinux"]["policy"]["port_inventory"]["mappings"].first["type"] = "different_port_t"
+    changed = host(details)
+    get "/api/v1/hosts/#{changed.id}/configuration", params: { results: "differs", q: "tcp/8080" }
+    expect(response.parsed_body.dig("entries", "rows")).to contain_exactly(
+      include("kind" => "port", "name" => "tcp/8080", "host_value" => "different_port_t", "reference_value" => "http_port_t", "result" => "differs")
+    )
+
+    details["selinux"]["policy"]["port_inventory"]["mappings"].shift
+    missing = host(details)
+    get "/api/v1/hosts/#{missing.id}/configuration", params: { results: "not_observed" }
+    expect(response.parsed_body.dig("entries", "rows")).to contain_exactly(
+      include("kind" => "port", "name" => "tcp/8080", "host_value" => nil, "reference_value" => "http_port_t", "result" => "not_observed")
+    )
   end
 
   it "pages and searches the booleans view" do
@@ -267,8 +371,10 @@ RSpec.describe "Host SELinux configuration API", type: :request do
     payload = JSON.parse(response.body)
     expect(payload.dig("observation", "status")).to eq("stale")
     expect(payload.dig("comparison", "paused")).to be true
+    expect(payload.dig("comparison", "deviations")).to be_nil
     expect(payload.dig("reference", "catalog_revision", "applicability")).to eq("exact")
     expect(payload.dig("differences", "total")).to eq(0)
+    expect(payload.dig("entries", "rows")).to be_empty
 
     get "/api/v1/hosts/#{record.id}/configuration", params: { view: "booleans" }
     booleans = JSON.parse(response.body).fetch("booleans")
@@ -284,6 +390,7 @@ RSpec.describe "Host SELinux configuration API", type: :request do
     expect(payload.dig("reference", "kind")).to eq("none")
     expect(payload.dig("comparison", "available")).to be false
     expect(payload.dig("booleans", "rows")).to eq([{ "name" => "virt_use_nfs", "current" => nil, "host_default" => false, "reference_default" => nil, "description" => nil, "catalog_status" => "unavailable", "status" => "unknown" }])
+    expect(payload.dig("comparison", "deviations")).to be_nil
 
     unavailable = host({ "selinux" => { "boolean_status" => "unavailable" } })
     get "/api/v1/hosts/#{unavailable.id}/configuration", params: { view: "booleans" }

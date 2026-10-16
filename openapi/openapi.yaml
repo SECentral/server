@@ -1055,11 +1055,16 @@ paths:
           in: query
           schema:
             type: string
-            enum: [differences, booleans, ports]
+            enum: [differences, booleans, ports, effective_permissive_domains]
           default: differences
         - name: q
           in: query
-          description: Search within the booleans or ports view.
+          description: Search boolean names/descriptions, port numbers/protocols/types, or difference/domain names, states and descriptions within the active view.
+          schema:
+            type: string
+        - name: results
+          in: query
+          description: Comma-separated deviation results (differs, not_observed, host_only, reference_only), applied only to view=differences before pagination. Omit for all categories; an empty string selects none. Unknown categories return 422. Does not filter baseline-wide deviation summary counts.
           schema:
             type: string
         - name: page
@@ -1069,7 +1074,7 @@ paths:
             minimum: 1
         - name: limit
           in: query
-          description: Page size for the booleans and ports views; does not truncate the differences summary.
+          description: Page size for all table views. Deviations (legacy view=differences) and effective permissive domains use the additive entries page; legacy differences summaries and comparison sets remain complete and unfiltered.
           schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
       responses:
         "200":
@@ -3003,6 +3008,47 @@ components:
           type: integer
         not_observed:
           type: integer
+    HostConfigurationDeviations:
+      type: [object, "null"]
+      description: Baseline-wide, unfiltered deviation counts, including unobserved entries. Null when comparison is unavailable or paused. Category and family totals each sum to total; collection/analysis failures are not deviations.
+      required: [total, by_result, by_family]
+      properties:
+        total: { type: integer }
+        by_result:
+          type: object
+          required: [differs, not_observed, host_only, reference_only]
+          properties:
+            differs: { type: integer }
+            not_observed: { type: integer }
+            host_only: { type: integer }
+            reference_only: { type: integer }
+        by_family:
+          type: object
+          required: [boolean, port, domain]
+          properties:
+            boolean: { type: integer }
+            port: { type: integer }
+            domain: { type: integer }
+    HostConfigurationEntryPage:
+      type: object
+      required: [rows, total, page, page_size, pages]
+      properties:
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer, minimum: 1, maximum: 100 }
+        pages: { type: integer }
+        rows:
+          type: array
+          items:
+            type: object
+            required: [kind, name, host_value, reference_value, result, description]
+            properties:
+              kind: { type: string, enum: [boolean, port, domain] }
+              name: { type: string }
+              host_value: { type: [string, "null"] }
+              reference_value: { type: [string, "null"] }
+              result: { type: string, enum: [match, differs, host_only, reference_only, not_observed, not_compared, stale] }
+              description: { type: [string, "null"] }
     HostConfigurationDifferences:
       type: object
       required:
@@ -3269,6 +3315,8 @@ components:
           properties:
             effective_permissive_domains:
               $ref: "#/components/schemas/EffectivePermissiveComparison"
+            deviations:
+              $ref: "#/components/schemas/HostConfigurationDeviations"
             available:
               type: boolean
               description: Reference overlays can be displayed under the existing trusted identity gate; individual comparison usability is in selection.families, and stale results are paused.
@@ -3285,7 +3333,10 @@ components:
                   $ref: "#/components/schemas/HostConfigurationPortSummary"
         view:
           type: string
-          enum: [differences, booleans, ports]
+          enum: [differences, booleans, ports, effective_permissive_domains]
+        entries:
+          description: Paginated, filtered baseline deviations for view=differences, or membership for effective_permissive_domains. Known mismatches and set differences precede unobserved entries, in stable family/name order. Deviation results distinguish value mismatches, host-only settings, reference-only domain membership, and unobserved reference entries (including port mappings). entries.total counts filtered rows; comparison.deviations contains unfiltered deviation totals. Unknown membership is never treated as an empty set. Legacy differences and comparison set fields retain their complete scope and confirmed-difference semantics.
+          $ref: "#/components/schemas/HostConfigurationEntryPage"
         differences:
           description: Present when `view` is `differences`.
           $ref: "#/components/schemas/HostConfigurationDifferences"
