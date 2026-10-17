@@ -54,6 +54,7 @@ class Api::V1::IssuesController < Api::V1::BaseController
       findings: displayed_findings,
       additional_finding_count: findings.size - displayed_findings.size,
       diagnosis: displayed_findings.first&.fetch(:diagnosis),
+      triage_guidance: IssueLabelingGuidance.call(issue, paths: intelligence[:paths], observations: analyzer.eligible_expected_context_observations),
       host_explanations: host_explanations,
       fleet_explanation: fleet_explanation.slice(:state, :affected_host_count, :host_status_counts),
       policy_analysis: intelligence[:policy_evaluation].slice(:status, :limitations),

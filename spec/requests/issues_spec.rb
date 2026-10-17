@@ -233,6 +233,52 @@ RSpec.describe "Issues API", type: :request do
     expect(diagnosis.to_json).not_to include("web content", "web-server", "Apache", "MariaDB")
   end
 
+  it "returns server-generated label inspection and restoration guidance from AVC paths" do
+    issue = create_issue(target_type: "user_home_t")
+    occurrence = create_occurrence(issue)
+    occurrence.normalized_denial.update!(
+      target_context: "unconfined_u:object_r:user_home_t:s0",
+      details: { "target_evidence" => { "filesystem_paths" => ["/var/www/html/a file.txt"], "object_names" => ["a file.txt"] } }
+    )
+
+    get "/api/v1/issues/#{issue.id}"
+
+    guidance = JSON.parse(response.body).fetch("triage_guidance")
+    expect(guidance).to include("type" => "probable_label_mismatch", "path" => "/var/www/html/a file.txt", "observed_type" => "user_home_t", "conventional_type" => "httpd_sys_content_t")
+    expect(guidance.fetch("commands").map { |command| command.fetch("command") }).to eq([
+      "matchpathcon -- /var/www/html/a\\ file.txt",
+      "restorecon -v -- /var/www/html/a\\ file.txt",
+      "restorecon -Rv -- /var/www/html"
+    ])
+  end
+
+  it "suppresses the lead for an eligible authoritative observation but ignores ineligible samples" do
+    issue = create_issue(target_type: "user_home_t")
+    occurrence = create_occurrence(issue)
+    path = "/var/www/html/file.txt"
+    occurrence.normalized_denial.update!(target_context: "unconfined_u:object_r:user_home_t:s0",
+      details: { "target_evidence" => { "filesystem_paths" => [path] } })
+    observation = { "kind" => "expected_context", "path" => path, "object_class" => "file", "file_type" => "file",
+      "status" => "resolved", "expected_context" => "system_u:object_r:user_home_t:s0",
+      "observed_at" => Time.current.iso8601(6), "resolver" => "matchpathcon" }
+    occurrence.raw_event.update!(file_context_observations: [observation])
+
+    get "/api/v1/issues/#{issue.id}"
+    expect(JSON.parse(response.body).fetch("triage_guidance")).to be_nil
+
+    occurrence.raw_event.update!(file_context_observations: [observation.merge("expected_context" => "system_u:object_r:custom_web_t:s0")])
+    get "/api/v1/issues/#{issue.id}"
+    expect(JSON.parse(response.body).fetch("triage_guidance")).to be_nil
+
+    occurrence.raw_event.update!(file_context_observations: [observation.merge("observed_at" => (occurrence.occurred_at - 1.second).iso8601(6))])
+    get "/api/v1/issues/#{issue.id}"
+    expect(JSON.parse(response.body).dig("triage_guidance", "type")).to eq("probable_label_mismatch")
+
+    occurrence.raw_event.update!(file_context_observations: [observation], checkpoint_invalidated_fields: ["file_context_mappings"])
+    get "/api/v1/issues/#{issue.id}"
+    expect(JSON.parse(response.body).dig("triage_guidance", "type")).to eq("probable_label_mismatch")
+  end
+
   it "lists occurrences with normalized denial, raw evidence, and per-occurrence guidance" do
     issue = create_issue
     occurrence = create_occurrence(issue)

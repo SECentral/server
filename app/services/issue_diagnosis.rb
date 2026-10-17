@@ -110,6 +110,11 @@ class IssueDiagnosis
     }.compact
   end
 
+  def eligible_expected_context_observations
+    occurrences.flat_map { |occurrence| expected_context_observations_for(occurrence) }
+      .select { |item| resolved_expected_context?(item) }
+  end
+
   private
 
   def occurrences
@@ -402,11 +407,7 @@ class IssueDiagnosis
   end
 
   def expected_context_mismatch(item)
-    return unless item["status"] == "resolved" && item["path"].to_s.start_with?("/")
-    return unless Array(item["filesystem_paths"]).include?(item["path"])
-    return unless item["object_class"] == item["target_class"] && item["object_class"].present?
-    return unless item["observed_at"].present? && item["expected_context"].present? && item["target_context"].present?
-    return unless observed_after_avc?(item)
+    return unless resolved_expected_context?(item)
 
     observed_type = context_type(item["target_context"])
     expected_type = context_type(item["expected_context"])
@@ -420,6 +421,14 @@ class IssueDiagnosis
       observed_type: observed_type, expected_type: expected_type,
       observed_at: item["observed_at"], resolver: item["resolver"]
     }
+  end
+
+  def resolved_expected_context?(item)
+    item["status"] == "resolved" && item["path"].to_s.start_with?("/") &&
+      Array(item["filesystem_paths"]).include?(item["path"]) &&
+      item["object_class"].present? && item["object_class"] == item["target_class"] &&
+      item["observed_at"].present? && context_type(item["expected_context"]).present? &&
+      context_type(item["target_context"]) == @issue.target_type && observed_after_avc?(item)
   end
 
   def observed_after_avc?(item)

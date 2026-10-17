@@ -15,7 +15,7 @@ import {
   type OccurrenceDetail
 } from "../api/issue";
 import { OccurrenceRawEvidence } from "../components/OccurrenceEvidence";
-import { ResolutionWorkflow } from "../components/ResolutionWorkflow";
+import { CopyCommand, ResolutionWorkflow } from "../components/ResolutionWorkflow";
 import { EMBEDDED_PAGE_SIZES, pageSize } from "../pagination";
 
 const STATUS_OPTIONS = ["open", "resolved", "ignored"] as const;
@@ -242,6 +242,31 @@ function DiagnosisEvidence({ diagnosis }: { diagnosis: Diagnosis }) {
   </>;
 }
 
+function LabelMismatchGuidance({ guidance }: { guidance: NonNullable<IssueDetailResponse["triage_guidance"]> }) {
+  return <article className="issue-label-guidance">
+    <Title headingLevel="h3" size="xl">{guidance.title}</Title>
+    <p>{guidance.summary}</p>
+    <p>Representative path: <code>{guidance.path}</code> · AVC label <code>{guidance.observed_type}</code> · {guidance.path_count} qualifying retained path(s).</p>
+    <p>The AVC label is historical. These inspection commands check current host configuration.</p>
+    <section aria-label="Inspect current configuration">
+      <h3>Inspect current configuration</h3>
+      {guidance.commands.filter((item) => item.action === "inspect").map((item) => <article key={item.action}>
+        <h4>{item.label}</h4>
+        <CopyCommand command={item.command} />
+      </article>)}
+    </section>
+    <section aria-label="Optional restoration after verification">
+      <h3>Optional restoration after verification</h3>
+      <p>Only restore labels after confirming the current object and configured label are appropriate for the workload. This mutates file labels using the host's configured mappings, including local customizations. It does not guarantee access will be allowed. SECentral does not execute these commands.</p>
+      {guidance.commands.filter((item) => item.action === "restore_targeted").map((item) => <article key={item.action}><h4>{item.label}</h4><CopyCommand command={item.command} /></article>)}
+      {guidance.recursive_directory && <details><summary>Broader alternative: recursive restoration</summary>
+        <p>Changes labels throughout <code>{guidance.recursive_directory}</code>, including files not represented by this issue. {guidance.recursive_path_count} of {guidance.path_count} qualifying retained paths lie beneath this directory; this is not occurrence or host coverage. Run separately on each verified affected host.</p>
+        {guidance.commands.filter((item) => item.action === "restore_recursive").map((item) => <CopyCommand key={item.action} command={item.command} />)}
+      </details>}
+    </section>
+  </article>;
+}
+
 function DiagnosisTechnicalEvidence({ diagnosis }: { diagnosis: Diagnosis }) {
   const kind = diagnosis.kind;
   return (
@@ -285,13 +310,13 @@ function diagnosisVariantDetail(diagnosis: Diagnosis | null | undefined): string
 }
 
 function FindingCard({ detail, onShowOccurrences }: { detail: IssueDetailResponse; onShowOccurrences: () => void }) {
-  const { issue, intelligence, diagnosis, findings, finding_coverage, host_explanations, policy_analysis } = detail;
+  const { issue, intelligence, diagnosis, triage_guidance, findings, finding_coverage, host_explanations, policy_analysis } = detail;
   const findingHost = diagnosis && host_explanations.find((host) => host.diagnosis_groups.some((group) => group.sample_occurrence_ids.includes(diagnosis.occurrence_id)))?.hostname;
   const values = row(diagnosis);
   const hostId = typeof values.host_id === "number" ? values.host_id : null;
   const lead = diagnosis ? primaryFindingLead(diagnosis) : null;
   return <section aria-labelledby="finding-title" className="issue-section issue-primary-finding"><h2 id="finding-title">What SECentral found</h2>
-    {diagnosis ? <article>
+     {!diagnosis && triage_guidance ? <LabelMismatchGuidance guidance={triage_guidance} /> : diagnosis ? <article>
       <Title headingLevel="h3" size="xl">{diagnosis.kind === "conditional_allow_inactive" ? diagnosis.operation === "name_connect" ? rows(diagnosis.conditional_rules).length > 1 ? "Matching conditional policy paths were inactive" : "A matching conditional policy path was inactive" : diagnosis.operation === "read" ? "A matching SELinux rule exists, but its condition was inactive" : "A relevant SELinux allow rule was inactive" : diagnosis.title}</Title>
       {lead && diagnosis.kind !== "conditional_allow_inactive" && <p className="issue-finding-lead">{lead}</p>}
       <DiagnosisEvidence diagnosis={diagnosis} />
@@ -301,7 +326,7 @@ function FindingCard({ detail, onShowOccurrences }: { detail: IssueDetailRespons
         {findings?.[0] && <small aria-label="Finding coverage">{diagnosis.operation === "name_connect" && finding_coverage && `Conditional-policy findings cover ${(finding_coverage[diagnosis.kind] ?? 0).toLocaleString()} of ${issue.occurrences_count.toLocaleString()} denials. `}{diagnosis.kind === "file_context_mismatch" ? "This path is evidenced in" : diagnosis.operation === "name_connect" ? "Shown destination finding covers" : "Supported for"} {findings[0].occurrence_count.toLocaleString()} of {issue.occurrences_count.toLocaleString()} denials.{diagnosis.kind === "file_context_mismatch" && ` Based on ${findings[0].observation_count} distinct inspection observation(s).`}{(findings[0].reused_observation_occurrences ?? 0) > 0 && ` ${findings[0].reused_observation_occurrences} denials reuse another event's inspection within the same checkpoint.`} </small>}
         <small>Based on a retained denial{findingHost ? ` on ${findingHost}` : ""}. {hostId ? <Link to={`/hosts/${hostId}/occurrences/${diagnosis.occurrence_id}`}>View source event</Link> : <a href="#issue-occurrences" onClick={onShowOccurrences}>View source event</a>}</small>
       </details>
-    </article> : <MissingExplanation issue={issue} paths={intelligence.paths} names={intelligence.names} resourceSummary={intelligence.resource_summary} hasFindings={(findings?.length ?? 0) > 0} policyAnalysis={policy_analysis} />}
+     </article> : <MissingExplanation issue={issue} paths={intelligence.paths} names={intelligence.names} hasFindings={(findings?.length ?? 0) > 0} policyAnalysis={policy_analysis} />}
   </section>;
 }
 
@@ -324,14 +349,12 @@ function MissingExplanation({
   issue,
   paths,
   names,
-  resourceSummary,
   hasFindings,
   policyAnalysis
 }: {
   issue: { target_class: string; target_type: string };
   paths: string[];
   names: string[];
-  resourceSummary: IssueDetailResponse["intelligence"]["resource_summary"];
   hasFindings: boolean;
   policyAnalysis: IssueDetailResponse["policy_analysis"];
 }) {
@@ -348,10 +371,9 @@ function MissingExplanation({
   return (
     <div className="issue-unexplained" role="status">
       <p><strong>{hasFindings ? "Individual occurrences have findings, but no single issue-wide explanation is available." : "No evidence-backed explanation is available yet."}</strong></p>
-      <p>This is an unknown state, not evidence that the access is safe, allowed, or intended.</p>
-      <p>SELinux recorded the target label type <code>{issue.target_type}</code> for this denied access.</p>
+       <p>SELinux recorded target label <code>{issue.target_type}</code> for this denied access.</p>
       {fileTarget && paths.length === 0 && <p><strong>No absolute path was retained.</strong> SECentral cannot compare the recorded label with expected path labeling without a complete path.</p>}
-      {fileTarget && resourceSummary && <p>Complete path unavailable for {resourceSummary.without_absolute_path_occurrences.toLocaleString()} denials; {resourceSummary.absolute_path_occurrences.toLocaleString()} contain an absolute path. {resourceSummary.name_count.toLocaleString()} distinct basenames were recorded.</p>}
+       {fileTarget && paths.length > 0 && <p>Observed paths: {paths.slice(0, 3).map((path) => <span key={path}><code>{path}</code> </span>)}</p>}
       {fileTarget && names.length > 0 && <p>Resource examples: {names.slice(0, 3).join(", ")}. Inspect occurrences for individual evidence.</p>}
       {fileTarget && paths.length > 0 && <p>An absolute path was retained, but no event-linked expected-context observation is available for a file-context comparison.</p>}
       {status === "pending" && <p>Policy evaluation is pending for the correlated occurrence.</p>}
@@ -640,7 +662,7 @@ export function IssueDetail() {
               : <p>No occurrences are retained for this issue.</p>}
       </section>
 
-      <ExpandableSection id="issue-technical-evidence" className="issue-advanced-details" toggleText="Technical evidence & issue history" isExpanded={showTechnicalEvidence} onToggle={(_event, expanded) => setTechnicalEvidenceIssueId(expanded ? issueId : null)}>
+      <ExpandableSection id="issue-technical-evidence" className="issue-advanced-details" toggleText="Technical details & audit provenance" isExpanded={showTechnicalEvidence} onToggle={(_event, expanded) => setTechnicalEvidenceIssueId(expanded ? issueId : null)}>
         {showTechnicalEvidence && <>
         {diagnosis && <DiagnosisTechnicalEvidence diagnosis={diagnosis} />}
         <details><summary>SELinux types, class, and permission</summary><dl className="issue-technical-facts"><div><dt>Source type</dt><dd><code>{issue.source_type}</code></dd></div><div><dt>Target type</dt><dd><code>{issue.target_type}</code></dd></div><div><dt>Object class</dt><dd><code>{issue.target_class}</code></dd></div><div><dt>Denied permission set</dt><dd>{issue.permissions.map((permission) => <code key={permission}>{permission}</code>)}</dd></div></dl></details>

@@ -1590,6 +1590,10 @@ export type IssueDetailResponse = {
      */
     diagnosis: Diagnosis | null;
     /**
+     * Standard file-label troubleshooting guidance inferred from retained absolute path and AVC label evidence; commands are for operator review only.
+     */
+    triage_guidance?: TriageGuidance | null;
+    /**
      * Bounded per-host finding summaries for the issue's primary investigation view.
      */
     host_explanations: Array<IssueHostExplanationSummary>;
@@ -1603,6 +1607,32 @@ export type IssueDetailResponse = {
     };
     triage: TriageSignals;
     resolutions?: ResolutionWorkflow;
+};
+
+export type TriageGuidance = {
+    type: 'probable_label_mismatch';
+    title: string;
+    path: string;
+    observed_type: string;
+    /**
+     * Common convention only, never a host-resolved expected context.
+     */
+    conventional_type?: string | null;
+    /**
+     * Number of distinct qualifying paths; the path field is the lexicographically first representative, not whole-issue coverage.
+     */
+    path_count: number;
+    recursive_directory?: string | null;
+    /**
+     * Qualifying distinct retained paths beneath recursive_directory across hosts, not occurrence coverage or a guarantee of resolution.
+     */
+    recursive_path_count: number;
+    summary: string;
+    commands: Array<{
+        action: 'inspect' | 'restore_targeted' | 'restore_recursive';
+        label: string;
+        command: string;
+    }>;
 };
 
 export type IssueHostExplanationSummary = {

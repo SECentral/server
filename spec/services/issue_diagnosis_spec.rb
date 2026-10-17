@@ -28,6 +28,24 @@ RSpec.describe IssueDiagnosis do
     expect(result[:next_step]).to include("appropriate for the workload")
   end
 
+  it "provides safely escaped label checks for a qualifying absolute path" do
+    issue = instance_double(Issue, source_type: "httpd_t", target_type: "user_home_t", target_class: "file", permissions: ["read"])
+    result = IssueLabelingGuidance.call(issue, paths: ["/var/www/html/a file.txt"])
+
+    expect(result).to include(type: "probable_label_mismatch", path: "/var/www/html/a file.txt", observed_type: "user_home_t", conventional_type: "httpd_sys_content_t")
+    expect(result[:commands].map { |command| command[:command] }).to eq([
+      "matchpathcon -- /var/www/html/a\\ file.txt",
+      "restorecon -v -- /var/www/html/a\\ file.txt",
+      "restorecon -Rv -- /var/www/html"
+    ])
+  end
+
+  it "omits commands when there is no qualifying absolute path or type" do
+    issue = instance_double(Issue, source_type: "httpd_t", target_type: "user_home_t", target_class: "file", permissions: ["read"])
+    expect(IssueLabelingGuidance.call(issue, paths: ["relative.txt", "/var/www/../home/file"])).to be_nil
+    expect(IssueLabelingGuidance.call(issue, paths: ["/home/file"])).to be_nil
+  end
+
   it "does not report a mismatch when the types agree" do
     current = "unconfined_u:object_r:user_home_t:s0"
     expected = "system_u:object_r:user_home_t:s0"

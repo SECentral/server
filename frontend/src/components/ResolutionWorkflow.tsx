@@ -172,8 +172,8 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
         : <><CandidateGroup candidates={workflow.candidates} workflow={workflow} busy={busy} onSelect={choose} /><p className="workbench-caption">You can choose neither and continue investigating.</p></>}
     </section>
     {workflow.change_plan && workflow.freshness === "current" && <ChangePlan plan={workflow.change_plan} />}
-    <details className="other-approaches"><summary>Other approaches & intent history</summary><details><summary>Options not offered</summary><ul>{workflow.rejected_candidates.map((c, i) => <li key={i}><strong>{c.kind.replaceAll("_", " ")}:</strong> {c.reason}</li>)}</ul></details>
-      <details><summary>Intent history</summary><ul>{workflow.history.map((change, i) => <li key={i}>{change.created_at} · {change.operator} · {change.action}</li>)}</ul></details>
+    <details className="other-approaches"><summary>Intent history & policy draft</summary>
+      {workflow.history.length > 0 && <details><summary>Intent history</summary><ul>{workflow.history.map((change, i) => <li key={i}>{change.created_at} · {change.operator} · {change.action}</li>)}</ul></details>}
       {workflow.observed_access && <><p>Need a custom SELinux policy instead?</p><Button variant="secondary" onClick={() => setShowDrafts(!showDrafts)}>{showDrafts ? "Close policy draft workspace" : "Open policy draft workspace"}</Button>{showDrafts && <DraftWorkspace issueId={issueId} occurrenceId={workflow.observed_access.occurrence_id} />}</>}
     </details>
   </>;

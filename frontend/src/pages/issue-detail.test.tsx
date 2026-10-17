@@ -296,6 +296,34 @@ function renderDetail(initialEntry = "/issues/7") {
 }
 
 describe("issue investigation", () => {
+  it("leads with server-provided label guidance and copyable commands without rejected solver options", async () => {
+    const payload = detailPayload("missing-observation");
+    payload.triage_guidance = {
+      type: "probable_label_mismatch", title: "Investigation lead: probable label mismatch", path: "/var/www/html/a file.txt",
+      observed_type: "user_home_t", conventional_type: "httpd_sys_content_t",
+      path_count: 2, recursive_path_count: 2, recursive_directory: "/var/www/html",
+      summary: "Files under /var/www/ commonly use httpd_sys_content_t. Files moved from a home directory may retain user_home_t.",
+      commands: [
+        { action: "inspect", label: "Check the configured label", command: "matchpathcon -- '/var/www/html/a file.txt'" },
+        { action: "restore_targeted", label: "Restore this file's default context", command: "restorecon -v -- '/var/www/html/a file.txt'" },
+        { action: "restore_recursive", label: "Alternatively, restore contexts recursively in the parent directory", command: "restorecon -Rv -- /var/www/html" }
+      ]
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    renderDetail();
+
+    expect(await screen.findByRole("heading", { name: "Investigation lead: probable label mismatch" })).toBeVisible();
+    expect(screen.getByText("/var/www/html/a file.txt", { selector: "code" })).toBeVisible();
+    expect(screen.getByText("matchpathcon -- '/var/www/html/a file.txt'")).toBeVisible();
+    expect(screen.getByText("restorecon -v -- '/var/www/html/a file.txt'")).toBeVisible();
+    expect(screen.getByText("restorecon -Rv -- /var/www/html")).not.toBeVisible();
+    await userEvent.setup().click(screen.getByText("Broader alternative: recursive restoration"));
+    expect(screen.getByText("restorecon -Rv -- /var/www/html")).toBeVisible();
+    expect(screen.getByText(/2 of 2 qualifying retained paths/)).toBeVisible();
+    expect(screen.queryByText("Options not offered")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Complete path unavailable for/)).not.toBeInTheDocument();
+  });
+
   it("keeps access flow and compact context visible while the sidebar opens technical evidence on demand", async () => {
     const payload = detailPayload("002");
     payload.issue.fingerprint_digest = "sha256:issue-fingerprint";
@@ -318,10 +346,10 @@ describe("issue investigation", () => {
     expect(screen.queryByText("sha256:issue-fingerprint")).not.toBeInTheDocument();
     expect(screen.queryByText(/allow httpd_t port_type/)).not.toBeInTheDocument();
     await user.click(within(context).getByRole("link", { name: "View technical evidence" }));
-    expect(screen.getByRole("button", { name: "Technical evidence & issue history" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "Technical details & audit provenance" })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("sha256:issue-fingerprint")).toBeVisible();
     expect(screen.getByText(/allow httpd_t port_type/)).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Technical evidence & issue history" }));
+    await user.click(screen.getByRole("button", { name: "Technical details & audit provenance" }));
     expect(screen.queryByText("sha256:issue-fingerprint")).not.toBeInTheDocument();
   });
 
@@ -352,7 +380,7 @@ describe("issue investigation", () => {
     expect(screen.queryByText("No evidence-backed explanation is available yet.")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Potential file-context mismatch" })).not.toBeInTheDocument();
     expect(screen.queryByText(/allow httpd_t user_home_type:file/)).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Technical evidence & issue history" }));
+    await user.click(screen.getByRole("button", { name: "Technical details & audit provenance" }));
     const explanation = document.querySelector("#issue-technical-evidence .issue-selinux-explanation") as HTMLElement;
     expect(within(explanation).getByText(/allow httpd_t user_home_type:file/)).toBeVisible();
     expect(within(explanation).getByText(/user_home_t:file/)).toBeVisible();
@@ -393,7 +421,7 @@ describe("issue investigation", () => {
     expect(screen.getByText("At the denial")).toBeInTheDocument();
     expect(screen.getByText("Different types")).toBeInTheDocument();
     expect(screen.queryByText("unconfined_u:object_r:user_home_t:s0")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Technical evidence & issue history" }));
+    await user.click(screen.getByRole("button", { name: "Technical details & audit provenance" }));
     const fullContext = document.querySelector("#issue-technical-evidence .issue-selinux-explanation") as HTMLElement;
     expect(within(fullContext).getByText("unconfined_u:object_r:user_home_t:s0")).toBeVisible();
   });
@@ -428,7 +456,7 @@ describe("issue investigation", () => {
     expect(screen.getAllByText("nis_enabled").length).toBeGreaterThan(0);
     expect(screen.queryByText(/allow httpd_t port_type/)).not.toBeInTheDocument();
     expect(screen.getByText(/Checkpoint boolean state does not tell us whether this workload should have this capability/)).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Technical evidence & issue history" }));
+    await user.click(screen.getByRole("button", { name: "Technical details & audit provenance" }));
     const selinuxExplanation = document.querySelector("#issue-technical-evidence .issue-selinux-explanation");
     expect(within(selinuxExplanation as HTMLElement).getByText(/allow httpd_t port_type/)).toBeVisible();
     expect(within(selinuxExplanation as HTMLElement).getByText(/allow nsswitch_domain unreserved_port_t/)).toBeVisible();
@@ -533,7 +561,7 @@ describe("issue investigation", () => {
     expect(screen.getByText(/3 affected hosts/)).toBeInTheDocument();
     expect(screen.getByText(/Where this occurs/).parentElement).toHaveTextContent("Same explanation across affected hosts");
 
-    await user.click(screen.getByRole("button", { name: "Technical evidence & issue history" }));
+    await user.click(screen.getByRole("button", { name: "Technical details & audit provenance" }));
     const why = document.querySelector("#issue-technical-evidence .issue-selinux-explanation");
     expect(within(why as HTMLElement).getAllByText(/entrypoint/).length).toBeGreaterThan(0);
     const provenance = within(why as HTMLElement).getByText("Policy provenance").closest("details");
@@ -638,7 +666,7 @@ describe("issue investigation", () => {
     renderDetail();
 
     expect(await screen.findByText(/no event-linked expected-context observation is available/)).toBeInTheDocument();
-    expect(screen.getByText(/unknown state, not evidence that the access is safe/)).toBeInTheDocument();
+    expect(screen.getByText("user_home_t", { selector: ".issue-unexplained code" })).toBeInTheDocument();
   });
 
   it("keeps workflow available in compact Actions and updates lifecycle status", async () => {

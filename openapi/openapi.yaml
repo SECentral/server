@@ -4448,6 +4448,11 @@ components:
           oneOf:
             - $ref: "#/components/schemas/Diagnosis"
             - type: "null"
+        triage_guidance:
+          description: Standard file-label troubleshooting guidance inferred from retained absolute path and AVC label evidence; commands are for operator review only.
+          oneOf:
+            - $ref: "#/components/schemas/TriageGuidance"
+            - type: "null"
         host_explanations:
           description: Bounded per-host finding summaries for the issue's primary investigation view.
           type: array
@@ -4471,6 +4476,45 @@ components:
           $ref: "#/components/schemas/TriageSignals"
         resolutions:
           $ref: "#/components/schemas/ResolutionWorkflow"
+    TriageGuidance:
+      type: object
+      required: [type, title, path, observed_type, summary, commands, path_count, recursive_path_count]
+      properties:
+        type:
+          type: string
+          enum: [probable_label_mismatch]
+        title:
+          type: string
+        path:
+          type: string
+        observed_type:
+          type: string
+        conventional_type:
+          description: Common convention only, never a host-resolved expected context.
+          type: [string, "null"]
+        path_count:
+          description: Number of distinct qualifying paths; the path field is the lexicographically first representative, not whole-issue coverage.
+          type: integer
+        recursive_directory:
+          type: [string, "null"]
+        recursive_path_count:
+          description: Qualifying distinct retained paths beneath recursive_directory across hosts, not occurrence coverage or a guarantee of resolution.
+          type: integer
+        summary:
+          type: string
+        commands:
+          type: array
+          items:
+            type: object
+            required: [action, label, command]
+            properties:
+              action:
+                type: string
+                enum: [inspect, restore_targeted, restore_recursive]
+              label:
+                type: string
+              command:
+                type: string
     IssueHostExplanationSummary:
       type: object
       required: [host_id, status, occurrence_count, unexplained_occurrence_count, diagnosis_groups, additional_diagnosis_group_count]
