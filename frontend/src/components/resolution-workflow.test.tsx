@@ -1,10 +1,12 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import type { PolicyDraft, ResolutionWorkflow as Workflow } from "../api/resolution";
 import { ResolutionWorkflow } from "./ResolutionWorkflow";
 import { TechnicalEvidenceDisclosure } from "./WorkbenchEvidence";
+import { MemoryRouter } from "react-router-dom";
+import type { IssueDetailResponse } from "../api/issue";
 
 const candidate: Workflow["candidates"][number] = {
   id: "boolean-path", kind: "enable_boolean", title: "Enable capability controlled by httpd_can_network_connect",
@@ -34,7 +36,7 @@ function selected(): Workflow {
 }
 function mount() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={client}><ResolutionWorkflow issueId={1939} stage="observed" /><ResolutionWorkflow issueId={1939} stage="intent" /></QueryClientProvider>);
+  return render(<QueryClientProvider client={client}><MemoryRouter><ResolutionWorkflow issueId={1939} stage="observed" /><ResolutionWorkflow issueId={1939} stage="intent" /></MemoryRouter></QueryClientProvider>);
 }
 
 describe("Evidence-driven resolution UI", () => {
@@ -82,6 +84,12 @@ describe("Evidence-driven resolution UI", () => {
     expect(screen.getByRole("button", { name: "Copy sudo setsebool -P httpd_can_network_connect on" })).toBeInTheDocument();
     screen.getAllByText("Runtime only").forEach((label) => expect(label).toBeVisible());
     expect(screen.getByText("Persistent · optional")).toBeVisible();
+    screen.getAllByText("Changes host-wide Boolean").forEach((label) => expect(label).toBeVisible());
+    const effect = screen.getAllByText("Changes host-wide Boolean")[0];
+    const copy = screen.getByRole("button", { name: "Copy sudo setsebool httpd_can_network_connect on" });
+    expect(effect.compareDocumentPosition(copy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText(candidate.scope_description)).toBeVisible();
+    expect(screen.getByText(candidate.scope_warning)).toBeVisible();
     expect(screen.getByRole("region", { name: "Selected change plan" })).toHaveTextContent("Persistent rollback state unknown");
     view.unmount();
     mount();
@@ -105,7 +113,7 @@ describe("Evidence-driven resolution UI", () => {
     const state = { ...initial(), candidates: [{ ...candidate, evidence_basis: { ...candidate.evidence_basis, current_boolean: {current: true} }, status: "no_longer_supported" }] };
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(state), { status: 200 })));
     mount();
-    await screen.findByText("This capability is already enabled.");
+    await screen.findByText("Latest observation recorded this capability On.");
     expect(screen.queryByRole("button", { name: "Choose intent" })).not.toBeInTheDocument();
     expect(screen.getByText("Why is this shown?")).toBeVisible();
   });
@@ -125,7 +133,7 @@ describe("Evidence-driven resolution UI", () => {
     const user = userEvent.setup();
     const view = mount();
     await screen.findByRole("button", { name: "Choose intent" });
-    await user.click(screen.getByText("Other approaches & intent history"));
+    await user.click(screen.getByText("Intent history & policy draft"));
     await user.click(screen.getByRole("button", { name: "Open policy draft workspace" }));
     await user.click(await screen.findByRole("button", { name: "Add observed permission to Custom Policy Draft" }));
     await screen.findByText("Known alternatives at staging");
@@ -133,7 +141,7 @@ describe("Evidence-driven resolution UI", () => {
     view.unmount();
     mount();
     await screen.findByRole("button", { name: "Choose intent" });
-    await user.click(screen.getByText("Other approaches & intent history"));
+    await user.click(screen.getByText("Intent history & policy draft"));
     await user.click(screen.getByRole("button", { name: "Open policy draft workspace" }));
     await screen.findByText("httpd_t → unreserved_port_t:tcp_socket name_connect");
     await user.click(screen.getByText("Review proposed literal policy export"));
@@ -150,9 +158,9 @@ describe("Evidence-driven resolution UI", () => {
     mount();
     await screen.findByText("Selected · current");
     expect(document.querySelectorAll(".resolution-selected")).toHaveLength(1);
-    expect(screen.getByText("This capability is already enabled.")).not.toBeVisible();
+    expect(screen.getByText("Latest observation recorded this capability On.")).not.toBeVisible();
     await user.click(screen.getByText("Other options · 1"));
-    expect(screen.getByText("This capability is already enabled.")).toBeVisible();
+    expect(screen.getByText("Latest observation recorded this capability On.")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Choose intent" })).not.toBeInTheDocument();
   });
 
@@ -164,7 +172,7 @@ describe("Evidence-driven resolution UI", () => {
     const user = userEvent.setup();
     mount();
     await screen.findByRole("region", { name: "Restore configured SELinux labeling" });
-    expect(screen.getByText("2 paths with retained candidates")).toBeVisible();
+    expect(screen.getByText("2 host/path candidates")).toBeVisible();
     expect(document.querySelectorAll(".candidate-paths .resolution-candidate-card")).toHaveLength(2);
     await user.click(screen.getAllByRole("button", { name: "Choose this path" })[1]);
     const confirmation = document.querySelector(".intent-confirmation")!;
@@ -184,8 +192,8 @@ describe("Evidence-driven resolution UI", () => {
     await screen.findByRole("region", { name: "Selected change plan" });
     expect(screen.getByText("stat -- /var/www/a")).toBeVisible();
     expect(screen.getByText("sudo restorecon -v -- /var/www/a")).not.toBeVisible();
-    expect(screen.getByText(/Current object has not been verified/)).toBeVisible();
     await user.click(screen.getByText("Apply — only after successful inspection"));
+    expect(screen.getByText(/Current object has not been verified/)).toBeVisible();
     expect(screen.getByText("sudo restorecon -v -- /var/www/a")).toBeVisible();
     expect(document.body.textContent).not.toContain("chcon");
   });
@@ -225,5 +233,59 @@ describe("Evidence-driven resolution UI", () => {
     expect(await screen.findByText(state.freshness_reasons![0])).toBeVisible();
     expect(screen.queryByText("Occurrence evidence inventory changed")).not.toBeInTheDocument();
     expect(document.querySelectorAll(".command-block")).toHaveLength(0);
+  });
+
+  it("keeps an already-On workload capability primary and an incidental matching path expandable and review-gated", async () => {
+    const state: Workflow = { ...initial(), candidates: [
+      { ...candidate, presentation: "primary", status: "no_longer_supported", latest_observed_at: "2026-10-17T12:00:00Z",
+        unavailable_reason: "Latest retained state is On; check runtime and retry the intended workload.",
+        evidence_basis: { ...candidate.evidence_basis, checkpoint_observed_at: "2026-10-01T10:00:00Z", current_boolean: { current: true } } },
+      { ...candidate, id: "incidental", presentation: "technical_alternative", presentation_reason: "Matches through a source attribute.",
+        evidence_basis: { boolean: "nis_enabled", current_boolean: { current: false } } }
+    ] };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(state), { status: 200 })));
+    const user = userEvent.setup();
+    mount();
+    await screen.findByText(/Latest retained state is On/);
+    expect(screen.getByText("2026-10-17T12:00:00Z")).toBeVisible();
+    expect(screen.getByText(/2026-10-01T10:00:00Z/)).toBeVisible();
+    expect(screen.getByText("Enable nis_enabled")).not.toBeVisible();
+    expect(screen.getByRole("button", { name: "Choose intent" })).not.toBeVisible();
+    const disclosure = screen.getByText("Technical policy alternatives · 1");
+    await user.click(disclosure);
+    expect(screen.getByText("Enable nis_enabled")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Choose intent" }));
+    expect(screen.getByRole("button", { name: "Confirm intent" })).toBeVisible();
+    expect(document.body.textContent).not.toContain("setsebool");
+  });
+
+  it("places the investigation host/path first and explains stale scope separately from other examples", () => {
+    const file = (id: string, host: number, path: string) => ({ ...candidate, id, kind: "restore_configured_label" as const,
+      host_id: host, hostname: `host-${host}`, scope_kind: "single_object" as const, evidence_basis: { occurrence_id: host, path } });
+    const primary = { ...file("selected-example", 2, "/srv/launch"), status: "evidence_changed" as const,
+      unavailable_reason: "The host configuration observation is stale; refresh before review." };
+    const state = { ...initial(), candidates: [file("other", 1, "/var/www/content"), primary, file("same-host-other-path", 2, "/srv/another")] };
+    const detail = { operator_guidance: { source: { host_id: 2, occurrence_id: 2, path: "/srv/launch" }, possible_fix: "Restoration does not establish execution permission." } } as IssueDetailResponse;
+    const client = new QueryClient();
+    render(<QueryClientProvider client={client}><MemoryRouter><ResolutionWorkflow issueId={7} stage="intent" initialData={state} initialDataUpdatedAt={Date.now()} detail={detail} /></MemoryRouter></QueryClientProvider>);
+    expect(screen.getByText("/srv/launch")).toBeVisible();
+    expect(screen.getByText(primary.unavailable_reason)).toBeVisible();
+    expect(screen.getByText("/var/www/content")).not.toBeVisible();
+    expect(screen.getByText("/srv/another")).not.toBeVisible();
+    expect(screen.getByText("Other host/path examples · 2")).toBeVisible();
+    const card = screen.getByText("/srv/launch").closest("article")!;
+    expect(within(card).getByRole("link", { name: "Occurrence #2" })).toHaveAttribute("href", "/hosts/2/occurrences/2");
+    expect(within(card).queryByRole("button", { name: "Choose this path" })).not.toBeInTheDocument();
+  });
+
+  it("does not render an unavailable Boolean observation as a known On state", async () => {
+    const state = { ...initial(), candidates: [{ ...candidate, status: "evidence_changed" as const,
+      unavailable_reason: "The latest Boolean value is not observed; obtain runtime state before reviewing a change.",
+      evidence_basis: { ...candidate.evidence_basis, current_boolean: { status: "unavailable", current: true } } }] };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(state), { status: 200 })));
+    mount();
+    expect(await screen.findByText("Not verified (unavailable)")).toBeVisible();
+    expect(screen.queryByText("Latest observation recorded this capability On.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Choose intent" })).not.toBeInTheDocument();
   });
 });

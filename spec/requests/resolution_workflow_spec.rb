@@ -94,6 +94,15 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
   end
 
   context "candidate-semantic reviewed-plan freshness" do
+    it "uses bind-port evidence in the latest access diagram rather than a destination field" do
+      issue, occurrence, = fixture
+      issue.update!(permissions: ["name_bind"])
+      occurrence.normalized_denial.update!(permissions: ["name_bind"], details: {
+        "network_evidence" => { "dest_fields" => ["9999"], "bind_port_fields" => ["12345"] }
+      })
+      expect(workflow(issue).fetch("observed_access")).to include("resource" => "TCP/12345", "operation_label" => "bind")
+    end
+
     it "keeps equivalent normal ingestion current while updating count, coverage and last seen, without intent/history writes" do
       issue, occurrence, = fixture
       intent = select_candidate(issue, boolean: "nis_enabled")
@@ -357,6 +366,36 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
     expect(body["change_plan"]).to be_nil
     expect(occurrence.reload.host_snapshot_id).to eq(snapshot.id)
     expect(body["candidates"].last["status"]).to eq("proposed")
+    relevant, incidental = body["candidates"]
+    expect(relevant).to include("presentation" => "primary", "latest_observed_at" => host.host_snapshot_observations.first.last_observed_at.iso8601(3))
+    expect(relevant["unavailable_reason"]).to include("already On", "retry")
+    expect(relevant.dig("evidence_basis", "occurrence_id")).to eq(occurrence.id)
+    expect(relevant.dig("evidence_basis", "checkpoint_value")).to eq(false)
+    expect(relevant.dig("evidence_basis", "current_boolean", "current")).to eq(true)
+    expect(incidental).to include("presentation" => "technical_alternative")
+    expect(incidental["presentation_reason"]).to include("source attribute")
+  end
+
+  it "explains the stale prerequisite for a retained restoration candidate" do
+    issue, _, host, = fixture(network: false)
+    host.host_snapshot_observations.first.update!(last_received_at: 1.hour.ago)
+    candidate = workflow(issue)["candidates"].sole
+    expect(candidate).to include("status" => "evidence_changed")
+    expect(candidate["unavailable_reason"]).to include("missing or stale")
+  end
+
+  it "keeps entrypoint guidance and restoration examples attached to their own host, occurrence and path" do
+    issue, first, = fixture(network: false, path: "/var/www/earlier-launch")
+    other_issue, later, = fixture(network: false, path: "/srv/other-launch")
+    later.update!(issue: issue, occurred_at: first.occurred_at + 1.second)
+    get "/api/v1/issues/#{issue.id}"
+    body = JSON.parse(response.body)
+    expect(body.dig("operator_guidance", "source")).to include("host_id" => later.host_id, "occurrence_id" => later.id, "path" => "/srv/other-launch")
+    expect(body.dig("operator_guidance", "possible_fix")).to include("does not establish that restoration will permit execution")
+    expect(body["resolutions"]["candidates"].map { |c| [c["host_id"], c.dig("evidence_basis", "occurrence_id"), c.dig("evidence_basis", "path")] }).to contain_exactly(
+      [first.host_id, first.id, "/var/www/earlier-launch"], [later.host_id, later.id, "/srv/other-launch"])
+    expect(body["triage_guidance"]).to be_nil
+    expect(other_issue.reload.occurrences).to be_empty
   end
 
   it "generates a single-object labeling plan with shell-safe arguments and no invented rollback" do
@@ -395,6 +434,7 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
     body = workflow(issue)
     expect(body["freshness"]).to eq("no_longer_supported")
     expect(body["change_plan"]).to be_nil
+    expect(body["freshness_reasons"].sole).to include("configured-label mismatch", "expected-context observations")
   end
 
   it "requests new current-policy questions asynchronously and never invokes policy tooling in the request" do

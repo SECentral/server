@@ -47,14 +47,17 @@ class Api::V1::IssuesController < Api::V1::BaseController
     summary[:resource_summary].merge!(path_count: intelligence[:paths].size, name_count: intelligence[:names].size,
       process_command: intelligence[:commands].one? ? intelligence[:commands].first : nil)
     summary[:fleet] = intelligence[:fleet].slice(:activity_hosts, :current_configuration_hosts, :hosts_with_occurrence, :hosts_without_occurrence)
+    diagnosis = displayed_findings.first&.fetch(:diagnosis)
+    triage_guidance = IssueLabelingGuidance.call(issue, paths: intelligence[:paths], observations: analyzer.eligible_expected_context_observations)
     render json: {
       issue: IssueDetailSerializer.call(issue),
       intelligence: summary,
       finding_coverage: finding_counts,
       findings: displayed_findings,
       additional_finding_count: findings.size - displayed_findings.size,
-      diagnosis: displayed_findings.first&.fetch(:diagnosis),
-      triage_guidance: IssueLabelingGuidance.call(issue, paths: intelligence[:paths], observations: analyzer.eligible_expected_context_observations),
+      diagnosis: diagnosis,
+      triage_guidance: triage_guidance,
+      operator_guidance: IssueOperatorGuidance.call(issue, diagnosis: diagnosis, triage_guidance: diagnosis ? nil : triage_guidance),
       host_explanations: host_explanations,
       fleet_explanation: fleet_explanation.slice(:state, :affected_host_count, :host_status_counts),
       policy_analysis: intelligence[:policy_evaluation].slice(:status, :limitations),

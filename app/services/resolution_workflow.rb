@@ -71,8 +71,16 @@ class ResolutionWorkflow
   # The sole reviewed-plan decision owner. No SELinux field-specific comparisons.
   def reviewed_freshness(intent, candidate)
     return [nil, []] unless intent
-    return ["no_longer_supported", ["The selected candidate is no longer supported by current retained evidence."]] unless candidate && candidate[:status] != "no_longer_supported"
-    return ["evidence_changed", ["Current retained evidence is not sufficiently fresh for this candidate."]] unless candidate[:status] == "proposed"
+    unless candidate && candidate[:status] != "no_longer_supported"
+      reason = candidate&.dig(:unavailable_reason)
+      reason ||= if intent.candidate_kind == "restore_configured_label"
+        "The selected host/path no longer has an eligible configured-label mismatch. Review its retained path and latest expected-context observations for missing, agreeing or conflicting context evidence."
+      else
+        "The selected host no longer has an eligible inactive positive conditional path with observed Off state. Review its policy and Boolean evidence."
+      end
+      return ["no_longer_supported", [reason]]
+    end
+    return ["evidence_changed", [candidate[:unavailable_reason] || "Current retained evidence is not sufficiently fresh for this candidate."]] unless candidate[:status] == "proposed"
     unless intent.semantic_plan_basis.is_a?(Hash) && intent.semantic_plan_basis.present? && intent.plan_semantics_version.present?
       return ["evidence_changed", ["This review predates the semantic freshness model; review the current evidence once."]]
     end

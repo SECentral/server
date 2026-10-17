@@ -250,6 +250,17 @@ RSpec.describe "Issues API", type: :request do
       "restorecon -v -- /var/www/html/a\\ file.txt",
       "restorecon -Rv -- /var/www/html"
     ])
+    body = JSON.parse(response.body)
+    expect(body["diagnosis"]).to be_nil
+    expect(body["findings"]).to eq([])
+    expect(body["finding_coverage"]).to eq("unexplained" => 1)
+    expect(body.dig("issue", "disposition")).to eq("unclassified")
+    expect(body.dig("resolutions", "intent")).to be_nil
+    operator = body.fetch("operator_guidance")
+    expect(operator.fetch("source")).to include("occurrence_id" => occurrence.id, "host_id" => occurrence.host_id, "path" => guidance.fetch("path"))
+    expect(operator.fetch("checks").map { |item| item.fetch("command") }).to include("ls -ldZ -- /var/www/html/a\\ file.txt", "restorecon -n -v -- /var/www/html/a\\ file.txt")
+    expect(operator).not_to have_key("current_label")
+    expect(operator.fetch("verification_limit")).to include("event-delivery health")
   end
 
   it "suppresses the lead for an eligible authoritative observation but ignores ineligible samples" do
@@ -274,9 +285,56 @@ RSpec.describe "Issues API", type: :request do
     get "/api/v1/issues/#{issue.id}"
     expect(JSON.parse(response.body).dig("triage_guidance", "type")).to eq("probable_label_mismatch")
 
+    [
+      observation.merge("observed_at" => occurrence.occurred_at.iso8601(6)),
+      observation.merge("object_class" => "dir"),
+      observation.merge("path" => "/var/www/html/unrelated.txt"),
+      observation.merge("status" => "unavailable", "expected_context" => nil)
+    ].each do |ineligible|
+      occurrence.raw_event.update!(file_context_observations: [ineligible])
+      get "/api/v1/issues/#{issue.id}"
+      expect(JSON.parse(response.body).dig("triage_guidance", "type")).to eq("probable_label_mismatch")
+    end
+
     occurrence.raw_event.update!(file_context_observations: [observation], checkpoint_invalidated_fields: ["file_context_mappings"])
     get "/api/v1/issues/#{issue.id}"
     expect(JSON.parse(response.body).dig("triage_guidance", "type")).to eq("probable_label_mismatch")
+  end
+
+  it "suppresses conflicting eligible host results without assigning authoritative convention fields" do
+    issue = create_issue(target_type: "user_home_t")
+    path = "/srv/app/data"
+    %w[custom_a_t custom_b_t].each_with_index do |type, index|
+      occurrence = create_occurrence(issue, "host-#{index + 1}", index + 1)
+      occurrence.normalized_denial.update!(target_context: "unconfined_u:object_r:user_home_t:s0",
+        details: { "target_evidence" => { "filesystem_paths" => [path] } })
+      occurrence.raw_event.update!(file_context_observations: [{ "kind" => "expected_context", "path" => path,
+        "object_class" => "file", "status" => "resolved", "expected_context" => "system_u:object_r:#{type}:s0",
+        "observed_at" => Time.current.iso8601(6), "resolver" => "matchpathcon" }])
+    end
+
+    get "/api/v1/issues/#{issue.id}"
+    body = JSON.parse(response.body)
+    expect(body["triage_guidance"]).to be_nil
+    expect(body.dig("diagnosis", "kind")).to eq("file_context_mismatch")
+    expect(body.dig("diagnosis", "expected_type")).to be_in(%w[custom_a_t custom_b_t])
+  end
+
+  it "counts distinct paths across hosts without claiming host or occurrence coverage" do
+    issue = create_issue(target_type: "user_home_t")
+    paths = ["/var/www/html/a.txt", "/var/www/html/b.txt", "/var/www/html-other/c.txt"]
+    2.times do |index|
+      occurrence = create_occurrence(issue, "host-#{index + 1}", index + 1)
+      occurrence.normalized_denial.update!(details: { "target_evidence" => { "filesystem_paths" => paths.reverse } })
+    end
+
+    get "/api/v1/issues/#{issue.id}"
+    guidance = JSON.parse(response.body).fetch("triage_guidance")
+    # Lexicographic selection is deliberate: '-' precedes '/', so html-other comes first.
+    expect(guidance).to include("path" => paths.last, "path_count" => 3,
+      "recursive_directory" => "/var/www/html-other", "recursive_path_count" => 1)
+    expect(guidance).not_to have_key("occurrence_count")
+    expect(guidance).not_to have_key("expected_type")
   end
 
   it "lists occurrences with normalized denial, raw evidence, and per-occurrence guidance" do

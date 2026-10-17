@@ -157,6 +157,19 @@ export type EvidenceBasis = {
 };
 
 export type ResolutionCandidate = {
+    /**
+     * Conservative display priority; direct workload-source conditional rules or path-evidenced restoration are primary
+     */
+    presentation?: 'primary' | 'technical_alternative';
+    presentation_reason?: string;
+    /**
+     * Specific prerequisite preventing an actionable plan
+     */
+    unavailable_reason?: string;
+    /**
+     * Latest stored host observation time
+     */
+    latest_observed_at?: string | null;
     id: string;
     kind: 'restore_configured_label' | 'enable_boolean';
     title: string;
@@ -1594,6 +1607,10 @@ export type IssueDetailResponse = {
      */
     triage_guidance?: TriageGuidance | null;
     /**
+     * Evidence-scoped read-only checks and manual investigation/verification tasks. Local command output has not been observed by SECentral.
+     */
+    operator_guidance?: OperatorGuidance | null;
+    /**
      * Bounded per-host finding summaries for the issue's primary investigation view.
      */
     host_explanations: Array<IssueHostExplanationSummary>;
@@ -1609,6 +1626,30 @@ export type IssueDetailResponse = {
     resolutions?: ResolutionWorkflow;
 };
 
+export type OperatorGuidance = {
+    source: {
+        occurrence_id: number;
+        host_id: number;
+        hostname: string | null;
+        occurred_at: string;
+        path: string | null;
+        observed_type: string | null;
+    };
+    checks: Array<{
+        title: string;
+        command: string;
+        interpretation: string;
+    }>;
+    manual_check: string;
+    possible_fix: string;
+    verification: string;
+    verification_limit: string;
+    restriction: string;
+};
+
+/**
+ * Convention-based investigation lead, not an authoritative finding or reviewed change plan. Eligible contradictory or conflicting expected-context observations suppress the lead; missing or null guidance is valid.
+ */
 export type TriageGuidance = {
     type: 'probable_label_mismatch';
     title: string;

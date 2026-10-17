@@ -1779,6 +1779,10 @@ components:
       type: object
       required: [id, kind, title, explanation, finding_kind, host_id, hostname, evidence_basis, evidence_version, intent_prompt, scope_kind, scope_description, scope_warning, expected_effect, mechanically_supported, intent_confirmation_required, limitations, status]
       properties:
+        presentation: {type: string, enum: [primary, technical_alternative], description: Conservative display priority; direct workload-source conditional rules or path-evidenced restoration are primary, not proof of intent}
+        presentation_reason: {type: string}
+        unavailable_reason: {type: string, description: Specific prerequisite preventing an actionable plan}
+        latest_observed_at: {type: [string, 'null'], format: date-time, description: Latest stored host observation time, not a new inspection}
         id: {type: string}
         kind: {type: string, enum: [restore_configured_label, enable_boolean]}
         title: {type: string}
@@ -4453,6 +4457,11 @@ components:
           oneOf:
             - $ref: "#/components/schemas/TriageGuidance"
             - type: "null"
+        operator_guidance:
+          description: Evidence-scoped read-only checks and manual investigation/verification tasks. Local command output has not been observed by SECentral.
+          oneOf:
+            - $ref: "#/components/schemas/OperatorGuidance"
+            - type: "null"
         host_explanations:
           description: Bounded per-host finding summaries for the issue's primary investigation view.
           type: array
@@ -4476,7 +4485,51 @@ components:
           $ref: "#/components/schemas/TriageSignals"
         resolutions:
           $ref: "#/components/schemas/ResolutionWorkflow"
+    OperatorGuidance:
+      type: object
+      required: [source, checks, manual_check, possible_fix, verification, verification_limit, restriction]
+      properties:
+        source:
+          type: object
+          required: [occurrence_id, host_id, hostname, occurred_at, path, observed_type]
+          properties:
+            occurrence_id:
+              type: integer
+            host_id:
+              type: integer
+            hostname:
+              type: [string, "null"]
+            occurred_at:
+              type: string
+              format: date-time
+            path:
+              type: [string, "null"]
+            observed_type:
+              type: [string, "null"]
+        checks:
+          type: array
+          items:
+            type: object
+            required: [title, command, interpretation]
+            properties:
+              title:
+                type: string
+              command:
+                type: string
+              interpretation:
+                type: string
+        manual_check:
+          type: string
+        possible_fix:
+          type: string
+        verification:
+          type: string
+        verification_limit:
+          type: string
+        restriction:
+          type: string
     TriageGuidance:
+      description: Convention-based investigation lead, not an authoritative finding or reviewed change plan. Eligible contradictory or conflicting expected-context observations suppress the lead; missing or null guidance is valid.
       type: object
       required: [type, title, path, observed_type, summary, commands, path_count, recursive_path_count]
       properties:

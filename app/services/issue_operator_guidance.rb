@@ -1,0 +1,112 @@
+require "pathname"
+require "shellwords"
+
+class IssueOperatorGuidance
+  def self.call(issue, diagnosis: nil, triage_guidance: nil)
+    new(issue, diagnosis, triage_guidance).call
+  end
+
+  def initialize(issue, diagnosis, triage_guidance)
+    @issue, @diagnosis, @triage = issue, diagnosis, triage_guidance
+  end
+
+  def call
+    occurrences = @issue.occurrences.includes(:host, :normalized_denial).order(occurred_at: :desc, id: :desc).to_a
+    occurrence = if @diagnosis
+      occurrences.find { |item| item.id == @diagnosis[:occurrence_id] }
+    elsif @triage
+      occurrences.find { |item| paths(item).include?(@triage[:path]) }
+    else
+      occurrences.first
+    end
+    return unless occurrence
+
+    denial = occurrence.normalized_denial
+    retained_paths = paths(occurrence)
+    path = @diagnosis&.dig(:path) || @triage&.dig(:path) || (retained_paths.first if retained_paths.one?)
+    path = nil unless retained_paths.include?(path) && valid_path?(path)
+    permissions = Array(denial.permissions)
+    checks = []
+    if path && %w[file dir lnk_file fifo_file chr_file blk_file sock_file].include?(denial.target_class)
+      q = Shellwords.escape(path)
+      checks << check("Current object label", "ls -ldZ -- #{q}", "Read the current object's context on this host. This is not the historical AVC label; stop if the path is missing or refers to a different object.")
+      checks << check("Host-configured context", "matchpathcon -- #{q}", "The third colon-separated context field is the type. Compare this configured type with the current object label, not just the historical AVC label.")
+      checks << check("Read-only restoration preview", "restorecon -n -v -- #{q}", "Shows a proposed label change without applying it. If current and configured types agree, restoration may do nothing. If lookup fails or the configured label is unsuitable, investigate configuration instead.")
+      if @diagnosis&.dig(:kind) == "no_matching_allow"
+        checks << check("Local file-context customizations", "semanage fcontext -l -C", "A configured label can agree with the current object yet be unsuitable for an intended relocated workload. Review its effective data path and mappings; this check does not establish a preferred type or authorize a new mapping.")
+      end
+    end
+    conditions = Array(@diagnosis&.dig(:condition_boolean_states))
+    conditions.sort_by { |condition| condition[:rule].to_s.start_with?("allow #{denial.source_type} ") ? 0 : 1 }.each do |condition|
+      Array(condition[:booleans]).each do |item|
+        name = item["name"] || item[:name]
+        next unless name.to_s.match?(/\A[A-Za-z][A-Za-z0-9_]*\z/)
+
+        checks << check("Current Boolean: #{name}", "getsebool #{name}", "Check runtime state on the selected host before retrying the intended workload. Stored checkpoint and latest observed values are historical observations, not a fresh host inspection. A matching rule is not a recommendation to enable this capability.")
+      end
+    end
+    checks.uniq! { |item| item[:command] }
+    if %w[tcp_socket udp_socket].include?(denial.target_class)
+      checks << check("Current listeners", denial.target_class == "udp_socket" ? "ss -lunp" : "ss -ltnp", "Check the intended listening address, port and owner. No listener alone does not establish the cause; a shell connection does not test confined workload access.") if permissions.include?("name_bind")
+      checks << check("Configured port classifications", "semanage port -l", "Find the observed protocol/port in the current ranges. Classification alone does not establish which type is appropriate.")
+      checks << check("Local port customizations", "semanage port -l -C", "Review local overrides before considering any manual configuration change.")
+    end
+    manual, possible_fix, verification = next_steps(denial, permissions, path)
+    {
+      source: { occurrence_id: occurrence.id, host_id: occurrence.host_id, hostname: occurrence.host.hostname,
+        occurred_at: occurrence.occurred_at, path: path, observed_type: denial.target_type },
+      checks: checks, manual_check: manual, possible_fix: possible_fix, verification: verification,
+      verification_limit: "Absence of new AVCs alone proves neither workload success nor safety. Record the test time and check fresh AVCs, enforcement/domain permissiveness and event-delivery health.",
+      restriction: "If this access is unwanted, keep it denied and correct the calling workload or exposure. Verify the unwanted operation remains denied and legitimate work still succeeds. Acknowledge your decision with a note; intentional denial does not mean harmless or fixed."
+    }
+  end
+
+  private
+
+  def paths(occurrence)
+    Array(occurrence.normalized_denial.details.dig("target_evidence", "filesystem_paths"))
+  end
+
+  def valid_path?(path)
+    path.is_a?(String) && path.start_with?("/") && !path.match?(/[\0\r\n]/) && Pathname.new(path).cleanpath.to_s == path
+  end
+
+  def check(title, command, interpretation)
+    { title: title, command: command, interpretation: interpretation }
+  end
+
+  def next_steps(denial, permissions, path)
+    object_class = denial.target_class
+    if permissions.include?("name_bind")
+      ["Confirm the service's intended listener and inspect its actual configuration; the unit and desired endpoint are not established by this denial.",
+       "Correct an accidental listener setting using the service's normal configuration procedure. For a required nonstandard port, request a policy/mapping review; do not enable an unrelated Boolean merely because its rule matches. No port-mapping change is generated here.",
+       "After an approved configuration validation and reload/restart, check the intended listener address/port and application response. Check that no unintended interface is exposed; account for service interruption."]
+    elsif permissions.include?("name_connect")
+      ["Confirm the actual backend destination in workload configuration; a port number does not identify its IP or service. Test through the confined workload, not only a shell client.",
+       "Check the relevant Boolean's current runtime state and retry the intended workload first if the capability is already observed On. If a change is still needed, review a supported Boolean option's broader host-wide effects. Otherwise correct/remove the unintended connection. Matching policy paths are alternatives, not a request to enable them all.",
+       "Retry the same application or proxy request through the affected workload and verify the intended backend response. A successful shell connection alone is insufficient."]
+    elsif (permissions & %w[execute entrypoint execute_no_trans transition]).any?
+      ["Confirm the intended launch and executable identity, including the requested execution context. An entrypoint/execute denial is not a web-read violation and does not establish an intended destination domain or failed transition.",
+       "Restoring configured labeling and enabling execution are separate decisions. A label mismatch alone does not establish that restoration will permit execution. If this object belongs here and its configured labeling is appropriate, review an eligible targeted-restoration option; otherwise correct unintended execution. Compound Boolean changes and inferred executable types are not offered.",
+       "Retry only the intended launch and verify its expected status and output, not just absence of denials. If resulting-domain behavior matters, inspect the actual child process context separately. For a confirmed CGI workload, retry its actual request."]
+    elsif %w[file dir lnk_file fifo_file chr_file blk_file sock_file].include?(object_class)
+      fix = if !path && denial.source_type == "httpd_t" && denial.target_type == "user_home_t" && (permissions & %w[read open]).any?
+        "Identify the object and decide whether serving home-directory content is intentional. If intended, review the home-content Boolean option and its broader host-wide read access. If website content was misplaced or exposed accidentally, investigate deployment paths and web configuration instead of broadening access. No path-specific restoration is supported without a retained absolute path."
+      elsif !path
+        "Identify the object and its intended use before choosing a labeling or policy change. No path-specific restoration is supported without a retained absolute path."
+      else
+        "Use the inspection results to decide whether configured labeling suits the object's intended role. If labels already agree, investigate workload paths and local mappings rather than restoring the same label."
+      end
+      verification = if denial.source_type == "mysqld_t"
+        "Confirm the effective data path and application readiness; use a read-only query against known existing data. Do not initialize or overwrite data."
+      else
+        "Repeat the intended file access through the affected workload and check expected output. For confirmed web content, retry the actual request and verify its status and content."
+      end
+      [path ? "Confirm the file's role and the workload's effective configured path; application intent is not established by the AVC." : "Identify the complete absolute path and intended use from the host/workload configuration before path-specific checks. Do not reconstruct it from a basename.", fix, verification]
+    else
+      ["Review the exact denied operation and workload intent with the affected host's operator.",
+       "Use a manual configuration/policy review if no supported reviewed option fits; keeping the restriction is a valid choice.",
+       "Repeat the intended workload operation and confirm its actual result; review any new denials separately."]
+    end
+  end
+end

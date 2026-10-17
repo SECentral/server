@@ -296,7 +296,7 @@ function renderDetail(initialEntry = "/issues/7") {
 }
 
 describe("issue investigation", () => {
-  it("leads with server-provided label guidance and copyable commands without rejected solver options", async () => {
+  function labelingPayload() {
     const payload = detailPayload("missing-observation");
     payload.triage_guidance = {
       type: "probable_label_mismatch", title: "Investigation lead: probable label mismatch", path: "/var/www/html/a file.txt",
@@ -305,23 +305,99 @@ describe("issue investigation", () => {
       summary: "Files under /var/www/ commonly use httpd_sys_content_t. Files moved from a home directory may retain user_home_t.",
       commands: [
         { action: "inspect", label: "Check the configured label", command: "matchpathcon -- '/var/www/html/a file.txt'" },
-        { action: "restore_targeted", label: "Restore this file's default context", command: "restorecon -v -- '/var/www/html/a file.txt'" },
+        { action: "restore_targeted", label: "Restore this file's configured context", command: "restorecon -v -- '/var/www/html/a file.txt'" },
         { action: "restore_recursive", label: "Alternatively, restore contexts recursively in the parent directory", command: "restorecon -Rv -- /var/www/html" }
       ]
     };
+    payload.operator_guidance = {
+      source: { occurrence_id: 101, host_id: 10, hostname: "web-1", occurred_at: "2026-09-30T16:26:25Z", path: "/var/www/html/a file.txt", observed_type: "user_home_t" },
+      checks: [
+        { title: "Current object label", command: "ls -ldZ -- '/var/www/html/a file.txt'", interpretation: "Read current context; local results are not collected." },
+        { title: "Host-configured context", command: "matchpathcon -- '/var/www/html/a file.txt'", interpretation: "The third colon-separated field is the type." },
+        { title: "Read-only restoration preview", command: "restorecon -n -v -- '/var/www/html/a file.txt'", interpretation: "If labels agree restoration may do nothing; if lookup fails investigate configuration." }
+      ],
+      manual_check: "Confirm the intended file on the affected host.", possible_fix: "Only restore suitable configured labels.",
+      verification: "Retry the intended content request and check expected output.",
+      verification_limit: "No new AVCs alone prove neither workload success nor safety; check permissiveness and delivery health.",
+      restriction: "Keep unwanted access denied; verify legitimate work still succeeds."
+    };
+    return payload;
+  }
+
+  it("leads with server-provided label guidance and copyable commands without rejected solver options", async () => {
+    const payload = labelingPayload();
+    const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
     renderDetail();
 
     expect(await screen.findByRole("heading", { name: "Investigation lead: probable label mismatch" })).toBeVisible();
-    expect(screen.getByText("/var/www/html/a file.txt", { selector: "code" })).toBeVisible();
+    expect(screen.getAllByText("/var/www/html/a file.txt", { selector: "code" }).length).toBeGreaterThan(0);
     expect(screen.getByText("matchpathcon -- '/var/www/html/a file.txt'")).toBeVisible();
-    expect(screen.getByText("restorecon -v -- '/var/www/html/a file.txt'")).toBeVisible();
+    expect(await screen.findByText("restorecon -v -- '/var/www/html/a file.txt'")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Check" })).toHaveTextContent("local results have not been observed");
+    expect(screen.getByRole("region", { name: "Check" })).toHaveTextContent("Read-only restoration preview");
+    expect(screen.getByRole("region", { name: "Optional restoration after verification" })).toHaveTextContent("including local customizations");
+    expect(screen.getByText(/Targeted scope:/)).toBeVisible();
+    expect(screen.getAllByText("Changes file labels")[0]).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Copy matchpathcon -- '/var/www/html/a file.txt'" }));
+    expect(await navigator.clipboard.readText()).toBe("matchpathcon -- '/var/www/html/a file.txt'");
     expect(screen.getByText("restorecon -Rv -- /var/www/html")).not.toBeVisible();
-    await userEvent.setup().click(screen.getByText("Broader alternative: recursive restoration"));
+    await user.click(screen.getByText("Broader alternative: recursive restoration"));
     expect(screen.getByText("restorecon -Rv -- /var/www/html")).toBeVisible();
     expect(screen.getByText(/2 of 2 qualifying retained paths/)).toBeVisible();
     expect(screen.queryByText("Options not offered")).not.toBeInTheDocument();
     expect(screen.queryByText(/Complete path unavailable for/)).not.toBeInTheDocument();
+  });
+
+  it("does not manufacture guidance when absent or replace an authoritative finding", async () => {
+    const payload = labelingPayload();
+    payload.diagnosis = diagnosisFor("001") as IssueDetailResponse["diagnosis"];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    const view = renderDetail();
+    expect(await screen.findByRole("heading", { name: "Potential file-context mismatch" })).toBeVisible();
+    expect(screen.queryByText("Investigation lead: probable label mismatch")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Copy restorecon -v/ })).not.toBeInTheDocument();
+    view.unmount();
+
+    payload.diagnosis = null;
+    payload.triage_guidance = null;
+    payload.operator_guidance = null;
+    renderDetail();
+    expect(await screen.findByText("Cause not confirmed; start with the checks below.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Copy matchpathcon/ })).not.toBeInTheDocument();
+  });
+
+  it("keeps the context sidebar on the deterministic investigation example when the latest occurrence differs", async () => {
+    const payload = labelingPayload();
+    payload.resolutions = { candidates: [], rejected_candidates: [], intent: null, freshness: null, change_plan: null, history: [],
+      observed_access: { occurrence_id: 202, host_id: 20, hostname: "latest-host", actor: "httpd", source_type: "httpd_t",
+        resource: "/var/www/z-latest", target_type: "user_home_t", object_class: "file", permissions: ["read"], operation_label: "read",
+        outcome: "DENIED", observed_at: "2026-10-02T10:00:00Z" } };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    renderDetail();
+    const context = await screen.findByRole("complementary", { name: "Investigation context" });
+    expect(context).toHaveTextContent("/var/www/html/a file.txt");
+    expect(context).not.toHaveTextContent("/var/www/z-latest");
+    expect(within(context).getByRole("link", { name: "web-1" })).toHaveAttribute("href", "/hosts/10");
+    expect(within(context).getByRole("link", { name: "#101" })).toHaveAttribute("href", "/hosts/10/occurrences/101");
+    expect(screen.getByRole("region", { name: "Observed access" })).toHaveTextContent("latest-host");
+    expect(screen.getByRole("region", { name: "Check" })).toHaveTextContent("different retained investigation example");
+    expect(screen.getByRole("region", { name: "Check" })).toHaveTextContent("lexicographically first");
+  });
+
+  it("shows targeted restoration without a recursive alternative for a broad system root", async () => {
+    const payload = labelingPayload();
+    payload.triage_guidance = { ...payload.triage_guidance!, path: "/etc/shadow", conventional_type: null,
+      recursive_directory: null, recursive_path_count: 0, path_count: 1,
+      commands: [
+        { action: "inspect", label: "Check the configured label", command: "matchpathcon -- /etc/shadow" },
+        { action: "restore_targeted", label: "Restore this file's configured context", command: "restorecon -v -- /etc/shadow" }
+      ] };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    renderDetail();
+    expect(await screen.findByRole("button", { name: "Copy restorecon -v -- /etc/shadow" })).toBeVisible();
+    expect(screen.queryByText("Broader alternative: recursive restoration")).not.toBeInTheDocument();
+    expect(screen.queryByText(/restorecon -Rv/)).not.toBeInTheDocument();
   });
 
   it("keeps access flow and compact context visible while the sidebar opens technical evidence on demand", async () => {
@@ -491,7 +567,7 @@ describe("issue investigation", () => {
     expect(screen.getByLabelText("Finding coverage")).toHaveTextContent("cover 2 of 3 denials");
     await user.click(screen.getByText("Additional investigation", { selector: "summary" }));
     expect(screen.getByText(/a matching conditional rule was active at the associated checkpoint/)).toBeVisible();
-    expect(screen.getByText(/Not every denial has a supported finding/)).toBeVisible();
+    expect(screen.getByText(/Some causes remain unconfirmed/)).toBeVisible();
     await user.click(screen.getByRole("button", {name: "Show recent occurrences"}));
     const table = await screen.findByRole("table", {name: "Occurrence summary"});
     expect(within(table).getByText("TCP/12345")).toBeVisible();
@@ -665,7 +741,7 @@ describe("issue investigation", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderDetail();
 
-    expect(await screen.findByText(/no event-linked expected-context observation is available/)).toBeInTheDocument();
+    expect(await screen.findByText(/No event-linked expected-context observation is available/)).toBeInTheDocument();
     expect(screen.getByText("user_home_t", { selector: ".issue-unexplained code" })).toBeInTheDocument();
   });
 
@@ -681,6 +757,44 @@ describe("issue investigation", () => {
     await user.click(screen.getByText("Actions · Unclassified"));
     await user.selectOptions(screen.getByLabelText("Issue status"), "resolved");
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/status", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ status: "resolved" }) })));
+  });
+
+  it("distinguishes the latest diagram from a different investigation host and links both sources", async () => {
+    const payload = labelingPayload();
+    payload.policy_analysis.status = "error";
+    payload.resolutions = { candidates: [], rejected_candidates: [], intent: null, freshness: null, change_plan: null, history: [],
+      observed_access: { occurrence_id: 202, host_id: 20, hostname: "web-latest", actor: "worker", source_type: "httpd_t",
+        resource: "/var/www/html/z.txt", target_type: "user_home_t", object_class: "file", permissions: ["read"],
+        operation_label: "read", outcome: "DENIED", observed_at: "2026-10-01T10:00:00Z" } };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    renderDetail();
+    const check = await screen.findByRole("region", { name: "Check" });
+    expect(check).toHaveTextContent("different retained investigation example");
+    expect(within(check).getByRole("link", { name: /web-1/ })).toHaveAttribute("href", "/hosts/10/occurrences/101");
+    const observed = await screen.findByRole("region", { name: "Observed access" });
+    expect(within(observed).getByRole("link", { name: /web-latest/ })).toHaveAttribute("href", "/hosts/20/occurrences/202");
+    expect(observed).toHaveTextContent("worker");
+    expect(screen.getByText(/Policy analysis: Error/)).toBeVisible();
+    expect(screen.getByRole("region", { name: "Verify" })).toHaveTextContent("permissiveness and delivery health");
+  });
+
+  it("acknowledges keeping a restriction using a note without accepting a pending harmless classification or changing status", async () => {
+    const fetchMock = vi.fn();
+    mockApi(fetchMock, "001");
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderDetail();
+    await screen.findByRole("heading", { name: "Potential file-context mismatch" });
+    await user.click(screen.getByText("Actions · Unclassified"));
+    await user.selectOptions(screen.getByLabelText("Operator disposition"), "expected_harmless");
+    await user.click(screen.getByRole("button", { name: "Keep restriction" }));
+    await user.type(screen.getByLabelText("Restriction note"), "Intentional boundary: no web access to private files");
+    await user.click(screen.getByRole("button", { name: "Save acknowledgement" }));
+    await screen.findByText(/Acknowledgement saved/);
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/disposition", expect.objectContaining({
+      method: "PATCH", body: JSON.stringify({ disposition: "unclassified", note: "Intentional boundary: no web access to private files" })
+    }));
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/status"))).toBe(false);
   });
 
   it("loads occurrence evidence immediately and shows not-found issues accessibly", async () => {

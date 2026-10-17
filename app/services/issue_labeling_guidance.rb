@@ -14,12 +14,11 @@ class IssueLabelingGuidance
     return unless path
 
     conventional_type = issue.source_type == "httpd_t" && path.start_with?("/var/www/") ? "httpd_sys_content_t" : nil
-    return if observations.any? do |item|
-      next false unless item["path"] == path
-
-      resolved_type = item["expected_context"].to_s.split(":", 4)[2]
-      resolved_type == issue.target_type || (conventional_type && resolved_type != conventional_type)
-    end
+    resolved_types = observations.filter_map do |item|
+      item["expected_context"].to_s.split(":", 4)[2] if item["path"] == path
+    end.uniq
+    return if resolved_types.size > 1 || resolved_types.include?(issue.target_type)
+    return if conventional_type && resolved_types.any? { |type| type != conventional_type }
 
     escaped_path = Shellwords.escape(path)
     directory = Pathname.new(path).dirname.to_s

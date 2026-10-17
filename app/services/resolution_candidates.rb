@@ -123,8 +123,16 @@ class ResolutionCandidates
       limitations: ["Expected labeling was inspected after the AVC, not at AVC time.",
         "Current path existence, inode identity and local mapping continuity are not verified.",
         "Automatic rollback cannot be generated safely from current evidence."])
-    candidate[:status] = "evidence_changed" unless state[:configuration_current]
-    candidate[:status] = "evidence_changed" if state[:selinux].dig("policy", "file_context_mappings_status").in?(%w[unknown partial unavailable])
+    candidate[:presentation] = "primary"
+    candidate[:presentation_reason] = "A retained absolute path has a host-resolved configured-label mismatch; suitability still requires inspection."
+    unless state[:configuration_current]
+      candidate[:status] = "evidence_changed"
+      candidate[:unavailable_reason] = "The latest host configuration observation is missing or stale; refresh it before reviewing a restoration plan."
+    end
+    if state[:selinux].dig("policy", "file_context_mappings_status").in?(%w[unknown partial unavailable])
+      candidate[:status] = "evidence_changed"
+      candidate[:unavailable_reason] = "The current file-context mapping inventory is unknown, partial or unavailable; configured-label continuity cannot be checked."
+    end
     q = Shellwords.escape(path)
     basis = { version: VERSION, occurrence_id: occurrence.id, host_id: occurrence.host_id,
       checkpoint_id: occurrence.host_snapshot_id, checkpoint_observed_at: occurrence.raw_event.host_observed_at,
@@ -180,11 +188,20 @@ class ResolutionCandidates
           @requested_current_facts = true
         end
         candidate[:status] = "no_longer_supported"
+        candidate[:unavailable_reason] = "The latest policy fact is #{fact&.status || 'missing'} and supplies no matching positive conditional path; wait for or refresh policy evaluation."
       elsif current&.dig("status") != "observed" || !current["current"].in?([true, false]) || !state[:configuration_current]
         candidate[:status] = "evidence_changed"
+        candidate[:unavailable_reason] = !state[:configuration_current] ? "The latest host configuration observation is missing or stale; check current state and refresh evidence before review." : "The latest Boolean value is not observed; obtain runtime state before reviewing a change."
       elsif current["current"] != false
         candidate[:status] = "no_longer_supported"
+        candidate[:unavailable_reason] = "The latest retained Boolean value is already On; check current runtime state and retry the intended workload before considering another change."
       end
+      candidate[:latest_observed_at] = occurrence.host.current_state_observation&.last_observed_at
+      direct_source = Array(finding[:conditional_rules]).any? do |path|
+        path[:expression] == name && PolicyRuleEvaluator::RULE.match(path[:rule].to_s)&.[](1) == @issue.source_type
+      end
+      candidate[:presentation] = direct_source ? "primary" : "technical_alternative"
+      candidate[:presentation_reason] = direct_source ? "The retained conditional rule names the workload's source type directly. This is a review lead, not proof of intent." : "The retained rule matches through a source attribute, not a workload-specific source type. Confirm the capability's purpose before choosing this technical alternative."
       rules = (current_rules.presence || [rule[:rule]]).uniq.sort
       symbols = rules.filter_map do |r|
         match = PolicyRuleEvaluator::RULE.match(r)
@@ -199,7 +216,7 @@ class ResolutionCandidates
         limitations: ["Checkpoint state is not an AVC-time or apply-time measurement.", "Persistent rollback state unknown; runtime Off does not establish the persistent setting.",
           "The complete host-wide effects of this boolean are not enumerated.",
           (candidate[:status] == "no_longer_supported" ? "The latest retained state already has the boolean On or lacks a matching current policy fact; no applicable plan is exposed." : "Inspect current runtime and persistent state before making a change.")])
-      basis = { version: VERSION, host_id: occurrence.host_id, finding_kind: finding[:kind],
+      basis = { version: VERSION, occurrence_id: occurrence.id, host_id: occurrence.host_id, finding_kind: finding[:kind],
         historical_policy_identity: finding[:policy_identity], checkpoint_id: occurrence.host_snapshot_id,
         historical_policy_fact_ids: Array(finding[:evaluations]).map { |f| f["policy_fact_id"] }.compact,
         checkpoint_observed_at: finding[:checkpoint_observed_at], boolean: name, checkpoint_value: false,
@@ -243,8 +260,13 @@ class ResolutionCandidates
     return nil unless occurrence
     denial = occurrence.normalized_denial
     paths = Array(denial.details.dig("target_evidence", "filesystem_paths"))
-    ports = IssueIntelligence.destination_ports(denial.details)
-    resource = paths.one? ? paths.first : denial.target_class == "tcp_socket" && ports.one? ? "TCP/#{ports.first}" : "Resource identity not established"
+    ports = if denial.permissions.include?("name_bind")
+      Array(denial.details.dig("network_evidence", "bind_port_fields"))
+        .map(&:to_s).select { |value| value.match?(/\A\d+\z/) && value.to_i.between?(0, 65_535) }.uniq
+    else
+      IssueIntelligence.destination_ports(denial.details)
+    end
+    resource = paths.one? ? paths.first : %w[tcp_socket udp_socket].include?(denial.target_class) && ports.one? ? "#{denial.target_class == 'udp_socket' ? 'UDP' : 'TCP'}/#{ports.first}" : "Resource identity not established"
     { occurrence_id: occurrence.id, host_id: occurrence.host_id, hostname: occurrence.host.hostname,
       actor: denial.command.presence || denial.source_type, source_type: denial.source_type, resource: resource,
       target_type: denial.target_type, object_class: denial.target_class, permissions: denial.permissions,

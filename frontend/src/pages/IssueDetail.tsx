@@ -15,7 +15,8 @@ import {
   type OccurrenceDetail
 } from "../api/issue";
 import { OccurrenceRawEvidence } from "../components/OccurrenceEvidence";
-import { CopyCommand, ResolutionWorkflow } from "../components/ResolutionWorkflow";
+import { ResolutionWorkflow } from "../components/ResolutionWorkflow";
+import { OperatorChecks, OperatorVerification, StandardRestoration } from "../components/OperatorGuidance";
 import { EMBEDDED_PAGE_SIZES, pageSize } from "../pagination";
 
 const STATUS_OPTIONS = ["open", "resolved", "ignored"] as const;
@@ -232,7 +233,7 @@ function BooleanCheckpointSummary({ diagnosis }: { diagnosis: Diagnosis }) {
   const booleans = conditions.flatMap((condition) => rows(condition.booleans));
   const unique = [...new Map(booleans.map((boolean) => [text(boolean.name) ?? "Boolean", boolean])).values()];
   if (!unique.length) return <p className="issue-condition-summary">A conditional allow path was found; its boolean state is unavailable.</p>;
-  return <section className="issue-condition-summary" aria-label="Possible policy paths"><ul>{unique.slice(0, 3).map((boolean) => <li key={text(boolean.name)}><code>{text(boolean.name) ?? "Boolean"}</code><Label color={boolean.current === false ? "orange" : "grey"} isCompact>{typeof boolean.current === "boolean" ? boolean.current ? "On" : "Off" : "Unavailable"}</Label></li>)}</ul><small>At the associated checkpoint · {conditions.length > 1 ? "independent alternatives" : "conditional path"}</small></section>;
+  return <section className="issue-condition-summary" aria-label="Possible policy paths"><ul>{unique.slice(0, 3).map((boolean) => <li key={text(boolean.name)}><code>{text(boolean.name) ?? "Boolean"}</code><Label color={boolean.current === false ? "orange" : "grey"} isCompact>{typeof boolean.current === "boolean" ? boolean.current ? "On" : "Off" : "Unavailable"}</Label></li>)}</ul><small>At the associated historical checkpoint{diagnosis.checkpoint_observed_at && ` · ${diagnosis.checkpoint_observed_at}`} · {conditions.length > 1 ? "independent alternatives" : "conditional path"}; not latest runtime state or proposed fixes</small></section>;
 }
 
 function DiagnosisEvidence({ diagnosis }: { diagnosis: Diagnosis }) {
@@ -245,25 +246,8 @@ function DiagnosisEvidence({ diagnosis }: { diagnosis: Diagnosis }) {
 function LabelMismatchGuidance({ guidance }: { guidance: NonNullable<IssueDetailResponse["triage_guidance"]> }) {
   return <article className="issue-label-guidance">
     <Title headingLevel="h3" size="xl">{guidance.title}</Title>
-    <p>{guidance.summary}</p>
-    <p>Representative path: <code>{guidance.path}</code> · AVC label <code>{guidance.observed_type}</code> · {guidance.path_count} qualifying retained path(s).</p>
-    <p>The AVC label is historical. These inspection commands check current host configuration.</p>
-    <section aria-label="Inspect current configuration">
-      <h3>Inspect current configuration</h3>
-      {guidance.commands.filter((item) => item.action === "inspect").map((item) => <article key={item.action}>
-        <h4>{item.label}</h4>
-        <CopyCommand command={item.command} />
-      </article>)}
-    </section>
-    <section aria-label="Optional restoration after verification">
-      <h3>Optional restoration after verification</h3>
-      <p>Only restore labels after confirming the current object and configured label are appropriate for the workload. This mutates file labels using the host's configured mappings, including local customizations. It does not guarantee access will be allowed. SECentral does not execute these commands.</p>
-      {guidance.commands.filter((item) => item.action === "restore_targeted").map((item) => <article key={item.action}><h4>{item.label}</h4><CopyCommand command={item.command} /></article>)}
-      {guidance.recursive_directory && <details><summary>Broader alternative: recursive restoration</summary>
-        <p>Changes labels throughout <code>{guidance.recursive_directory}</code>, including files not represented by this issue. {guidance.recursive_path_count} of {guidance.path_count} qualifying retained paths lie beneath this directory; this is not occurrence or host coverage. Run separately on each verified affected host.</p>
-        {guidance.commands.filter((item) => item.action === "restore_recursive").map((item) => <CopyCommand key={item.action} command={item.command} />)}
-      </details>}
-    </section>
+    <p>Labeling may explain this access; the cause is not confirmed. Check the current object and configured context below.</p>
+    <details><summary>Why this investigation lead</summary><p>{guidance.summary}</p><p>{guidance.path_count} distinct qualifying paths; the investigation example is representative, not whole-issue coverage.</p></details>
   </article>;
 }
 
@@ -297,14 +281,14 @@ function DiagnosisTechnicalEvidence({ diagnosis }: { diagnosis: Diagnosis }) {
 }
 
 function diagnosisVariantDetail(diagnosis: Diagnosis | null | undefined): string | null {
-  if (!diagnosis) return "No evidence-backed explanation";
+  if (!diagnosis) return "Cause not confirmed";
   let detail: string | null;
   if (diagnosis.kind === "file_context_mismatch") detail = [diagnosis.path, diagnosis.observed_type && `${diagnosis.observed_type} → ${diagnosis.expected_type ?? "expected type unavailable"}`].filter(Boolean).join(" · ");
   else if (diagnosis.kind === "conditional_allow_inactive") {
     const conditions = rows(diagnosis.condition_boolean_states).flatMap((condition) => rows(condition.booleans).map((boolean) => `${text(boolean.name) ?? "Boolean"} ${typeof boolean.current === "boolean" ? (boolean.current ? "On" : "Off") : "state unavailable"}`));
     detail = [diagnosis.operation && permissionLabel(diagnosis.operation), diagnosis.destination_port && `TCP destination ${diagnosis.destination_port}`, diagnosis.bind_port && `TCP bind ${diagnosis.bind_port}`, ...conditions].filter(Boolean).join(" · ");
   }
-  else if (diagnosis.kind === "no_matching_allow") detail = `No matching allow for ${(diagnosis.permissions ?? []).join(", ")} on ${diagnosis.target_type ?? "target"}:${diagnosis.target_class ?? "class"}`;
+  else if (diagnosis.kind === "no_matching_allow") detail = `No matching allow for ${(diagnosis.permissions ?? []).join(", ")} on ${diagnosis.target_type ?? "target"}:${diagnosis.target_class ?? "class"}${diagnosis.path ? ` · example: ${diagnosis.path}` : ""}`;
   else detail = diagnosis.kind.replaceAll("_", " ");
   return detail;
 }
@@ -316,6 +300,7 @@ function FindingCard({ detail, onShowOccurrences }: { detail: IssueDetailRespons
   const hostId = typeof values.host_id === "number" ? values.host_id : null;
   const lead = diagnosis ? primaryFindingLead(diagnosis) : null;
   return <section aria-labelledby="finding-title" className="issue-section issue-primary-finding"><h2 id="finding-title">What SECentral found</h2>
+    {policy_analysis.status !== "evaluated" && <p role="status">Policy analysis: {displayState(policy_analysis.status)}. Retained facts and local checks remain available; this is not a completed policy assessment.</p>}
      {!diagnosis && triage_guidance ? <LabelMismatchGuidance guidance={triage_guidance} /> : diagnosis ? <article>
       <Title headingLevel="h3" size="xl">{diagnosis.kind === "conditional_allow_inactive" ? diagnosis.operation === "name_connect" ? rows(diagnosis.conditional_rules).length > 1 ? "Matching conditional policy paths were inactive" : "A matching conditional policy path was inactive" : diagnosis.operation === "read" ? "A matching SELinux rule exists, but its condition was inactive" : "A relevant SELinux allow rule was inactive" : diagnosis.title}</Title>
       {lead && diagnosis.kind !== "conditional_allow_inactive" && <p className="issue-finding-lead">{lead}</p>}
@@ -335,13 +320,13 @@ function fleetSummary(state: string, affectedHosts: number): string {
     consistent: "Same supported findings across recorded denials",
     disagreement: "Finding evidence varies between occurrences",
     partially_explained: "Some denials lack a supported finding",
-    insufficient_evidence: "Not every denial has a supported finding"
+    insufficient_evidence: "Some causes remain unconfirmed; use the investigation checks"
   } as Record<string, string>)[state] ?? "Occurrence findings unavailable";
   return ({
     consistent: "Same explanation across affected hosts",
     disagreement: "Explanations differ across affected hosts",
     partially_explained: "Some hosts are not fully explained",
-    insufficient_evidence: "No complete explanation across affected hosts"
+    insufficient_evidence: "Some host causes remain unconfirmed; inspect their evidence"
   } as Record<string, string>)[state] ?? "Host explanations unavailable";
 }
 
@@ -370,18 +355,20 @@ function MissingExplanation({
   ];
   return (
     <div className="issue-unexplained" role="status">
-      <p><strong>{hasFindings ? "Individual occurrences have findings, but no single issue-wide explanation is available." : "No evidence-backed explanation is available yet."}</strong></p>
-       <p>SELinux recorded target label <code>{issue.target_type}</code> for this denied access.</p>
+      <p><strong>{hasFindings ? "Individual occurrences have findings; check their scope." : "Cause not confirmed; start with the checks below."}</strong></p>
+      <p>SELinux recorded target label <code>{issue.target_type}</code> for this denied access.</p>
       {fileTarget && paths.length === 0 && <p><strong>No absolute path was retained.</strong> SECentral cannot compare the recorded label with expected path labeling without a complete path.</p>}
+      <details><summary>Retained evidence & analysis availability</summary>
        {fileTarget && paths.length > 0 && <p>Observed paths: {paths.slice(0, 3).map((path) => <span key={path}><code>{path}</code> </span>)}</p>}
       {fileTarget && names.length > 0 && <p>Resource examples: {names.slice(0, 3).join(", ")}. Inspect occurrences for individual evidence.</p>}
-      {fileTarget && paths.length > 0 && <p>An absolute path was retained, but no event-linked expected-context observation is available for a file-context comparison.</p>}
+      {fileTarget && paths.length > 0 && <p>No event-linked expected-context observation is available. Check current labeling on the host.</p>}
       {status === "pending" && <p>Policy evaluation is pending for the correlated occurrence.</p>}
       {status === "unavailable" && <p>Policy knowledge is unavailable for the correlated occurrence.</p>}
       {status === "error" && <p>Policy evaluation encountered an error; treat policy knowledge as unavailable until it can be checked.</p>}
       {limitations.map((limitation) => <p key={limitation}>{limitation.replaceAll("_", " ")}</p>)}
       {!status && limitations.length === 0 && <p>Review the occurrence evidence and policy availability for the affected host.</p>}
       <div className="issue-next-check"><h3>Check next</h3><ul>{nextChecks.map((check) => <li key={check}>{check}</li>)}</ul></div>
+      </details>
     </div>
   );
 }
@@ -408,14 +395,14 @@ function FleetSection({
       <ul className="issue-host-explanations">
         {hostExplanations.map((host) => {
           const groups = host.diagnosis_groups ?? [];
-          const titles = groups.map((group) => group.diagnosis?.title ?? "No explanation");
+          const titles = groups.map((group) => group.diagnosis?.title ?? "Cause not confirmed");
           const unexplained = host.unexplained_occurrence_count;
-          let summary = host.diagnosis?.title ?? "No complete explanation for every occurrence";
+          let summary = host.diagnosis?.title ?? "Some occurrence causes remain unconfirmed";
           if (host.status === "disagreement") {
             const patterns = groups.length + host.additional_diagnosis_group_count;
             summary = `${titles.length ? [...new Set(titles)].join("; ") : "Different occurrence evidence"}${patterns > 1 ? ` · ${patterns} explanations` : ""}${unexplained ? `; ${unexplained} without a complete explanation` : ""}`;
           } else if (host.status === "insufficient_evidence") {
-            summary = `${titles.join("; ") || "Explanation unavailable"}${unexplained ? ` · ${unexplained} occurrence${unexplained === 1 ? "" : "s"} without a finding` : ""}`;
+            summary = `${titles.join("; ") || "Cause not confirmed"}${unexplained ? ` · ${unexplained} occurrence${unexplained === 1 ? "" : "s"} awaiting a supported finding` : ""}`;
           }
           const occurrenceSummary = host.status === "disagreement"
             ? `Mixed findings across ${host.occurrence_count} occurrences`
@@ -428,8 +415,7 @@ function FleetSection({
             <small>{occurrenceSummary}</small>
             {host.status !== "agreement" && host.diagnosis && diagnosisVariantDetail(host.diagnosis) && <small>{diagnosisVariantDetail(host.diagnosis)}</small>}
             {(host.status === "disagreement" || groups.some((group) => (group.policy_provenance ?? []).length > 0)) && groups.length > 0 && <ul className="issue-diagnosis-groups">{groups.map((group, index) => <li key={`${group.diagnosis?.kind ?? "unknown"}-${index}`}>
-              <strong>{group.diagnosis?.title ?? "No explanation"}</strong> · {group.count} occurrence{group.count === 1 ? "" : "s"}
-              {host.status === "disagreement" && diagnosisVariantDetail(group.diagnosis) && <small>{diagnosisVariantDetail(group.diagnosis)}</small>}
+              <strong>{diagnosisVariantDetail(group.diagnosis) ?? "Cause not confirmed"}</strong> · {group.count} occurrence{group.count === 1 ? "" : "s"}
               {((group.policy_provenance ?? []).length > 0 || group.sample_occurrence_ids.length > 0) && <details className="issue-group-provenance">
                 <summary>Technical provenance</summary>
                 {group.sample_occurrence_ids.length > 0 && <p>Example occurrence{group.sample_occurrence_ids.length === 1 ? "" : "s"}: {group.sample_occurrence_ids.map((occurrenceId) => `#${occurrenceId}`).join(", ")}</p>}
@@ -547,6 +533,8 @@ export function IssueDetail() {
   const [savingStatus, setSavingStatus] = useState(false);
   const [savingDisposition, setSavingDisposition] = useState(false);
   const [workflowError, setWorkflowError] = useState<string | null>(null);
+  const [showKeepRestriction, setShowKeepRestriction] = useState(false);
+  const [acknowledgementSaved, setAcknowledgementSaved] = useState(false);
 
   const changeStatus = async (status: typeof STATUS_OPTIONS[number]) => {
     setSavingStatus(true);
@@ -561,16 +549,17 @@ export function IssueDetail() {
     }
   };
 
-  const applyDisposition = async () => {
+  const applyDisposition = async (keepRestriction = false) => {
     const issue = detailQuery.data?.issue;
     if (!issue) return;
     setSavingDisposition(true);
     setWorkflowError(null);
     try {
-      await updateIssueDisposition(issueId, pendingDisposition ?? issue.disposition, dispositionNote.trim() || undefined);
+      await updateIssueDisposition(issueId, keepRestriction ? issue.disposition : pendingDisposition ?? issue.disposition, dispositionNote.trim() || undefined);
       await queryClient.invalidateQueries({ queryKey: ["issue", issueId] });
       setPendingDisposition(null);
       setDispositionNote("");
+      if (keepRestriction) setAcknowledgementSaved(true);
     } catch (error) {
       setWorkflowError(error instanceof Error ? error.message : "Could not update disposition");
     } finally {
@@ -622,8 +611,22 @@ export function IssueDetail() {
       <ResolutionWorkflow issueId={issueId} stage="observed" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} />
 
       <FindingCard detail={detailQuery.data} onShowOccurrences={() => setShowOccurrences(true)} />
+      <OperatorChecks detail={detailQuery.data} />
 
-      <ResolutionWorkflow issueId={issueId} stage="intent" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} />
+      <ResolutionWorkflow issueId={issueId} stage="intent" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} detail={detailQuery.data}>
+        {!diagnosis && detailQuery.data.triage_guidance ? <StandardRestoration detail={detailQuery.data} /> : undefined}
+      </ResolutionWorkflow>
+      <section className="issue-section" aria-label="Keep restriction">
+        <Button variant="secondary" onClick={() => setShowKeepRestriction(!showKeepRestriction)} isExpanded={showKeepRestriction}>Keep restriction</Button>
+        {showKeepRestriction && <div className="pf-v6-u-mt-sm">
+          <p>Record why this access should remain denied. This saves a note without declaring it harmless, changing policy or marking the issue resolved. Use Actions to review classification or optionally ignore future attention.</p>
+          {workflowError && <Alert variant="danger" isInline title="Could not save acknowledgement">{workflowError}</Alert>}
+          <TextInput aria-label="Restriction note" value={dispositionNote} onChange={(_event, value) => { setDispositionNote(value); setAcknowledgementSaved(false); }} />
+          <Button variant="secondary" isDisabled={savingDisposition || !dispositionNote.trim()} onClick={() => void applyDisposition(true)}>Save acknowledgement</Button>
+          {acknowledgementSaved && <p role="status">Acknowledgement saved. Restriction and lifecycle status unchanged.</p>}
+        </div>}
+      </section>
+      <OperatorVerification detail={detailQuery.data} />
       </div>
       <ResolutionWorkflow issueId={issueId} stage="context" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} detail={detailQuery.data} onShowTechnicalEvidence={() => setTechnicalEvidenceIssueId(issueId)} />
       </div>

@@ -1,6 +1,7 @@
 import { Alert, Button, Label, Spinner, TextInput } from "@patternfly/react-core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import ShieldAltIcon from "@patternfly/react-icons/dist/esm/icons/shield-alt-icon";
 import CheckCircleIcon from "@patternfly/react-icons/dist/esm/icons/check-circle-icon";
 import ExclamationTriangleIcon from "@patternfly/react-icons/dist/esm/icons/exclamation-triangle-icon";
@@ -34,7 +35,8 @@ function optionTitle(basis: Record<string, unknown>, title: string) {
 function ChangePlanStep({ step, number }: { step: PlanData["preview_steps"][number]; number?: number }) {
   return <article className="change-plan-step"><header>{number != null && <span className="step-number">{number}</span>}<h3>{step.title}</h3>
     <Label color={step.persistence === "persistent" ? "orange" : "blue"} isCompact>{step.persistence === "persistent" ? "Persistent · optional" : step.persistence === "temporary" ? "Runtime only" : step.title.toLowerCase().includes("preview") ? "Non-mutating preview" : step.persistence === "inspection" ? "Inspect" : "Single object"}</Label></header>
-    <CopyCommand command={step.command} /><p className="step-detail">{step.explanation}</p></article>;
+    {step.persistence !== "inspection" && <Label color="orange">{step.persistence === "configured_label" ? "Changes file labels" : "Changes host-wide Boolean"}</Label>}
+    <p className="step-detail">{step.explanation}</p><CopyCommand command={step.command} /></article>;
 }
 
 function ChangePlan({ plan }: { plan: PlanData }) {
@@ -42,11 +44,11 @@ function ChangePlan({ plan }: { plan: PlanData }) {
   return <section className="selected-change-plan" aria-label="Selected change plan"><header className="workbench-section-header"><h2>Selected change plan</h2><Label color="blue">Reviewed · current</Label></header>
     <h3 className="plan-title">{optionTitle(plan.evidence_basis, plan.title)}</h3>
     <div className="plan-scope"><ShieldAltIcon aria-hidden="true" /><strong>{file ? "Single evidenced object · no recursion" : "Host-wide SELinux boolean"}</strong><a href="#plan-rollback">Rollback ↓</a></div>
-    <p className="plan-warning"><ExclamationTriangleIcon aria-hidden="true" /> {file ? "Current object has not been verified. Inspect it and its configured label before proceeding." : "May affect other policy rules beyond this occurrence."}</p>
-    <p>{plan.expected_effect}</p><p>{plan.persistence}</p>
-    <details className="plan-mechanism"><summary>Why this affects the denial</summary><p>{plan.explanation}</p><p>{plan.scope_description}</p><p>{plan.scope_warning}</p></details>
+    {!file && <><p className="plan-warning"><ExclamationTriangleIcon aria-hidden="true" /> May affect other policy rules beyond this occurrence.</p><p>{plan.expected_effect}</p><p>{plan.persistence}</p><p>{plan.scope_warning}</p></>}
+    <p>{plan.scope_description}</p>
+    <details className="plan-mechanism"><summary>Why this affects the denial</summary><p>{plan.explanation}</p></details>
     <div className="plan-steps" id="plan-inspection">{plan.preview_steps.map((step, i) => <ChangePlanStep key={step.command} step={step} number={i + 1} />)}
-      {file ? <details className="file-apply-disclosure"><summary>Apply — only after successful inspection</summary><p>Stop if the object is missing, replaced, or not the intended resource.</p>{plan.apply_steps.map((step, i) => <ChangePlanStep key={step.command} step={step} number={plan.preview_steps.length + i + 1} />)}</details>
+      {file ? <details className="file-apply-disclosure"><summary>Apply — only after successful inspection</summary><p>Current object has not been verified. Stop if it is missing, replaced, not intended here, or its configured label is unsuitable.</p><p>{plan.scope_warning}</p><p>{plan.expected_effect}</p><p>{plan.persistence}</p>{plan.apply_steps.map((step, i) => <ChangePlanStep key={step.command} step={step} number={plan.preview_steps.length + i + 1} />)}</details>
         : plan.apply_steps.map((step, i) => <ChangePlanStep key={step.command} step={step} number={plan.preview_steps.length + i + 1} />)}</div>
     <section className="plan-rollback" id="plan-rollback"><h3>Rollback</h3>{plan.rollback_steps.map((step) => <ChangePlanStep key={step.command} step={step} />)}<p>{plan.rollback_description}</p></section>
     <details className="plan-uncertainty"><summary>Remaining uncertainty</summary><ul>{plan.limitations.map((text) => <li key={text}>{text}</li>)}</ul></details>
@@ -62,17 +64,18 @@ function ResolutionCandidateCard({ candidate, selected, freshness, busy, onSelec
   const [confirming, setConfirming] = useState(false);
   const basis = candidate.evidence_basis;
   const boolean = evidenceRecord(basis.current_boolean);
-  const state = typeof boolean.current === "boolean" ? boolean.current ? "On" : "Off" : "Not verified";
+  const state = boolean.status && boolean.status !== "observed" ? `Not verified (${String(boolean.status)})` : typeof boolean.current === "boolean" ? boolean.current ? "On" : "Off" : "Not verified";
   const unavailable = candidate.status !== "proposed";
   const path = valueText(basis.path);
   const current = selected && freshness === "current";
   return <article className={`resolution-candidate-card ${selected ? "resolution-selected" : ""} ${unavailable ? "candidate-muted" : ""}`} aria-label={optionTitle(basis, candidate.title)}>
     <header><ShieldAltIcon aria-hidden="true" /><h3>{path ?? (unavailable && valueText(basis.boolean) ? String(basis.boolean) : optionTitle(basis, candidate.title))}</h3>{selected && <Label color={current ? "blue" : "orange"} icon={<CheckCircleIcon />}>{current ? "Selected · current" : "Selected · review required"}</Label>}</header>
     {path ? <p className="candidate-label-change"><code>{valueText(basis.observed_context)?.split(":")[2] ?? "Observed label"}</code><span aria-label="to">→</span><code>{valueText(basis.expected_context)?.split(":")[2] ?? "Expected label"}</code></p>
-      : <p className="candidate-relevance">{unavailable && state === "On" ? "This capability is already enabled." : "Matching independent policy path"}</p>}
-    <dl className="candidate-facts">{!path && <div><dt>Current state</dt><dd><Label color={state === "Off" ? "orange" : "grey"} isCompact>{state}</Label></dd></div>}<div><dt>Scope</dt><dd>{candidate.scope_kind === "host_boolean" ? "Host-wide boolean" : "Targeted path relabel"}</dd></div><div><dt>Host</dt><dd>{candidate.hostname ?? "Host not recorded"}</dd></div></dl>
-    <p className="candidate-breadth">{candidate.scope_kind === "host_boolean" ? "Can enable broader access through other policy rules; not limited to this occurrence or destination." : "Inspect the object and configured label before applying. This changes one object, without recursion."}</p>
-    {unavailable ? <p className="candidate-unavailable">{state === "On" ? "Enabling it is not a current resolution option." : "Current retained evidence does not support an actionable plan."}</p>
+      : <p className="candidate-relevance">{unavailable && state === "On" ? "Latest observation recorded this capability On." : "Matching independent policy path"}</p>}
+    <dl className="candidate-facts">{!path && <><div><dt>Historical checkpoint</dt><dd>Off{valueText(basis.checkpoint_observed_at) && <> · {String(basis.checkpoint_observed_at)}</>}</dd></div><div><dt>Latest observed state</dt><dd><Label color={state === "Off" ? "orange" : "grey"} isCompact>{state}</Label>{candidate.latest_observed_at && <> · <time dateTime={candidate.latest_observed_at}>{candidate.latest_observed_at}</time></>} · stored observation, not a fresh host inspection</dd></div></>}<div><dt>Scope</dt><dd>{candidate.scope_kind === "host_boolean" ? "Host-wide boolean" : "Targeted path relabel"}</dd></div><div><dt>Host</dt><dd>{candidate.hostname ?? "Host not recorded"}</dd></div>{typeof basis.occurrence_id === "number" && <div><dt>Evidence example</dt><dd><Link to={`/hosts/${candidate.host_id}/occurrences/${basis.occurrence_id}`}>Occurrence #{basis.occurrence_id}</Link></dd></div>}</dl>
+    {candidate.scope_kind === "host_boolean" && <p className="candidate-breadth">Can enable broader access through other policy rules; not limited to this occurrence or destination.</p>}
+    {candidate.presentation_reason && <p>{candidate.presentation_reason}</p>}
+    {unavailable ? <p className="candidate-unavailable">{candidate.unavailable_reason ?? (state === "On" ? "Enabling it is not a current resolution option. Check current runtime state and retry the intended workload first." : "Current retained evidence does not support an actionable plan.")}</p>
       : current ? <span className="selected-association"><CheckCircleIcon aria-hidden="true" /> Selected plan below</span>
         : confirming ? <div className="intent-confirmation"><p>{candidate.intent_prompt}</p><Button variant="primary" isDisabled={busy} onClick={() => onSelect(candidate)}>Confirm intent</Button><Button variant="link" onClick={() => setConfirming(false)}>Cancel</Button></div>
           : <><Button variant="primary" isDisabled={busy} onClick={() => setConfirming(true)}>{selected ? "Review updated option" : path ? "Choose this path" : "Choose intent"}</Button><p className="workbench-caption">Review this option to see copyable inspection and change commands.</p></>}
@@ -85,7 +88,7 @@ function CandidateGroup({ candidates, workflow, busy, onSelect }: { candidates: 
   const others = candidates.filter((c) => c.kind !== "restore_configured_label");
   const card = (candidate: Candidate) => <ResolutionCandidateCard key={candidate.id} candidate={candidate} selected={workflow.intent?.candidate_id === candidate.id} freshness={workflow.freshness} busy={busy} onSelect={onSelect} />;
   if (labels.length === 1 && workflow.intent?.candidate_id === labels[0].id && !others.length) return card(labels[0]);
-  return <>{labels.length > 0 && <section className="candidate-group" aria-label="Restore configured SELinux labeling"><h3>Restore configured SELinux labeling <span aria-hidden="true">· </span><small>{labels.length} path{labels.length === 1 ? "" : "s"} with retained candidates</small></h3><div className="candidate-grid candidate-paths">{labels.map(card)}</div></section>}
+  return <>{labels.length > 0 && <section className="candidate-group" aria-label="Restore configured SELinux labeling"><h3>Restore configured SELinux labeling <span aria-hidden="true">· </span><small>{labels.length} host/path candidate{labels.length === 1 ? "" : "s"}</small></h3><div className="candidate-grid candidate-paths">{labels.map(card)}</div></section>}
     {others.length > 0 && <div className="candidate-grid">{others.map(card)}</div>}</>;
 }
 
@@ -138,7 +141,7 @@ function DraftWorkspace({ issueId, occurrenceId }: { issueId: number; occurrence
   </section>;
 }
 
-export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpdatedAt, detail, onShowTechnicalEvidence }: { issueId: number; stage: "observed" | "intent" | "context"; initialData?: Workflow; initialDataUpdatedAt?: number; detail?: IssueDetailResponse; onShowTechnicalEvidence?: () => void }) {
+export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpdatedAt, detail, onShowTechnicalEvidence, children }: { issueId: number; stage: "observed" | "intent" | "context"; initialData?: Workflow; initialDataUpdatedAt?: number; detail?: IssueDetailResponse; onShowTechnicalEvidence?: () => void; children?: ReactNode }) {
   const client = useQueryClient();
   const query = useQuery({ queryKey: ["issue-resolutions", issueId], queryFn: () => fetchResolutions(issueId), initialData, initialDataUpdatedAt, staleTime: 30_000 });
   const [busy, setBusy] = useState(false);
@@ -161,15 +164,26 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
   if (stage === "context") return detail ? <ContextSidebar detail={detail} workflow={workflow} onShowTechnicalEvidence={onShowTechnicalEvidence} /> : null;
   const selected = workflow.candidates.find((c) => c.id === workflow.intent?.candidate_id);
   const alternatives = workflow.candidates.filter((c) => c.id !== selected?.id);
+  const source = detail?.operator_guidance?.source;
+  const sameExample = (c: Candidate) => !source || (c.host_id === source.host_id && (!valueText(c.evidence_basis.path) || c.evidence_basis.path === source.path));
+  const exampleOptions = alternatives.filter(sameExample);
+  const primaryOptions = exampleOptions.filter((c) => c.presentation !== "technical_alternative");
+  const technicalOptions = exampleOptions.filter((c) => c.presentation === "technical_alternative");
+  const otherExamples = alternatives.filter((c) => !sameExample(c));
   const choose = (c: Candidate) => void run(() => selectIntent(issueId, c.id, c.evidence_version));
   return <>
-    <section className="resolution-options" aria-label="Resolution options"><header className="workbench-section-header"><h2>Resolution options</h2>{workflow.intent && <Button variant="link" isDisabled={busy} onClick={() => void run(() => clearIntent(issueId))}>Clear selected intent</Button>}</header>
+    <section className="resolution-options" aria-label="Resolution options"><header className="workbench-section-header"><h2>Possible fix</h2>{workflow.intent && <Button variant="link" isDisabled={busy} onClick={() => void run(() => clearIntent(issueId))}>Clear selected intent</Button>}</header>
       <p className="workbench-caption">Commands are for operator review and configuration management. SECentral does not apply changes.</p>
       {error && <Alert variant="danger" isInline title="Intent update failed">{error}</Alert>}
       {workflow.freshness && workflow.freshness !== "current" && <div className="stale-plan" role="alert"><h3><ExclamationTriangleIcon aria-hidden="true" /> {workflow.freshness === "no_longer_supported" ? "Plan no longer supported" : "Evidence changed"}</h3><p>This plan was reviewed against older SELinux state. Commands are hidden until the updated evidence is reviewed.</p><EvidenceChangeSummary workflow={workflow} /><strong>Review this option again before using its commands.</strong></div>}
-      {!workflow.candidates.length && <p>No mechanically supported resolution candidate is available from retained evidence.</p>}
-      {selected ? <><CandidateGroup candidates={[selected]} workflow={workflow} busy={busy} onSelect={choose} />{alternatives.length > 0 && <details className="other-options"><summary>Other options · {alternatives.length}</summary><CandidateGroup candidates={alternatives} workflow={workflow} busy={busy} onSelect={choose} /></details>}</>
-        : <><CandidateGroup candidates={workflow.candidates} workflow={workflow} busy={busy} onSelect={choose} /><p className="workbench-caption">You can choose neither and continue investigating.</p></>}
+      {detail?.operator_guidance && <p>{detail.operator_guidance.possible_fix}</p>}
+      {children}
+      {!workflow.candidates.length && !children && <p>No reviewed change plan yet. Use the checks above and review the workload configuration with its operator; a manual next step can be appropriate.</p>}
+      {selected && <>{!sameExample(selected) && <p>The reviewed plan below is for another host/path example. The investigation checks above remain scoped to their linked example; use the selected plan's own inspection steps.</p>}<CandidateGroup candidates={[selected]} workflow={workflow} busy={busy} onSelect={choose} /></>}
+      {selected ? exampleOptions.length > 0 && <details className="other-options"><summary>Other options · {exampleOptions.length}</summary><CandidateGroup candidates={exampleOptions} workflow={workflow} busy={busy} onSelect={choose} /></details>
+        : <><CandidateGroup candidates={primaryOptions} workflow={workflow} busy={busy} onSelect={choose} />{technicalOptions.length > 0 && <details className="other-options"><summary>Technical policy alternatives · {technicalOptions.length}</summary><p>A matching policy path alone does not establish a suitable fix. These rules match through a source attribute; confirm their purpose and broader effects.</p><CandidateGroup candidates={technicalOptions} workflow={workflow} busy={busy} onSelect={choose} /></details>}</>}
+      {otherExamples.length > 0 && <details className="other-options"><summary>Other host/path examples · {otherExamples.length}</summary><p>Separate evidence and inspection scope; do not apply the selected example's results to these resources.</p><CandidateGroup candidates={otherExamples} workflow={workflow} busy={busy} onSelect={choose} /></details>}
+      {workflow.candidates.length > 0 && !selected && <p className="workbench-caption">You can choose neither and continue investigating.</p>}
     </section>
     {workflow.change_plan && workflow.freshness === "current" && <ChangePlan plan={workflow.change_plan} />}
     <details className="other-approaches"><summary>Intent history & policy draft</summary>
