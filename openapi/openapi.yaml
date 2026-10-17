@@ -1784,7 +1784,7 @@ components:
         unavailable_reason: {type: string, description: Specific prerequisite preventing an actionable plan}
         latest_observed_at: {type: [string, 'null'], format: date-time, description: Latest stored host observation time, not a new inspection}
         id: {type: string}
-        kind: {type: string, enum: [restore_configured_label, enable_boolean]}
+        kind: {type: string, enum: [restore_configured_label, enable_boolean, set_port_mapping]}
         title: {type: string}
         explanation: {type: string}
         finding_kind: {type: string}
@@ -1794,7 +1794,7 @@ components:
         evidence_version: {type: string}
         plan_semantics_version: {type: integer, minimum: 1, description: Explicit server plan-generation semantics version}
         intent_prompt: {type: string}
-        scope_kind: {type: string, enum: [single_object, host_boolean]}
+        scope_kind: {type: string, enum: [single_object, host_boolean, host_port]}
         scope_description: {type: string}
         scope_warning: {type: string}
         expected_effect: {type: string}
@@ -1820,11 +1820,12 @@ components:
         title: {type: string}
         command: {type: string}
         explanation: {type: string}
-        persistence: {type: string, enum: [inspection, configured_label, temporary, persistent]}
+        persistence: {type: string, enum: [inspection, configured_label, temporary, persistent, port_mapping]}
     ChangePlan:
       type: object
       required: [id, title, explanation, scope_kind, scope_description, scope_warning, expected_effect, limitations, evidence_basis, evidence_version, preview_steps, apply_steps, rollback_steps, rollback_description, persistence]
       properties:
+        verification_steps: {type: array, items: {$ref: "#/components/schemas/ChangePlanStep"}}
         id: {type: string}
         title: {type: string}
         explanation: {type: string}
@@ -1857,10 +1858,50 @@ components:
         operation_label: {type: string}
         outcome: {type: string, enum: [DENIED]}
         observed_at: {type: string, format: date-time}
+    PortMappingRange:
+      type: object
+      required: [type, start, end, provenance]
+      properties:
+        type: {type: string}
+        start: {type: integer, minimum: 0, maximum: 65535}
+        end: {type: integer, minimum: 0, maximum: 65535}
+        provenance: {type: [string, 'null']}
+    PortInvestigation:
+      type: object
+      required: [host_id, hostname, occurrence_id, protocol, port, operation, observed_type, state, reason, types, type_count]
+      properties:
+        host_id: {type: integer}
+        hostname: {type: [string, 'null']}
+        occurrence_id: {type: integer}
+        protocol: {type: string, enum: [tcp, udp]}
+        port: {type: [integer, 'null'], minimum: 1, maximum: 65535}
+        operation: {type: string, enum: [name_bind, name_connect]}
+        observed_type: {type: string}
+        state: {type: string, enum: [ready, blocked, pending, error, unavailable, no_change]}
+        reason: {type: string}
+        latest_observed_at: {type: [string, 'null'], format: date-time}
+        inventory_status: {type: string}
+        local_status: {type: string}
+        current_mappings: {type: array, items: {$ref: "#/components/schemas/PortMappingRange"}}
+        type_count: {type: integer, minimum: 0}
+        types:
+          type: array
+          items:
+            type: object
+            required: [type, permission, state, explanation, existing_endpoints]
+            properties:
+              type: {type: string}
+              permission: {type: string}
+              state: {type: string, enum: [supported, conditional, no_op]}
+              explanation: {type: string}
+              existing_endpoints: {type: array, items: {$ref: "#/components/schemas/PortMappingRange"}}
     ResolutionWorkflow:
       type: object
       required: [candidates, rejected_candidates, observed_access, intent, freshness, change_plan, history]
       properties:
+        port_investigations:
+          type: array
+          items: {$ref: "#/components/schemas/PortInvestigation"}
         candidates: {type: array, items: {$ref: "#/components/schemas/ResolutionCandidate"}}
         rejected_candidates:
           type: array
@@ -4506,6 +4547,9 @@ components:
               type: [string, "null"]
             observed_type:
               type: [string, "null"]
+            protocol: {type: string, enum: [tcp, udp]}
+            port: {type: [integer, 'null'], minimum: 1, maximum: 65535}
+            operation: {type: string, enum: [name_bind, name_connect]}
         checks:
           type: array
           items:

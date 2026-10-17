@@ -20,6 +20,8 @@ class PolicyRuleEvaluator
       file.binmode
       file.write(@artifact.artifact)
       file.flush
+      return port_allows(file.path) if @fact.query_kind == PolicyFact::PORT_QUERY_KIND
+
       version, _, version_status = SetoolsProcess.call("sesearch", "--version")
       return unavailable("SETools sesearch is unavailable") unless version_status.success?
 
@@ -47,6 +49,37 @@ class PolicyRuleEvaluator
   end
 
   private
+
+  def port_allows(path)
+    raise "Invalid port policy question" unless @fact.target_type == "port_type" &&
+      @fact.object_class.in?(%w[tcp_socket udp_socket]) && @fact.permission.in?(%w[name_bind name_connect])
+
+    output, error, status = SetoolsProcess.call("python3", Rails.root.join("script/policy_port_allows.py").to_s,
+      path, @fact.source_type, @fact.object_class, @fact.permission)
+    raise(error.presence || "Port policy evaluation failed") unless status.success?
+
+    result = JSON.parse(output)
+    rows = result.fetch("rules")
+    raise "Invalid port policy result" unless rows.is_a?(Array) && result["evaluator_version"].is_a?(String)
+
+    details = rows.map do |row|
+      match = RULE.match(row.fetch("rule"))
+      types = row.fetch("target_types")
+      raise "Invalid port allow rule" unless match && match[3] == @fact.object_class &&
+        match[4].delete("{}").split.include?(@fact.permission) && types.is_a?(Array) && types.any? &&
+        types.all? { |type| type.is_a?(String) && type.match?(PolicyFactRequest::TYPE_FORMAT) }
+
+      rule_details(row["rule"]).merge("target_types" => types.uniq.sort)
+    end
+    contexts = result.fetch("port_contexts")
+    raise "Invalid policy port contexts" unless contexts.is_a?(Array) && contexts.all? do |context|
+      context.is_a?(Hash) && context["type"].is_a?(String) && context["type"].match?(PolicyFactRequest::TYPE_FORMAT) &&
+        context["start"].is_a?(Integer) && context["end"].is_a?(Integer) && context["start"].between?(0, 65_535) && context["end"].between?(context["start"], 65_535)
+    end
+    details << { "kind" => "port_contexts", "protocol" => @fact.object_class.delete_suffix("_socket"), "mappings" => contexts }
+    { status: rows.empty? ? "no_match" : "matched", matching_rules: rows.map { |row| row["rule"] },
+      rule_details: details, evaluator_version: result["evaluator_version"], error_message: nil }
+  end
 
   def rule_details(rule)
     match = RULE.match(rule)

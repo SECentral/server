@@ -75,6 +75,8 @@ class ResolutionWorkflow
       reason = candidate&.dig(:unavailable_reason)
       reason ||= if intent.candidate_kind == "restore_configured_label"
         "The selected host/path no longer has an eligible configured-label mismatch. Review its retained path and latest expected-context observations for missing, agreeing or conflicting context evidence."
+      elsif intent.candidate_kind == "set_port_mapping"
+        "The selected port mapping no longer meets its policy, current mapping or conflict prerequisites. Check the selected host/protocol/port investigation; no stale mapping commands are exposed."
       else
         "The selected host no longer has an eligible inactive positive conditional path with observed Off state. Review its policy and Boolean evidence."
       end

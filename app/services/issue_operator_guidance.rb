@@ -50,11 +50,16 @@ class IssueOperatorGuidance
       checks << check("Current listeners", denial.target_class == "udp_socket" ? "ss -lunp" : "ss -ltnp", "Check the intended listening address, port and owner. No listener alone does not establish the cause; a shell connection does not test confined workload access.") if permissions.include?("name_bind")
       checks << check("Configured port classifications", "semanage port -l", "Find the observed protocol/port in the current ranges. Classification alone does not establish which type is appropriate.")
       checks << check("Local port customizations", "semanage port -l -C", "Review local overrides before considering any manual configuration change.")
+      endpoint = PortMappingGuidance.endpoint(denial)
+      if endpoint && denial.source_type.to_s.match?(/\A[A-Za-z][A-Za-z0-9_]*\z/)
+        checks << check("Current local policy alternatives", "sesearch -A -s #{Shellwords.escape(denial.source_type)} -c #{denial.target_class} -p #{endpoint[:operation]} -C",
+          "Queries the host's currently loaded policy, not the stored checkpoint. Inspect target attributes and conditions; a matching rule does not establish service intent or an appropriate replacement classification. Use this when central evaluation is pending or failed.")
+      end
     end
     manual, possible_fix, verification = next_steps(denial, permissions, path)
     {
       source: { occurrence_id: occurrence.id, host_id: occurrence.host_id, hostname: occurrence.host.hostname,
-        occurred_at: occurrence.occurred_at, path: path, observed_type: denial.target_type },
+        occurred_at: occurrence.occurred_at, path: path, observed_type: denial.target_type }.merge(PortMappingGuidance.endpoint(denial) || {}),
       checks: checks, manual_check: manual, possible_fix: possible_fix, verification: verification,
       verification_limit: "Absence of new AVCs alone proves neither workload success nor safety. Record the test time and check fresh AVCs, enforcement/domain permissiveness and event-delivery health.",
       restriction: "If this access is unwanted, keep it denied and correct the calling workload or exposure. Verify the unwanted operation remains denied and legitimate work still succeeds. Acknowledge your decision with a note; intentional denial does not mean harmless or fixed."
@@ -79,11 +84,11 @@ class IssueOperatorGuidance
     object_class = denial.target_class
     if permissions.include?("name_bind")
       ["Confirm the service's intended listener and inspect its actual configuration; the unit and desired endpoint are not established by this denial.",
-       "Correct an accidental listener setting using the service's normal configuration procedure. For a required nonstandard port, request a policy/mapping review; do not enable an unrelated Boolean merely because its rule matches. No port-mapping change is generated here.",
+       "Compare correcting unintended Listen configuration, using an appropriate existing endpoint, reviewing a relevant Boolean, or classifying a required nonstandard port. Mapping options require exact policy support and complete effective/local range evidence; they are not always preferable. Do not enable an unrelated Boolean merely because its rule matches. Generated options are not exhaustive.",
        "After an approved configuration validation and reload/restart, check the intended listener address/port and application response. Check that no unintended interface is exposed; account for service interruption."]
     elsif permissions.include?("name_connect")
       ["Confirm the actual backend destination in workload configuration; a port number does not identify its IP or service. Test through the confined workload, not only a shell client.",
-       "Check the relevant Boolean's current runtime state and retry the intended workload first if the capability is already observed On. If a change is still needed, review a supported Boolean option's broader host-wide effects. Otherwise correct/remove the unintended connection. Matching policy paths are alternatives, not a request to enable them all.",
+       "Check the relevant Boolean's current runtime state and retry the intended workload first if the capability is already observed On. Otherwise compare correcting an unintended destination, using an appropriate existing endpoint, reviewing a relevant Boolean or an evidence-backed port classification. A mapping affects host protocol/port classification, not a remote IP or firewall. Matching policy paths are alternatives, not a request to enable them all; generated options are not exhaustive.",
        "Retry the same application or proxy request through the affected workload and verify the intended backend response. A successful shell connection alone is insufficient."]
     elsif (permissions & %w[execute entrypoint execute_no_trans transition]).any?
       ["Confirm the intended launch and executable identity, including the requested execution context. An entrypoint/execute denial is not a web-read violation and does not establish an intended destination domain or failed transition.",
@@ -91,7 +96,7 @@ class IssueOperatorGuidance
        "Retry only the intended launch and verify its expected status and output, not just absence of denials. If resulting-domain behavior matters, inspect the actual child process context separately. For a confirmed CGI workload, retry its actual request."]
     elsif %w[file dir lnk_file fifo_file chr_file blk_file sock_file].include?(object_class)
       fix = if !path && denial.source_type == "httpd_t" && denial.target_type == "user_home_t" && (permissions & %w[read open]).any?
-        "Identify the object and decide whether serving home-directory content is intentional. If intended, review the home-content Boolean option and its broader host-wide read access. If website content was misplaced or exposed accidentally, investigate deployment paths and web configuration instead of broadening access. No path-specific restoration is supported without a retained absolute path."
+        "Identify the object and decide whether serving home-directory content is intentional. Once the path is known, inspect its current label (ls -ldZ), configured context (matchpathcon), and read-only restoration preview (restorecon -n -v) on the selected host. Restore only if current labeling differs from suitable configured labeling; do not relabel intentional home content merely to allow access. If serving home content is intended, compare the home-content Boolean's broader host-wide read access with workload configuration changes. If website content was misplaced or exposed accidentally, investigate deployment paths and web configuration instead of broadening access. No path-specific restoration command is supported without a retained absolute path."
       elsif !path
         "Identify the object and its intended use before choosing a labeling or policy change. No path-specific restoration is supported without a retained absolute path."
       else

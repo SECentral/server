@@ -272,7 +272,7 @@ describe("Evidence-driven resolution UI", () => {
     expect(screen.getByText(primary.unavailable_reason)).toBeVisible();
     expect(screen.getByText("/var/www/content")).not.toBeVisible();
     expect(screen.getByText("/srv/another")).not.toBeVisible();
-    expect(screen.getByText("Other host/path examples · 2")).toBeVisible();
+    expect(screen.getByText("Other host/resource examples · 2")).toBeVisible();
     const card = screen.getByText("/srv/launch").closest("article")!;
     expect(within(card).getByRole("link", { name: "Occurrence #2" })).toHaveAttribute("href", "/hosts/2/occurrences/2");
     expect(within(card).queryByRole("button", { name: "Choose this path" })).not.toBeInTheDocument();

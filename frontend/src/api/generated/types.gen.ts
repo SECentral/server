@@ -171,7 +171,7 @@ export type ResolutionCandidate = {
      */
     latest_observed_at?: string | null;
     id: string;
-    kind: 'restore_configured_label' | 'enable_boolean';
+    kind: 'restore_configured_label' | 'enable_boolean' | 'set_port_mapping';
     title: string;
     explanation: string;
     finding_kind: string;
@@ -184,7 +184,7 @@ export type ResolutionCandidate = {
      */
     plan_semantics_version?: number;
     intent_prompt: string;
-    scope_kind: 'single_object' | 'host_boolean';
+    scope_kind: 'single_object' | 'host_boolean' | 'host_port';
     scope_description: string;
     scope_warning: string;
     expected_effect: string;
@@ -208,10 +208,11 @@ export type ChangePlanStep = {
     title: string;
     command: string;
     explanation: string;
-    persistence: 'inspection' | 'configured_label' | 'temporary' | 'persistent';
+    persistence: 'inspection' | 'configured_label' | 'temporary' | 'persistent' | 'port_mapping';
 };
 
 export type ChangePlan = {
+    verification_steps?: Array<ChangePlanStep>;
     id: string;
     title: string;
     explanation: string;
@@ -245,7 +246,39 @@ export type ObservedAccess = {
     observed_at: string;
 };
 
+export type PortMappingRange = {
+    type: string;
+    start: number;
+    end: number;
+    provenance: string | null;
+};
+
+export type PortInvestigation = {
+    host_id: number;
+    hostname: string | null;
+    occurrence_id: number;
+    protocol: 'tcp' | 'udp';
+    port: number | null;
+    operation: 'name_bind' | 'name_connect';
+    observed_type: string;
+    state: 'ready' | 'blocked' | 'pending' | 'error' | 'unavailable' | 'no_change';
+    reason: string;
+    latest_observed_at?: string | null;
+    inventory_status?: string;
+    local_status?: string;
+    current_mappings?: Array<PortMappingRange>;
+    type_count: number;
+    types: Array<{
+        type: string;
+        permission: string;
+        state: 'supported' | 'conditional' | 'no_op';
+        explanation: string;
+        existing_endpoints: Array<PortMappingRange>;
+    }>;
+};
+
 export type ResolutionWorkflow = {
+    port_investigations?: Array<PortInvestigation>;
     candidates: Array<ResolutionCandidate>;
     rejected_candidates: Array<{
         kind: string;
@@ -1634,6 +1667,9 @@ export type OperatorGuidance = {
         occurred_at: string;
         path: string | null;
         observed_type: string | null;
+        protocol?: 'tcp' | 'udp';
+        port?: number | null;
+        operation?: 'name_bind' | 'name_connect';
     };
     checks: Array<{
         title: string;

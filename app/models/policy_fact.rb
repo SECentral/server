@@ -1,10 +1,11 @@
 class PolicyFact < ApplicationRecord
   QUERY_KIND = "allow"
+  PORT_QUERY_KIND = "port_allow"
   STATUSES = %w[pending matched no_match unavailable error].freeze
   ENQUEUE_INTERVAL = 1.minute
 
   validates :policy_identity, format: { with: PolicyArtifact::IDENTITY_FORMAT }
-  validates :query_kind, inclusion: { in: [ QUERY_KIND ] }
+  validates :query_kind, inclusion: { in: [ QUERY_KIND, PORT_QUERY_KIND ] }
   validates :source_type, :target_type, :object_class, :permission,
     format: { with: /\A[A-Za-z0-9_]+\z/ }
   validates :status, inclusion: { in: STATUSES }

@@ -34,23 +34,26 @@ function optionTitle(basis: Record<string, unknown>, title: string) {
 
 function ChangePlanStep({ step, number }: { step: PlanData["preview_steps"][number]; number?: number }) {
   return <article className="change-plan-step"><header>{number != null && <span className="step-number">{number}</span>}<h3>{step.title}</h3>
-    <Label color={step.persistence === "persistent" ? "orange" : "blue"} isCompact>{step.persistence === "persistent" ? "Persistent · optional" : step.persistence === "temporary" ? "Runtime only" : step.title.toLowerCase().includes("preview") ? "Non-mutating preview" : step.persistence === "inspection" ? "Inspect" : "Single object"}</Label></header>
-    {step.persistence !== "inspection" && <Label color="orange">{step.persistence === "configured_label" ? "Changes file labels" : "Changes host-wide Boolean"}</Label>}
+    <Label color={step.persistence === "persistent" ? "orange" : "blue"} isCompact>{step.persistence === "port_mapping" ? "Persistent port mapping" : step.persistence === "persistent" ? "Persistent · optional" : step.persistence === "temporary" ? "Runtime only" : step.title.toLowerCase().includes("preview") ? "Non-mutating preview" : step.persistence === "inspection" ? "Inspect" : "Single object"}</Label></header>
+    {step.persistence !== "inspection" && <Label color="orange">{step.persistence === "port_mapping" ? "Changes SELinux port mapping" : step.persistence === "configured_label" ? "Changes file labels" : "Changes host-wide Boolean"}</Label>}
     <p className="step-detail">{step.explanation}</p><CopyCommand command={step.command} /></article>;
 }
 
 function ChangePlan({ plan }: { plan: PlanData }) {
   const file = plan.scope_kind === "single_object";
+  const port = plan.scope_kind === "host_port";
   return <section className="selected-change-plan" aria-label="Selected change plan"><header className="workbench-section-header"><h2>Selected change plan</h2><Label color="blue">Reviewed · current</Label></header>
     <h3 className="plan-title">{optionTitle(plan.evidence_basis, plan.title)}</h3>
-    <div className="plan-scope"><ShieldAltIcon aria-hidden="true" /><strong>{file ? "Single evidenced object · no recursion" : "Host-wide SELinux boolean"}</strong><a href="#plan-rollback">Rollback ↓</a></div>
+    <div className="plan-scope"><ShieldAltIcon aria-hidden="true" /><strong>{port ? "Host protocol/port classification" : file ? "Single evidenced object · no recursion" : "Host-wide SELinux boolean"}</strong><a href="#plan-rollback">Rollback ↓</a></div>
     {!file && <><p className="plan-warning"><ExclamationTriangleIcon aria-hidden="true" /> May affect other policy rules beyond this occurrence.</p><p>{plan.expected_effect}</p><p>{plan.persistence}</p><p>{plan.scope_warning}</p></>}
     <p>{plan.scope_description}</p>
+    {port && <PriorPortMappings basis={plan.evidence_basis} />}
     <details className="plan-mechanism"><summary>Why this affects the denial</summary><p>{plan.explanation}</p></details>
     <div className="plan-steps" id="plan-inspection">{plan.preview_steps.map((step, i) => <ChangePlanStep key={step.command} step={step} number={i + 1} />)}
       {file ? <details className="file-apply-disclosure"><summary>Apply — only after successful inspection</summary><p>Current object has not been verified. Stop if it is missing, replaced, not intended here, or its configured label is unsuitable.</p><p>{plan.scope_warning}</p><p>{plan.expected_effect}</p><p>{plan.persistence}</p>{plan.apply_steps.map((step, i) => <ChangePlanStep key={step.command} step={step} number={plan.preview_steps.length + i + 1} />)}</details>
         : plan.apply_steps.map((step, i) => <ChangePlanStep key={step.command} step={step} number={plan.preview_steps.length + i + 1} />)}</div>
-    <section className="plan-rollback" id="plan-rollback"><h3>Rollback</h3>{plan.rollback_steps.map((step) => <ChangePlanStep key={step.command} step={step} />)}<p>{plan.rollback_description}</p></section>
+    {plan.verification_steps && <section aria-label="Verify port change"><h3>Verify the workload</h3>{plan.verification_steps.map((step) => <ChangePlanStep key={step.command} step={step} />)}</section>}
+    <section className="plan-rollback" id="plan-rollback"><h3>Rollback</h3><p>{plan.rollback_description}</p>{plan.rollback_steps.map((step) => <ChangePlanStep key={step.command} step={step} />)}</section>
     <details className="plan-uncertainty"><summary>Remaining uncertainty</summary><ul>{plan.limitations.map((text) => <li key={text}>{text}</li>)}</ul></details>
     <TechnicalEvidenceDisclosure basis={plan.evidence_basis} />
     <Button variant="secondary" onClick={() => download("secentral-change-plan.json", JSON.stringify(plan, null, 2))}>Export reviewed plan</Button>
@@ -60,6 +63,34 @@ function ChangePlan({ plan }: { plan: PlanData }) {
 
 type Candidate = Workflow["candidates"][number];
 
+function priorPortState(basis: Record<string, unknown>) {
+  return Array.isArray(basis.prior_mappings) && basis.prior_mappings.length
+    ? basis.prior_mappings.map((item) => { const range = evidenceRecord(item); const source = range.provenance === "custom" ? "Local customization" : range.provenance === "not_confirmed_custom" ? "Policy default" : "Not recorded"; return `${range.type} ${range.start}–${range.end} (${source})`; }).join("; ")
+    : "No intersecting record in the complete observed inventory; inspect before applying.";
+}
+
+function PriorPortMappings({ basis }: { basis: Record<string, unknown> }) {
+  return <><p>Recorded prior state: {priorPortState(basis)}</p>{Array.isArray(basis.prior_policy_records) && <p>Exact policy record boundaries: {basis.prior_policy_records.map((item) => {
+    const record = evidenceRecord(item); return `${record.type} ${record.start}–${record.end}`;
+  }).join("; ") || "No intersecting record"}. These distinguish add from modify when inventory ranges were coalesced.</p>}</>;
+}
+
+function PortInvestigation({ investigation }: { investigation: NonNullable<Workflow["port_investigations"]>[number] }) {
+  const bind = investigation.operation === "name_bind";
+  return <article className="pf-v6-u-mt-md" aria-label="Port investigation">
+    <h3>{investigation.protocol.toUpperCase()}/{investigation.port ?? "port not recorded"} · {bind ? "Local bind" : "Outbound connect"} · {investigation.hostname ?? `Host ${investigation.host_id}`}</h3>
+    <p><Link to={`/hosts/${investigation.host_id}/occurrences/${investigation.occurrence_id}`}>Occurrence #{investigation.occurrence_id}</Link> · AVC label <code>{investigation.observed_type}</code></p>
+    <p><Label color="grey">{investigation.state.replaceAll("_", " ")}</Label> {investigation.reason}</p>
+    {investigation.inventory_status && <p>Stored effective inventory: {investigation.inventory_status}; local overrides: {investigation.local_status ?? "unknown"}{investigation.latest_observed_at && <> · <time dateTime={investigation.latest_observed_at}>{investigation.latest_observed_at}</time></>}. Recheck on host; this is not a fresh inspection.</p>}
+    {investigation.current_mappings && <p>Intersecting observed ranges: {priorPortState({ prior_mappings: investigation.current_mappings })}</p>}
+    {investigation.types.length > 0 && <details><summary>Compare policy-supported port types · {investigation.types.length} of {investigation.type_count}</summary>
+      <p>Possibilities from this host's exact policy, not service intent or catalog recommendations. Generated options are not exhaustive. Existing endpoint examples also need ownership and application review.</p>
+      <ul>{investigation.types.map((option) => <li key={option.type}><strong>{option.type}</strong> · <code>{option.permission}</code> · {option.state.replaceAll("_", " ")}<p>{option.explanation}</p>
+        {option.existing_endpoints.length > 0 && <p>Observed endpoint/range examples: {option.existing_endpoints.map((range) => `${investigation.protocol.toUpperCase()}/${range.start}${range.end !== range.start ? `–${range.end}` : ""}`).join(", ")}</p>}</li>)}</ul>
+    </details>}
+  </article>;
+}
+
 function ResolutionCandidateCard({ candidate, selected, freshness, busy, onSelect }: { candidate: Candidate; selected: boolean; freshness: Workflow["freshness"]; busy: boolean; onSelect: (c: Candidate) => void }) {
   const [confirming, setConfirming] = useState(false);
   const basis = candidate.evidence_basis;
@@ -67,12 +98,14 @@ function ResolutionCandidateCard({ candidate, selected, freshness, busy, onSelec
   const state = boolean.status && boolean.status !== "observed" ? `Not verified (${String(boolean.status)})` : typeof boolean.current === "boolean" ? boolean.current ? "On" : "Off" : "Not verified";
   const unavailable = candidate.status !== "proposed";
   const path = valueText(basis.path);
+  const port = candidate.scope_kind === "host_port";
   const current = selected && freshness === "current";
   return <article className={`resolution-candidate-card ${selected ? "resolution-selected" : ""} ${unavailable ? "candidate-muted" : ""}`} aria-label={optionTitle(basis, candidate.title)}>
     <header><ShieldAltIcon aria-hidden="true" /><h3>{path ?? (unavailable && valueText(basis.boolean) ? String(basis.boolean) : optionTitle(basis, candidate.title))}</h3>{selected && <Label color={current ? "blue" : "orange"} icon={<CheckCircleIcon />}>{current ? "Selected · current" : "Selected · review required"}</Label>}</header>
     {path ? <p className="candidate-label-change"><code>{valueText(basis.observed_context)?.split(":")[2] ?? "Observed label"}</code><span aria-label="to">→</span><code>{valueText(basis.expected_context)?.split(":")[2] ?? "Expected label"}</code></p>
-      : <p className="candidate-relevance">{unavailable && state === "On" ? "Latest observation recorded this capability On." : "Matching independent policy path"}</p>}
-    <dl className="candidate-facts">{!path && <><div><dt>Historical checkpoint</dt><dd>Off{valueText(basis.checkpoint_observed_at) && <> · {String(basis.checkpoint_observed_at)}</>}</dd></div><div><dt>Latest observed state</dt><dd><Label color={state === "Off" ? "orange" : "grey"} isCompact>{state}</Label>{candidate.latest_observed_at && <> · <time dateTime={candidate.latest_observed_at}>{candidate.latest_observed_at}</time></>} · stored observation, not a fresh host inspection</dd></div></>}<div><dt>Scope</dt><dd>{candidate.scope_kind === "host_boolean" ? "Host-wide boolean" : "Targeted path relabel"}</dd></div><div><dt>Host</dt><dd>{candidate.hostname ?? "Host not recorded"}</dd></div>{typeof basis.occurrence_id === "number" && <div><dt>Evidence example</dt><dd><Link to={`/hosts/${candidate.host_id}/occurrences/${basis.occurrence_id}`}>Occurrence #{basis.occurrence_id}</Link></dd></div>}</dl>
+      : <p className="candidate-relevance">{port ? candidate.explanation : unavailable && state === "On" ? "Latest observation recorded this capability On." : "Matching independent policy path"}</p>}
+    <dl className="candidate-facts">{!path && !port && <><div><dt>Historical checkpoint</dt><dd>Off{valueText(basis.checkpoint_observed_at) && <> · {String(basis.checkpoint_observed_at)}</>}</dd></div><div><dt>Latest observed state</dt><dd><Label color={state === "Off" ? "orange" : "grey"} isCompact>{state}</Label>{candidate.latest_observed_at && <> · <time dateTime={candidate.latest_observed_at}>{candidate.latest_observed_at}</time></>} · stored observation, not a fresh host inspection</dd></div></>}<div><dt>Scope</dt><dd>{port ? "Host protocol/port classification" : candidate.scope_kind === "host_boolean" ? "Host-wide boolean" : "Targeted path relabel"}</dd></div><div><dt>Host</dt><dd>{candidate.hostname ?? "Host not recorded"}</dd></div>{typeof basis.occurrence_id === "number" && <div><dt>Evidence example</dt><dd><Link to={`/hosts/${candidate.host_id}/occurrences/${basis.occurrence_id}`}>Occurrence #{basis.occurrence_id}</Link></dd></div>}</dl>
+    {port && <><PriorPortMappings basis={basis} /><p>{candidate.scope_warning}</p><p>{candidate.expected_effect}</p></>}
     {candidate.scope_kind === "host_boolean" && <p className="candidate-breadth">Can enable broader access through other policy rules; not limited to this occurrence or destination.</p>}
     {candidate.presentation_reason && <p>{candidate.presentation_reason}</p>}
     {unavailable ? <p className="candidate-unavailable">{candidate.unavailable_reason ?? (state === "On" ? "Enabling it is not a current resolution option. Check current runtime state and retry the intended workload first." : "Current retained evidence does not support an actionable plan.")}</p>
@@ -165,7 +198,12 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
   const selected = workflow.candidates.find((c) => c.id === workflow.intent?.candidate_id);
   const alternatives = workflow.candidates.filter((c) => c.id !== selected?.id);
   const source = detail?.operator_guidance?.source;
-  const sameExample = (c: Candidate) => !source || (c.host_id === source.host_id && (!valueText(c.evidence_basis.path) || c.evidence_basis.path === source.path));
+  const portInvestigations = workflow.port_investigations ?? [];
+  const sourcePort = source?.protocol ? source : portInvestigations.find((item) => item.occurrence_id === source?.occurrence_id);
+  const sameExample = (c: Candidate) => !source || (c.host_id === source.host_id && (!valueText(c.evidence_basis.path) || c.evidence_basis.path === source.path) &&
+    (c.kind !== "set_port_mapping" || (c.evidence_basis.port === sourcePort?.port && c.evidence_basis.protocol === sourcePort?.protocol)));
+  const primaryPorts = portInvestigations.filter((item) => !source || item.occurrence_id === source.occurrence_id || (item.host_id === source.host_id && item.protocol === sourcePort?.protocol && item.port === sourcePort?.port));
+  const otherPorts = portInvestigations.filter((item) => !primaryPorts.includes(item));
   const exampleOptions = alternatives.filter(sameExample);
   const primaryOptions = exampleOptions.filter((c) => c.presentation !== "technical_alternative");
   const technicalOptions = exampleOptions.filter((c) => c.presentation === "technical_alternative");
@@ -177,12 +215,14 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
       {error && <Alert variant="danger" isInline title="Intent update failed">{error}</Alert>}
       {workflow.freshness && workflow.freshness !== "current" && <div className="stale-plan" role="alert"><h3><ExclamationTriangleIcon aria-hidden="true" /> {workflow.freshness === "no_longer_supported" ? "Plan no longer supported" : "Evidence changed"}</h3><p>This plan was reviewed against older SELinux state. Commands are hidden until the updated evidence is reviewed.</p><EvidenceChangeSummary workflow={workflow} /><strong>Review this option again before using its commands.</strong></div>}
       {detail?.operator_guidance && <p>{detail.operator_guidance.possible_fix}</p>}
+      {primaryPorts.map((item) => <div key={`${item.host_id}-${item.protocol}-${item.port}-${item.operation}`}>{source && item.occurrence_id !== source.occurrence_id && <p>This is the newest retained example for the investigation host/endpoint; the checks above keep their original occurrence scope.</p>}<PortInvestigation investigation={item} /></div>)}
+      {otherPorts.length > 0 && <details className="other-options"><summary>Other port evidence examples · {otherPorts.length}</summary>{otherPorts.map((item) => <PortInvestigation key={`${item.host_id}-${item.protocol}-${item.port}-${item.operation}`} investigation={item} />)}</details>}
       {children}
       {!workflow.candidates.length && !children && <p>No reviewed change plan yet. Use the checks above and review the workload configuration with its operator; a manual next step can be appropriate.</p>}
       {selected && <>{!sameExample(selected) && <p>The reviewed plan below is for another host/path example. The investigation checks above remain scoped to their linked example; use the selected plan's own inspection steps.</p>}<CandidateGroup candidates={[selected]} workflow={workflow} busy={busy} onSelect={choose} /></>}
       {selected ? exampleOptions.length > 0 && <details className="other-options"><summary>Other options · {exampleOptions.length}</summary><CandidateGroup candidates={exampleOptions} workflow={workflow} busy={busy} onSelect={choose} /></details>
         : <><CandidateGroup candidates={primaryOptions} workflow={workflow} busy={busy} onSelect={choose} />{technicalOptions.length > 0 && <details className="other-options"><summary>Technical policy alternatives · {technicalOptions.length}</summary><p>A matching policy path alone does not establish a suitable fix. These rules match through a source attribute; confirm their purpose and broader effects.</p><CandidateGroup candidates={technicalOptions} workflow={workflow} busy={busy} onSelect={choose} /></details>}</>}
-      {otherExamples.length > 0 && <details className="other-options"><summary>Other host/path examples · {otherExamples.length}</summary><p>Separate evidence and inspection scope; do not apply the selected example's results to these resources.</p><CandidateGroup candidates={otherExamples} workflow={workflow} busy={busy} onSelect={choose} /></details>}
+      {otherExamples.length > 0 && <details className="other-options"><summary>Other host/resource examples · {otherExamples.length}</summary><p>Separate evidence and inspection scope; do not apply the selected example's results to these resources.</p><CandidateGroup candidates={otherExamples} workflow={workflow} busy={busy} onSelect={choose} /></details>}
       {workflow.candidates.length > 0 && !selected && <p className="workbench-caption">You can choose neither and continue investigating.</p>}
     </section>
     {workflow.change_plan && workflow.freshness === "current" && <ChangePlan plan={workflow.change_plan} />}

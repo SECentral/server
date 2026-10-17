@@ -21,7 +21,6 @@ class ResolutionCandidates
     return @result if @result
 
     @rejected = [
-      { kind: "port_mapping", reason: "No evaluated alternative target-type permission and complete current host mapping establish a safe port change." },
       { kind: "persistent_fcontext", reason: "Effective local rules, substitutions and overlap/operation evidence are insufficient for a new persistent mapping." },
       { kind: "recursive_relabel", reason: "Evidence establishes individual objects, not a tree scope." }
     ]
@@ -35,9 +34,16 @@ class ResolutionCandidates
         end
       end
     end
+    ports = PortMappingGuidance.new(@issue, occurrences: occurrences.values).call
+    candidates.concat(ports[:proposals].map do |proposal|
+      occurrence = occurrences.fetch(proposal[:occurrence_id])
+      candidate = base(occurrence, { kind: "port_policy_alternative" }, "set_port_mapping", proposal[:resource]).merge(proposal[:candidate])
+      finish(candidate, proposal[:basis], proposal[:semantic_basis], proposal[:plan], semantics_version: PortMappingGuidance::PLAN_SEMANTICS_VERSION)
+    end)
     # ponytail: one latest candidate per host/mechanism/resource; inspect occurrences for other historical variants.
     candidates = candidates.uniq { |candidate| candidate[:id] }
-    @result = { candidates: candidates, rejected_candidates: @rejected.uniq, observed_access: observed_access }
+    @result = { candidates: candidates, rejected_candidates: @rejected.uniq, observed_access: observed_access,
+      port_investigations: ports[:investigations] }
   end
 
   def plan(id)
@@ -69,9 +75,9 @@ class ResolutionCandidates
       status: "proposed", limitations: [] }
   end
 
-  def finish(candidate, basis, semantic_basis, plan)
+  def finish(candidate, basis, semantic_basis, plan, semantics_version: PLAN_SEMANTICS_VERSION)
     candidate[:evidence_basis] = basis
-    candidate[:plan_semantics_version] = PLAN_SEMANTICS_VERSION
+    candidate[:plan_semantics_version] = semantics_version
     candidate[:semantic_plan_basis] = semantic_basis.merge(
       kind: candidate[:kind], host_id: candidate[:host_id], scope_kind: candidate[:scope_kind],
       plan_inputs: {
@@ -81,6 +87,9 @@ class ResolutionCandidates
         rollback_description: plan[:rollback_description], persistence: plan[:persistence],
         expected_effect: candidate[:expected_effect], scope_warning: candidate[:scope_warning], limitations: candidate[:limitations]
       })
+    if plan[:verification_steps]
+      candidate[:semantic_plan_basis][:plan_inputs][:verification_steps] = plan[:verification_steps].map { |step| step.slice(:command, :persistence, :explanation) }
+    end
     # Keep the first (newest) basis, not a later iteration over older occurrences.
     @plans[candidate[:id]] ||= plan.merge(candidate.slice(:id, :title, :explanation, :scope_kind, :scope_description,
       :scope_warning, :expected_effect, :limitations, :evidence_basis, :plan_semantics_version))

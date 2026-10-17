@@ -31,6 +31,28 @@ class PolicyFactRequest
       questions_for(denials.first(1), host.current_policy_identity)
     end
     persist(questions)
+    for_port_alternatives(issue)
+  end
+
+  def self.for_port_alternatives(issue)
+    return unless issue.target_class.in?(%w[tcp_socket udp_socket])
+
+    operations = issue.occurrences.includes(:normalized_denial).filter_map do |occurrence|
+      PortMappingGuidance.endpoint(occurrence.normalized_denial)&.dig(:operation)
+    end.uniq
+
+    questions = Host.where(id: issue.occurrences.select(:host_id)).includes(current_state_observation: :host_snapshot).flat_map do |host|
+      identity = host.current_policy_identity
+      next [] unless identity.to_s.match?(PolicyArtifact::IDENTITY_FORMAT)
+
+      operations.filter_map do |permission|
+        next if permission == "name_connect" && issue.target_class != "tcp_socket"
+
+        { policy_identity: identity, query_kind: PolicyFact::PORT_QUERY_KIND, source_type: issue.source_type,
+          target_type: "port_type", object_class: issue.target_class, permission: permission }
+      end
+    end
+    persist(questions)
   end
 
   def self.questions_for(denials, identity)

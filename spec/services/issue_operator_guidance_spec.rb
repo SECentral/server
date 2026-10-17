@@ -59,7 +59,7 @@ RSpec.describe IssueOperatorGuidance do
     expect(connect[:verification]).to include("backend response")
     bind = described_class.call(issue_with(occurrence(path: nil, permissions: ["name_bind"], object_class: "tcp_socket")))
     expect(bind[:checks].first[:command]).to eq("ss -ltnp")
-    expect(bind[:possible_fix]).to include("No port-mapping change")
+    expect(bind[:possible_fix]).to include("using an appropriate existing endpoint", "Mapping options require exact policy support", "not exhaustive")
     execute = described_class.call(issue_with(occurrence(permissions: ["execute"])))
     expect(execute[:verification]).to include("actual child process context")
     expect(execute[:possible_fix]).to include("Compound Boolean changes", "not offered")
@@ -68,7 +68,7 @@ RSpec.describe IssueOperatorGuidance do
   it "starts a missing-path home-content read with object identity and intent, not restoration" do
     result = described_class.call(issue_with(occurrence(path: nil)))
     expect(result[:possible_fix]).to start_with("Identify the object")
-    expect(result[:possible_fix]).to include("serving home-directory content", "If intended", "misplaced", "broader host-wide read access")
+    expect(result[:possible_fix]).to include("serving home-directory content", "Once the path is known", "matchpathcon", "Restore only", "misplaced", "broader host-wide read access")
     expect(result[:verification]).not_to include("query", "database")
     expect(result[:checks]).to be_empty
   end
@@ -86,7 +86,7 @@ RSpec.describe IssueOperatorGuidance do
       { rule: "allow httpd_t port_type:tcp_socket name_connect;", booleans: [{ name: "httpd_can_network_connect" }] }
     ] }
     result = described_class.call(issue_with(occurrence(path: nil, permissions: ["name_connect"], object_class: "tcp_socket")), diagnosis: diagnosis)
-    expect(result[:checks].map { |item| item[:command] }).to eq(["getsebool httpd_can_network_connect", "getsebool nis_enabled", "semanage port -l", "semanage port -l -C"])
+    expect(result[:checks].map { |item| item[:command] }).to eq(["getsebool httpd_can_network_connect", "getsebool nis_enabled", "semanage port -l", "semanage port -l -C", "sesearch -A -s httpd_t -c tcp_socket -p name_connect -C"])
     expect(result[:possible_fix]).to include("already observed On")
   end
 end
