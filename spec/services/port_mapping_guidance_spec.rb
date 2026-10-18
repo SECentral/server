@@ -177,4 +177,26 @@ RSpec.describe PortMappingGuidance do
     expect(data[:proposals]).to be_empty
     expect(data[:investigations].sole[:reason]).to include("boot identity is missing")
   end
+
+  it "exposes every exact-policy possibility and eligible proposal beyond the old display limit" do
+    issue, _, _, _, fact = port_fixture
+    types = %w[http_port_t http_cache_port_t] + 20.times.map { |index| "other_service_#{index}_port_t" }
+    rule = "allow httpd_t test_ports:tcp_socket name_bind;"
+    fact.update!(matching_rules: [rule], rule_details: [{ "rule" => rule, "target_types" => types }, fact.rule_details.last])
+    data = result(issue)
+    expect(data[:investigations].sole[:type_count]).to eq(types.size)
+    expect(data[:investigations].sole[:types].map { |option| option[:type] }).to match_array(types)
+    expect(data[:proposals].map { |proposal| proposal[:basis][:target_port_type] }).to match_array(types)
+  end
+
+  it "uses explicit sourced descriptions only for discovered types, never type-name similarity or process identity" do
+    issue, _, _, _, fact = port_fixture
+    rule = "allow httpd_t test_ports:tcp_socket name_bind;"
+    fact.update!(matching_rules: [rule], rule_details: [{ "rule" => rule, "target_types" => %w[http_port_t http_unlisted_port_t] }, fact.rule_details.last])
+    options = result(issue)[:investigations].sole[:types].index_by { |option| option[:type] }
+    expect(options["http_port_t"][:service]).to include(id: "http", label: "HTTP service", source_entry: "network_port(http, ...) declares http_port_t")
+    expect(options["http_port_t"][:service][:source_url]).to include("fedora-selinux/selinux-policy/blob/5cac04d24778cfec5f6aee261aac01be0f9e1de4")
+    expect(options["http_unlisted_port_t"]).not_to have_key(:service)
+    expect(options).not_to have_key("http_cache_port_t")
+  end
 end

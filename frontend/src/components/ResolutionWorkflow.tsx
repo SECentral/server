@@ -1,6 +1,6 @@
-import { Alert, Button, Label, Spinner, TextInput } from "@patternfly/react-core";
+import { Alert, Button, FormGroup, FormSelect, FormSelectOption, Label, SearchInput, Spinner, Stack, StackItem, TextInput } from "@patternfly/react-core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import ShieldAltIcon from "@patternfly/react-icons/dist/esm/icons/shield-alt-icon";
 import CheckCircleIcon from "@patternfly/react-icons/dist/esm/icons/check-circle-icon";
@@ -45,7 +45,7 @@ function ChangePlan({ plan }: { plan: PlanData }) {
   return <section className="selected-change-plan" aria-label="Selected change plan"><header className="workbench-section-header"><h2>Selected change plan</h2><Label color="blue">Reviewed · current</Label></header>
     <h3 className="plan-title">{optionTitle(plan.evidence_basis, plan.title)}</h3>
     <div className="plan-scope"><ShieldAltIcon aria-hidden="true" /><strong>{port ? "Host protocol/port classification" : file ? "Single evidenced object · no recursion" : "Host-wide SELinux boolean"}</strong><a href="#plan-rollback">Rollback ↓</a></div>
-    {!file && <><p className="plan-warning"><ExclamationTriangleIcon aria-hidden="true" /> May affect other policy rules beyond this occurrence.</p><p>{plan.expected_effect}</p><p>{plan.persistence}</p><p>{plan.scope_warning}</p></>}
+    {!file && <>{!port && <><p className="plan-warning"><ExclamationTriangleIcon aria-hidden="true" /> May affect other policy rules beyond this occurrence.</p><p>{plan.expected_effect}</p></>}<p>{plan.persistence}</p><p>{plan.scope_warning}</p></>}
     <p>{plan.scope_description}</p>
     {port && <PriorPortMappings basis={plan.evidence_basis} />}
     <details className="plan-mechanism"><summary>Why this affects the denial</summary><p>{plan.explanation}</p></details>
@@ -75,19 +75,68 @@ function PriorPortMappings({ basis }: { basis: Record<string, unknown> }) {
   }).join("; ") || "No intersecting record"}. These distinguish add from modify when inventory ranges were coalesced.</p>}</>;
 }
 
-function PortInvestigation({ investigation }: { investigation: NonNullable<Workflow["port_investigations"]>[number] }) {
+type PortInvestigationData = NonNullable<Workflow["port_investigations"]>[number];
+
+function PortTypeSelection({ investigation, candidates, workflow, busy, onSelect }: { investigation: PortInvestigationData; candidates: Candidate[]; workflow: Workflow; busy: boolean; onSelect: (c: Candidate) => void }) {
+  const fieldId = useId();
+  const [service, setService] = useState("");
+  const [search, setSearch] = useState("");
+  const [type, setType] = useState<string | null>(null);
+  const reviewed = candidates.find((item) => item.id === workflow.intent?.candidate_id);
+  const selectedType = type ?? valueText(reviewed?.evidence_basis.target_port_type) ?? "";
+  const selected = investigation.types.find((option) => option.type === selectedType);
+  const candidate = candidates.find((item) => item.evidence_basis.target_port_type === selectedType);
+  const services = [...new Map(investigation.types.flatMap((option) => option.service ? [[option.service.id, option.service] as const] : [])).values()];
+  const query = search.trim().toLowerCase();
+  const choices = investigation.types.filter((option) => (!service || option.service?.id === service) &&
+    [option.type, option.service?.label, option.service?.description, option.state].filter(Boolean).join(" ").toLowerCase().includes(query));
+  const clearFilters = () => { setService(""); setSearch(""); setType(""); };
+  return <section className="pf-v6-u-mt-md" aria-label="Choose a port type">
+    <h4>Consider a port classification</h4>
+    <p>Policy permission is not service suitability. Confirm the intended service from application configuration; neither the process name nor the port number establishes it.</p>
+    <Stack hasGutter>
+      <StackItem><FormGroup fieldId={`${fieldId}-service`} label={investigation.operation === "name_bind" ? "What service should listen on this port?" : "What is the intended destination service?"}>
+        <FormSelect id={`${fieldId}-service`} value={service} onChange={(_event, value) => { setService(value); setSearch(""); setType(""); }}>
+          <FormSelectOption value="" label="Not sure / another service — show all types" />
+          {services.map((item) => <FormSelectOption key={item.id} value={item.id} label={item.label} />)}
+        </FormSelect>
+      </FormGroup><small>{service ? "Your stated service intent filters documented reference associations. It is not observed host evidence or approval of a change." : "Intent is unknown. You can investigate or deliberately select a technical type without choosing a service."}</small></StackItem>
+      <StackItem><SearchInput aria-label="Search policy-supported port types" placeholder="Search types or reference service descriptions" value={search} onChange={(_event, value) => { setSearch(value); setType(""); }} onClear={() => { setSearch(""); setType(""); }} /></StackItem>
+      <StackItem><FormGroup fieldId={`${fieldId}-type`} label="Policy-supported port type">
+        <FormSelect id={`${fieldId}-type`} value={selectedType} onChange={(_event, value) => setType(value)}>
+          <FormSelectOption value="" label="Choose a type to inspect" />
+          {choices.map((option) => <FormSelectOption key={option.type} value={option.type} label={`${option.service ? `${option.service.label} — ` : ""}${option.type} · ${option.state.replaceAll("_", " ")}${option.service ? "" : " · description unavailable"}`} />)}
+        </FormSelect>
+      </FormGroup><small>{choices.length} of {investigation.type_count} discovered policy types. Generated changes are not an exhaustive remedy list.</small>
+      {reviewed && <p>Browsing service intent and types does not change the reviewed plan below. Confirm intent for another option to replace that review.</p>}
+      {(service || search) && <Button variant="link" onClick={clearFilters}>Show all policy types</Button>}
+      {!choices.length && <p role="status">No policy types match these filters. Clear the filters to inspect all discovered possibilities.</p>}</StackItem>
+    </Stack>
+    {selected && <section className="pf-v6-u-mt-md" aria-label="Selected port type">
+      <h4>{selected.type} · {selected.permission} · {selected.state.replaceAll("_", " ")}</h4>
+      {selected.service ? <><p>{selected.service.description}</p><p>Reference: <a href={selected.service.source_url}>{selected.service.source}</a> · <code>{selected.service.source_entry}</code> · <a href={selected.service.macro_url}>Type declaration macro</a>. This association is reference knowledge, not a host observation.</p></>
+        : <p>No reference service description is available for this type. Review service documentation; its name alone does not establish suitability.</p>}
+      <p>{selected.explanation}</p>
+      {selected.existing_endpoints.length > 0 && <p>Observed endpoint/range examples: {selected.existing_endpoints.map((range) => `${investigation.protocol.toUpperCase()}/${range.start}${range.end !== range.start ? `–${range.end}` : ""}`).join(", ")}. Confirm ownership and application configuration before using an existing endpoint.</p>}
+      {candidate ? <ResolutionCandidateCard key={candidate.id} candidate={candidate} selected={reviewed?.id === candidate.id} freshness={workflow.freshness} busy={busy} onSelect={onSelect} />
+        : <p>The retained prerequisites do not support a reviewed mapping change for this type. Continue investigating the evidence and alternatives above.</p>}
+    </section>}
+  </section>;
+}
+
+function PortInvestigation({ investigation, workflow, busy, onSelect }: { investigation: PortInvestigationData; workflow: Workflow; busy: boolean; onSelect: (c: Candidate) => void }) {
   const bind = investigation.operation === "name_bind";
+  const candidates = workflow.candidates.filter((item) => item.kind === "set_port_mapping" && item.host_id === investigation.host_id &&
+    item.evidence_basis.protocol === investigation.protocol && item.evidence_basis.port === investigation.port && item.evidence_basis.operation === investigation.operation);
+  const reviewedPort = workflow.freshness === "current" && candidates.some((item) => item.id === workflow.intent?.candidate_id);
   return <article className="pf-v6-u-mt-md" aria-label="Port investigation">
     <h3>{investigation.protocol.toUpperCase()}/{investigation.port ?? "port not recorded"} · {bind ? "Local bind" : "Outbound connect"} · {investigation.hostname ?? `Host ${investigation.host_id}`}</h3>
     <p><Link to={`/hosts/${investigation.host_id}/occurrences/${investigation.occurrence_id}`}>Occurrence #{investigation.occurrence_id}</Link> · AVC label <code>{investigation.observed_type}</code></p>
     <p><Label color="grey">{investigation.state.replaceAll("_", " ")}</Label> {investigation.reason}</p>
     {investigation.inventory_status && <p>Stored effective inventory: {investigation.inventory_status}; local overrides: {investigation.local_status ?? "unknown"}{investigation.latest_observed_at && <> · <time dateTime={investigation.latest_observed_at}>{investigation.latest_observed_at}</time></>}. Recheck on host; this is not a fresh inspection.</p>}
     {investigation.current_mappings && <p>Intersecting observed ranges: {priorPortState({ prior_mappings: investigation.current_mappings })}</p>}
-    {investigation.types.length > 0 && <details><summary>Compare policy-supported port types · {investigation.types.length} of {investigation.type_count}</summary>
-      <p>Possibilities from this host's exact policy, not service intent or catalog recommendations. Generated options are not exhaustive. Existing endpoint examples also need ownership and application review.</p>
-      <ul>{investigation.types.map((option) => <li key={option.type}><strong>{option.type}</strong> · <code>{option.permission}</code> · {option.state.replaceAll("_", " ")}<p>{option.explanation}</p>
-        {option.existing_endpoints.length > 0 && <p>Observed endpoint/range examples: {option.existing_endpoints.map((range) => `${investigation.protocol.toUpperCase()}/${range.start}${range.end !== range.start ? `–${range.end}` : ""}`).join(", ")}</p>}</li>)}</ul>
-    </details>}
+    {investigation.types.length > 0 && <>{!reviewedPort && <p>Before any mapping change, inspect current effective/local ranges and ownership. A port mapping persists on this host and can affect other workloads using this protocol/port; it is not a per-process exception or firewall rule.</p>}
+      <PortTypeSelection investigation={investigation} candidates={candidates} workflow={workflow} busy={busy} onSelect={onSelect} /></>}
   </article>;
 }
 
@@ -105,7 +154,6 @@ function ResolutionCandidateCard({ candidate, selected, freshness, busy, onSelec
     {path ? <p className="candidate-label-change"><code>{valueText(basis.observed_context)?.split(":")[2] ?? "Observed label"}</code><span aria-label="to">→</span><code>{valueText(basis.expected_context)?.split(":")[2] ?? "Expected label"}</code></p>
       : <p className="candidate-relevance">{port ? candidate.explanation : unavailable && state === "On" ? "Latest observation recorded this capability On." : "Matching independent policy path"}</p>}
     <dl className="candidate-facts">{!path && !port && <><div><dt>Historical checkpoint</dt><dd>Off{valueText(basis.checkpoint_observed_at) && <> · {String(basis.checkpoint_observed_at)}</>}</dd></div><div><dt>Latest observed state</dt><dd><Label color={state === "Off" ? "orange" : "grey"} isCompact>{state}</Label>{candidate.latest_observed_at && <> · <time dateTime={candidate.latest_observed_at}>{candidate.latest_observed_at}</time></>} · stored observation, not a fresh host inspection</dd></div></>}<div><dt>Scope</dt><dd>{port ? "Host protocol/port classification" : candidate.scope_kind === "host_boolean" ? "Host-wide boolean" : "Targeted path relabel"}</dd></div><div><dt>Host</dt><dd>{candidate.hostname ?? "Host not recorded"}</dd></div>{typeof basis.occurrence_id === "number" && <div><dt>Evidence example</dt><dd><Link to={`/hosts/${candidate.host_id}/occurrences/${basis.occurrence_id}`}>Occurrence #{basis.occurrence_id}</Link></dd></div>}</dl>
-    {port && <><PriorPortMappings basis={basis} /><p>{candidate.scope_warning}</p><p>{candidate.expected_effect}</p></>}
     {candidate.scope_kind === "host_boolean" && <p className="candidate-breadth">Can enable broader access through other policy rules; not limited to this occurrence or destination.</p>}
     {candidate.presentation_reason && <p>{candidate.presentation_reason}</p>}
     {unavailable ? <p className="candidate-unavailable">{candidate.unavailable_reason ?? (state === "On" ? "Enabling it is not a current resolution option. Check current runtime state and retry the intended workload first." : "Current retained evidence does not support an actionable plan.")}</p>
@@ -118,7 +166,7 @@ function ResolutionCandidateCard({ candidate, selected, freshness, busy, onSelec
 
 function CandidateGroup({ candidates, workflow, busy, onSelect }: { candidates: Candidate[]; workflow: Workflow; busy: boolean; onSelect: (c: Candidate) => void }) {
   const labels = candidates.filter((c) => c.kind === "restore_configured_label");
-  const others = candidates.filter((c) => c.kind !== "restore_configured_label");
+  const others = candidates.filter((c) => c.kind !== "restore_configured_label" && c.kind !== "set_port_mapping");
   const card = (candidate: Candidate) => <ResolutionCandidateCard key={candidate.id} candidate={candidate} selected={workflow.intent?.candidate_id === candidate.id} freshness={workflow.freshness} busy={busy} onSelect={onSelect} />;
   if (labels.length === 1 && workflow.intent?.candidate_id === labels[0].id && !others.length) return card(labels[0]);
   return <>{labels.length > 0 && <section className="candidate-group" aria-label="Restore configured SELinux labeling"><h3>Restore configured SELinux labeling <span aria-hidden="true">· </span><small>{labels.length} host/path candidate{labels.length === 1 ? "" : "s"}</small></h3><div className="candidate-grid candidate-paths">{labels.map(card)}</div></section>}
@@ -201,13 +249,13 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
   const portInvestigations = workflow.port_investigations ?? [];
   const sourcePort = source?.protocol ? source : portInvestigations.find((item) => item.occurrence_id === source?.occurrence_id);
   const sameExample = (c: Candidate) => !source || (c.host_id === source.host_id && (!valueText(c.evidence_basis.path) || c.evidence_basis.path === source.path) &&
-    (c.kind !== "set_port_mapping" || (c.evidence_basis.port === sourcePort?.port && c.evidence_basis.protocol === sourcePort?.protocol)));
-  const primaryPorts = portInvestigations.filter((item) => !source || item.occurrence_id === source.occurrence_id || (item.host_id === source.host_id && item.protocol === sourcePort?.protocol && item.port === sourcePort?.port));
+    (c.kind !== "set_port_mapping" || (c.evidence_basis.port === sourcePort?.port && c.evidence_basis.protocol === sourcePort?.protocol && c.evidence_basis.operation === sourcePort?.operation)));
+  const primaryPorts = portInvestigations.filter((item) => !source || item.occurrence_id === source.occurrence_id || (item.host_id === source.host_id && item.protocol === sourcePort?.protocol && item.port === sourcePort?.port && item.operation === sourcePort?.operation));
   const otherPorts = portInvestigations.filter((item) => !primaryPorts.includes(item));
-  const exampleOptions = alternatives.filter(sameExample);
+  const exampleOptions = alternatives.filter((c) => c.kind !== "set_port_mapping" && sameExample(c));
   const primaryOptions = exampleOptions.filter((c) => c.presentation !== "technical_alternative");
   const technicalOptions = exampleOptions.filter((c) => c.presentation === "technical_alternative");
-  const otherExamples = alternatives.filter((c) => !sameExample(c));
+  const otherExamples = alternatives.filter((c) => c.kind !== "set_port_mapping" && !sameExample(c));
   const choose = (c: Candidate) => void run(() => selectIntent(issueId, c.id, c.evidence_version));
   return <>
     <section className="resolution-options" aria-label="Resolution options"><header className="workbench-section-header"><h2>Possible fix</h2>{workflow.intent && <Button variant="link" isDisabled={busy} onClick={() => void run(() => clearIntent(issueId))}>Clear selected intent</Button>}</header>
@@ -215,11 +263,11 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
       {error && <Alert variant="danger" isInline title="Intent update failed">{error}</Alert>}
       {workflow.freshness && workflow.freshness !== "current" && <div className="stale-plan" role="alert"><h3><ExclamationTriangleIcon aria-hidden="true" /> {workflow.freshness === "no_longer_supported" ? "Plan no longer supported" : "Evidence changed"}</h3><p>This plan was reviewed against older SELinux state. Commands are hidden until the updated evidence is reviewed.</p><EvidenceChangeSummary workflow={workflow} /><strong>Review this option again before using its commands.</strong></div>}
       {detail?.operator_guidance && <p>{detail.operator_guidance.possible_fix}</p>}
-      {primaryPorts.map((item) => <div key={`${item.host_id}-${item.protocol}-${item.port}-${item.operation}`}>{source && item.occurrence_id !== source.occurrence_id && <p>This is the newest retained example for the investigation host/endpoint; the checks above keep their original occurrence scope.</p>}<PortInvestigation investigation={item} /></div>)}
-      {otherPorts.length > 0 && <details className="other-options"><summary>Other port evidence examples · {otherPorts.length}</summary>{otherPorts.map((item) => <PortInvestigation key={`${item.host_id}-${item.protocol}-${item.port}-${item.operation}`} investigation={item} />)}</details>}
+      {primaryPorts.map((item) => <div key={`${issueId}-${item.host_id}-${item.protocol}-${item.port}-${item.operation}`}>{source && item.occurrence_id !== source.occurrence_id && <p>This is the newest retained example for the investigation host/endpoint; the checks above keep their original occurrence scope.</p>}<PortInvestigation investigation={item} workflow={workflow} busy={busy} onSelect={choose} /></div>)}
+      {otherPorts.length > 0 && <details className="other-options"><summary>Other port evidence examples · {otherPorts.length}</summary><p>Separate host/endpoint investigations; intent and selection here do not apply to another resource.</p>{otherPorts.map((item) => <PortInvestigation key={`${issueId}-${item.host_id}-${item.protocol}-${item.port}-${item.operation}`} investigation={item} workflow={workflow} busy={busy} onSelect={choose} />)}</details>}
       {children}
       {!workflow.candidates.length && !children && <p>No reviewed change plan yet. Use the checks above and review the workload configuration with its operator; a manual next step can be appropriate.</p>}
-      {selected && <>{!sameExample(selected) && <p>The reviewed plan below is for another host/path example. The investigation checks above remain scoped to their linked example; use the selected plan's own inspection steps.</p>}<CandidateGroup candidates={[selected]} workflow={workflow} busy={busy} onSelect={choose} /></>}
+      {selected && <>{!sameExample(selected) && <p>The reviewed plan below is for another host/resource example. The investigation checks above remain scoped to their linked example; use the selected plan's own inspection steps.</p>}<CandidateGroup candidates={[selected]} workflow={workflow} busy={busy} onSelect={choose} /></>}
       {selected ? exampleOptions.length > 0 && <details className="other-options"><summary>Other options · {exampleOptions.length}</summary><CandidateGroup candidates={exampleOptions} workflow={workflow} busy={busy} onSelect={choose} /></details>
         : <><CandidateGroup candidates={primaryOptions} workflow={workflow} busy={busy} onSelect={choose} />{technicalOptions.length > 0 && <details className="other-options"><summary>Technical policy alternatives · {technicalOptions.length}</summary><p>A matching policy path alone does not establish a suitable fix. These rules match through a source attribute; confirm their purpose and broader effects.</p><CandidateGroup candidates={technicalOptions} workflow={workflow} busy={busy} onSelect={choose} /></details>}</>}
       {otherExamples.length > 0 && <details className="other-options"><summary>Other host/resource examples · {otherExamples.length}</summary><p>Separate evidence and inspection scope; do not apply the selected example's results to these resources.</p><CandidateGroup candidates={otherExamples} workflow={workflow} busy={busy} onSelect={choose} /></details>}

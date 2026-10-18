@@ -18,7 +18,7 @@ export function OperatorChecks({ detail }: { detail: IssueDetailResponse }) {
   const latest = detail.resolutions?.observed_access;
   const different = latest && (latest.occurrence_id !== source.occurrence_id || (source.path && latest.resource !== source.path));
   const expected = detail.diagnosis?.occurrence_id === source.occurrence_id ? detail.diagnosis : null;
-  const primaryCount = source.path ? 3 : 1;
+  const primaryCount = source.path || source.operation === "name_bind" ? 3 : 1;
   return <section className="issue-section" aria-label="Check">
     <Title headingLevel="h2" size="xl">Check</Title>
     <p>Investigation example: <Link to={`/hosts/${source.host_id}/occurrences/${source.occurrence_id}`}>{source.hostname ?? `Host ${source.host_id}`} · occurrence #{source.occurrence_id}</Link>{source.path && <> · <code>{source.path}</code></>}</p>

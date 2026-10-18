@@ -1858,6 +1858,18 @@ components:
         operation_label: {type: string}
         outcome: {type: string, enum: [DENIED]}
         observed_at: {type: string, format: date-time}
+    PortServiceDescription:
+      description: Curated reference vocabulary; neither observed host intent nor exact-policy permission evidence. Missing descriptions are valid.
+      type: object
+      required: [id, label, description, source, source_url, macro_url, source_entry]
+      properties:
+        id: {type: string}
+        label: {type: string}
+        description: {type: string}
+        source: {type: string}
+        source_url: {type: string, format: uri}
+        macro_url: {type: string, format: uri}
+        source_entry: {type: string}
     PortMappingRange:
       type: object
       required: [type, start, end, provenance]
@@ -1895,6 +1907,7 @@ components:
               state: {type: string, enum: [supported, conditional, no_op]}
               explanation: {type: string}
               existing_endpoints: {type: array, items: {$ref: "#/components/schemas/PortMappingRange"}}
+              service: {$ref: "#/components/schemas/PortServiceDescription"}
     ResolutionWorkflow:
       type: object
       required: [candidates, rejected_candidates, observed_access, intent, freshness, change_plan, history]

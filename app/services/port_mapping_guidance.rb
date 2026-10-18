@@ -4,8 +4,6 @@ require "shellwords"
 class PortMappingGuidance
   GENERIC_TYPES = %w[port_t reserved_port_t hi_reserved_port_t unreserved_port_t].freeze
   PLAN_SEMANTICS_VERSION = 1
-  # ponytail: show twelve deterministic type options; retain full discovery in PolicyFact.
-  TYPE_LIMIT = 12
 
   def self.endpoint(denial)
     protocol = { "tcp_socket" => "tcp", "udp_socket" => "udp" }[denial.target_class]
@@ -101,7 +99,8 @@ class PortMappingGuidance
       active = supporting.select { |rule| active_rule?(rule, state, investigation[:operation]) }
       { type: type, permission: investigation[:operation], state: active.any? ? "supported" : "conditional",
         explanation: active.any? ? "An applicable exact-policy rule supplies #{investigation[:operation]} for this type under the latest observed conditions; intent and other permission checks remain unknown." : "Matching rules require inactive or unobserved conditions. Changing a mapping alone does not activate these rules.",
-        existing_endpoints: ranges.select { |range| range[:type] == type }.first(3), active_rules: active }
+        existing_endpoints: ranges.select { |range| range[:type] == type }.first(3), active_rules: active,
+        service: PortServiceDescriptions.for(type) }.compact
     end
     current_supported = current.map { |range| range[:type] }.uniq.one? && options.any? { |option| option[:state] == "supported" && current.any? { |range| range[:type] == option[:type] } }
     conflict = mapping_conflict(covering)
@@ -117,7 +116,7 @@ class PortMappingGuidance
     elsif conditions_unmet
       "All matching alternative rules require inactive or unobserved conditions. Inspect their Boolean operands with getsebool and review the capability's purpose; a port mapping alone cannot activate a conditional rule."
     else
-      "Compare these policy-supported types with the intended service. Correct configuration or use an appropriate existing endpoint when preferable. A port mapping is host-wide classification, not a firewall rule or per-process exception."
+      "Exact policy offers possible port types for this operation. It does not establish which service belongs here."
     end
     stale = !host.current_configuration?
     if stale
@@ -125,7 +124,7 @@ class PortMappingGuidance
       investigation[:reason] = "The latest host configuration observation is stale. Inspect current effective/local mappings and refresh host evidence before reviewing a change."
     end
     investigation[:type_count] = options.size
-    options = options.sort_by { |option| [current.any? { |range| range[:type] == option[:type] } ? 0 : 1, option[:state] == "supported" ? 0 : 1, option[:type]] }.first(TYPE_LIMIT)
+    options = options.sort_by { |option| [current.any? { |range| range[:type] == option[:type] } ? 0 : 1, option[:state] == "supported" ? 0 : 1, option[:type]] }
     proposals = options.filter_map do |option|
       equivalent = current.map { |range| range[:type] }.uniq == [option[:type]]
       if equivalent

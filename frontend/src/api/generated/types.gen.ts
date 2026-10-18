@@ -246,6 +246,19 @@ export type ObservedAccess = {
     observed_at: string;
 };
 
+/**
+ * Curated reference vocabulary; neither observed host intent nor exact-policy permission evidence. Missing descriptions are valid.
+ */
+export type PortServiceDescription = {
+    id: string;
+    label: string;
+    description: string;
+    source: string;
+    source_url: string;
+    macro_url: string;
+    source_entry: string;
+};
+
 export type PortMappingRange = {
     type: string;
     start: number;
@@ -274,6 +287,7 @@ export type PortInvestigation = {
         state: 'supported' | 'conditional' | 'no_op';
         explanation: string;
         existing_endpoints: Array<PortMappingRange>;
+        service?: PortServiceDescription;
     }>;
 };
 

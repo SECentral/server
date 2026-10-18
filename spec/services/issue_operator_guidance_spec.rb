@@ -89,4 +89,15 @@ RSpec.describe IssueOperatorGuidance do
     expect(result[:checks].map { |item| item[:command] }).to eq(["getsebool httpd_can_network_connect", "getsebool nis_enabled", "semanage port -l", "semanage port -l -C", "sesearch -A -s httpd_t -c tcp_socket -p name_connect -C"])
     expect(result[:possible_fix]).to include("already observed On")
   end
+
+  it "puts TCP/UDP bind ownership and effective/local classifications before matching Boolean paths" do
+    %w[tcp_socket udp_socket].each do |object_class|
+      diagnosis = { occurrence_id: 1, condition_boolean_states: [{ rule: "allow nsswitch_domain unreserved_port_t:#{object_class} name_bind;", booleans: [{ name: "nis_enabled" }] }] }
+      result = described_class.call(issue_with(occurrence(path: nil, permissions: ["name_bind"], object_class: object_class)), diagnosis: diagnosis)
+      expect(result[:manual_check]).to include("intended listener", "actual configuration")
+      expect(result[:checks].first(3).map { |check| check[:command] }).to eq([object_class == "udp_socket" ? "ss -lunp" : "ss -ltnp", "semanage port -l", "semanage port -l -C"])
+      expect(result[:checks].last[:command]).to eq("getsebool nis_enabled")
+      expect(result[:checks].last[:interpretation]).to include("not a recommendation")
+    end
+  end
 end

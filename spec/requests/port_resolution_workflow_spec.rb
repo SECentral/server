@@ -153,4 +153,30 @@ RSpec.describe "Reviewed port mapping workflow", type: :request do
     stub_const("PortMappingGuidance::PLAN_SEMANTICS_VERSION", 2)
     expect(workflow(issue)).to include("freshness" => "evidence_changed", "change_plan" => nil)
   end
+
+  it "returns complete sourced type choices without making description metadata part of reviewed mechanics" do
+    issue, = port_fixture
+    before = workflow(issue)
+    expect(before["port_investigations"].sole["types"].sole.dig("service", "id")).to eq("http")
+    candidate = before["candidates"].sole
+    choose(issue, candidate)
+    reviewed = workflow(issue)["change_plan"]
+    reference = PortServiceDescriptions.for("http_port_t")
+    allow(PortServiceDescriptions).to receive(:for).with("http_port_t").and_return(reference.merge(label: "Updated reference wording"))
+    after = workflow(issue)
+    expect(after["port_investigations"].sole["types"].sole.dig("service", "label")).to eq("Updated reference wording")
+    expect(after["candidates"].sole["evidence_version"]).to eq(candidate["evidence_version"])
+    expect(after).to include("freshness" => "current", "change_plan" => reviewed)
+  end
+
+  it "makes all discovered types and their reviewable candidates available through the API" do
+    issue, _, _, _, fact = port_fixture
+    types = 18.times.map { |index| "service_#{index}_port_t" } + ["http_port_t"]
+    rule = "allow httpd_t test_ports:tcp_socket name_bind;"
+    fact.update!(matching_rules: [rule], rule_details: [{ "rule" => rule, "target_types" => types }, fact.rule_details.last])
+    body = workflow(issue)
+    expect(body["port_investigations"].sole["types"].map { |option| option["type"] }).to match_array(types)
+    expect(body["candidates"].map { |candidate| candidate.dig("evidence_basis", "target_port_type") }).to match_array(types)
+    expect(body.to_json).not_to include("sudo semanage port")
+  end
 end

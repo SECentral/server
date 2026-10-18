@@ -36,16 +36,19 @@ class IssueOperatorGuidance
         checks << check("Local file-context customizations", "semanage fcontext -l -C", "A configured label can agree with the current object yet be unsuitable for an intended relocated workload. Review its effective data path and mappings; this check does not establish a preferred type or authorize a new mapping.")
       end
     end
+    # Bind investigation starts with listener ownership and classification, not a matching Boolean.
+    boolean_checks = []
     conditions = Array(@diagnosis&.dig(:condition_boolean_states))
     conditions.sort_by { |condition| condition[:rule].to_s.start_with?("allow #{denial.source_type} ") ? 0 : 1 }.each do |condition|
       Array(condition[:booleans]).each do |item|
         name = item["name"] || item[:name]
         next unless name.to_s.match?(/\A[A-Za-z][A-Za-z0-9_]*\z/)
 
-        checks << check("Current Boolean: #{name}", "getsebool #{name}", "Check runtime state on the selected host before retrying the intended workload. Stored checkpoint and latest observed values are historical observations, not a fresh host inspection. A matching rule is not a recommendation to enable this capability.")
+        boolean_checks << check("Current Boolean: #{name}", "getsebool #{name}", "Check runtime state on the selected host before retrying the intended workload. Stored checkpoint and latest observed values are historical observations, not a fresh host inspection. A matching rule is not a recommendation to enable this capability.")
       end
     end
-    checks.uniq! { |item| item[:command] }
+    boolean_checks.uniq! { |item| item[:command] }
+    checks.concat(boolean_checks) unless permissions.include?("name_bind")
     if %w[tcp_socket udp_socket].include?(denial.target_class)
       checks << check("Current listeners", denial.target_class == "udp_socket" ? "ss -lunp" : "ss -ltnp", "Check the intended listening address, port and owner. No listener alone does not establish the cause; a shell connection does not test confined workload access.") if permissions.include?("name_bind")
       checks << check("Configured port classifications", "semanage port -l", "Find the observed protocol/port in the current ranges. Classification alone does not establish which type is appropriate.")
@@ -56,6 +59,7 @@ class IssueOperatorGuidance
           "Queries the host's currently loaded policy, not the stored checkpoint. Inspect target attributes and conditions; a matching rule does not establish service intent or an appropriate replacement classification. Use this when central evaluation is pending or failed.")
       end
     end
+    checks.concat(boolean_checks) if permissions.include?("name_bind")
     manual, possible_fix, verification = next_steps(denial, permissions, path)
     {
       source: { occurrence_id: occurrence.id, host_id: occurrence.host_id, hostname: occurrence.host.hostname,
