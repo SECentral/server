@@ -4842,11 +4842,13 @@ components:
         summary:
           type: string
         observations:
+          description: Evidence observations with basis and certainty. summary_fact marks attributes already displayed in the occurrence Summary tab; clients may omit those duplicate observations.
           type: array
           items:
             type: object
             additionalProperties: true
         checks:
+          description: Investigation checks with purpose, interpretation and limitations. Supported checks include server-rendered command strings; port checks carry validated protocol, operation and port scope. Commands inspect current host state and are not historical measurements.
           type: array
           items:
             type: object

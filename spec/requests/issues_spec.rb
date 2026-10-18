@@ -362,6 +362,22 @@ RSpec.describe "Issues API", type: :request do
     expect(body.fetch("meta")).to include("next_cursor" => nil)
   end
 
+  it "serves scoped port inspection commands on both occurrence detail routes" do
+    issue = create_issue(target_type: "unreserved_port_t", target_class: "tcp_socket", permissions: ["name_bind"])
+    occurrence = create_occurrence(issue)
+    occurrence.normalized_denial.update!(target_class: issue.target_class, permissions: issue.permissions,
+      details: { "network_evidence" => { "bind_port_fields" => ["12345"] } })
+
+    ["/api/v1/issues/#{issue.id}/occurrences/#{occurrence.id}", "/api/v1/hosts/#{occurrence.host_id}/occurrences/#{occurrence.id}"].each do |path|
+      get path
+      expect(response).to have_http_status(:ok)
+      checks = JSON.parse(response.body).fetch("guidance").fetch("checks")
+      expect(checks).to include(include("kind" => "port_classification", "command" => "semanage port -l", "target" => "tcp/12345"))
+      listener = checks.find { |item| item["kind"] == "socket_listeners" }
+      expect(Shellwords.split(listener.fetch("command"))).to eq(["ss", "-ltnp", "sport = :12345"])
+    end
+  end
+
   it "preserves network destinations independently of policy findings and scopes mixed checkpoint coverage" do
     issue = create_issue(target_type: "unreserved_port_t", target_class: "tcp_socket", permissions: ["name_connect"])
     stale = create_occurrence(issue, "network-stale", 1)

@@ -452,7 +452,7 @@ describe("HostDetail", () => {
     expect(badge.querySelector("svg[aria-hidden='true']")).not.toBeNull();
   });
 
-  it("renders Summary, readable Guidance, and progressive Raw evidence on the occurrence route", async () => {
+  it("renders forensic tabs, an issue investigation link and separate normalized details", async () => {
     renderHostDetail(10, { initialEntry: "/hosts/10/occurrences/101" });
 
     expect(await screen.findByRole("heading", { name: "httpd_t → user_home_t" })).toBeInTheDocument();
@@ -463,25 +463,18 @@ describe("HostDetail", () => {
     expect(screen.queryByText(RAW_PAYLOAD)).not.toBeInTheDocument();
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("tab", { name: "Guidance" }));
-    expect(screen.getByText("The AVC confirms a denied read on a file object.")).toBeInTheDocument();
-    expect(screen.getByText(/Observed evidence · Basis: AVC record/)).toBeInTheDocument();
-    expect(screen.getByText("Look for surrounding audit records near the event timestamp.")).toBeInTheDocument();
-    expect(screen.getByText("Compare the executable and source context with current service configuration.")).toBeInTheDocument();
-    expect(screen.getByText("complete target path")).toBeInTheDocument();
-    expect(screen.queryByText("avc_record")).not.toBeInTheDocument();
-    expect(screen.queryByText("expected:")).not.toBeInTheDocument();
-    expect(screen.queryByText(RAW_PAYLOAD)).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Guidance" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /View Issue #7 Investigation & Resolution Plan/ })).toHaveAttribute("href", "/issues/7");
 
     await user.click(screen.getByRole("tab", { name: "Raw evidence" }));
-    expect(screen.getByRole("button", { name: "Normalized details (debug)" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Raw AVC" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Raw audit records" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Other retained payload" })).toBeInTheDocument();
-    expect(screen.queryByText(RAW_PAYLOAD)).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Raw AVC" }));
+    expect(screen.queryByRole("button", { name: "Normalized details (debug)" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Audit Event Records" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Retained Event Metadata" })).toBeInTheDocument();
     expect((await screen.findAllByText(RAW_PAYLOAD)).length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Copy raw AVC record 0 for occurrence 101" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy audit record 0 for occurrence 101" })).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Normalized details" }));
+    expect(screen.getByRole("region", { name: "Normalized JSON payload" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download JSON" })).toBeInTheDocument();
   });
 
   it("opens older occurrences directly without traversing host history", async () => {

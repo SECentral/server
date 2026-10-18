@@ -26,8 +26,8 @@ class InvestigationGuidance
     permissions = @occurrence ? denials.first.permissions : @issue.permissions
     executables = process["executables"]
     observations = [
-      observation("Observed denied permissions across this issue: #{permissions.join(', ')} on #{@issue.target_class} objects.", @occurrence ? "avc_record" : "issue_occurrences", "observed"),
-      *paths.map { |path| observation("The audit record contains the path #{path}.", basis_for(provenance, "path", path, "avc_record"), "observed") },
+      observation("Observed denied permissions across this issue: #{permissions.join(', ')} on #{@issue.target_class} objects.", @occurrence ? "avc_record" : "issue_occurrences", "observed", summary_fact: true),
+      *paths.map { |path| observation("The audit record contains the path #{path}.", basis_for(provenance, "path", path, "avc_record"), "observed", summary_fact: true) },
       *names.map { |name| observation("The audit record contains the object name #{name}; its complete path is not established.", basis_for(provenance, "object_name", name, "avc_record"), "observed") },
       *network_observations(network, provenance),
       *process_observations(process, provenance),
@@ -56,8 +56,18 @@ class InvestigationGuidance
       observations << observation("Multiple executable values were captured for this occurrence; no single executable was selected for a concrete check.", "avc_record", "observed")
     end
     if @issue.target_class.to_s.end_with?("_socket")
-      observations << observation("The denial concerns a #{@issue.target_class} interaction between SELinux domains.", "avc_record", "observed")
-      checks << check(:socket_context, nil, "Inspect the service and socket relationship using the captured domains and operation.", "The current service/socket state may explain whether the interaction is still present.", :current_state_only) if @occurrence
+      if @occurrence
+        endpoint = PortMappingGuidance.endpoint(denials.first) if %w[tcp_socket udp_socket].include?(@issue.target_class)
+        if endpoint && endpoint[:port]
+          target = "#{endpoint[:protocol]}/#{endpoint[:port]}"
+          checks << check(:port_classification, target, "Inspect the current SELinux port classification for #{target}.", "Find the port within the protocol's individual entries or ranges. Compare its type with the recorded AVC target type; classification alone does not establish the correct service type.", :current_state_only, endpoint)
+          if endpoint[:operation] == "name_bind"
+            checks << check(:socket_listeners, target, "Inspect current listeners and ownership for #{target}.", "Compare the listening address and owner with the intended service. No listener does not establish the cause; process details may require additional privileges.", :current_state_only, endpoint)
+          end
+        else
+          checks << check(:socket_context, nil, "Inspect the service and socket relationship using the captured domains and operation.", "The current service/socket state may explain whether the interaction is still present.", :current_state_only)
+        end
+      end
     end
     observations.concat(fleet_observations) unless @occurrence
     missing = missing_evidence(paths, names, filesystem_target)
@@ -76,8 +86,8 @@ class InvestigationGuidance
 
   private
 
-  def observation(text, basis, certainty)
-    { observation: text, basis: basis, certainty: certainty }
+  def observation(text, basis, certainty, **metadata)
+    { observation: text, basis: basis, certainty: certainty }.merge(metadata)
   end
 
   def check(kind, target, reason, expected, limitation, extra = {})
@@ -109,7 +119,7 @@ class InvestigationGuidance
       "proto_fields" => ["protocol field", "protocol"],
       "bind_port_fields" => ["bind port field", "bind port"],
       "operations" => ["network operation", "permission"]
-    }.flat_map { |key, (label, kind)| network[key].map { |value| observation("The audit record contains #{label} #{value}.", basis_for(provenance, kind, value, "avc_record"), "observed") } }
+    }.flat_map { |key, (label, kind)| network[key].map { |value| observation("The audit record contains #{label} #{value}.", basis_for(provenance, kind, value, "avc_record"), "observed", summary_fact: true) } }
   end
 
   def process_evidence(denial)
@@ -130,7 +140,12 @@ class InvestigationGuidance
       "commands" => "command",
       "executables" => "executable",
       "source_contexts" => "source context"
-    }.flat_map { |key, label| process[key].map { |value| observation("The audit record contains #{label} #{value}.", basis_for(provenance, key.delete_suffix("s"), value, "avc_record"), "observed") } }
+    }.flat_map do |key, label|
+      process[key].map do |value|
+        text = key == "pids" ? "Recorded process ID #{value}." : "The audit record contains #{label} #{value}."
+        observation(text, basis_for(provenance, key.delete_suffix("s"), value, "avc_record"), "observed", summary_fact: key != "pids")
+      end
+    end
   end
 
   def file_context_observations(observations)

@@ -4,7 +4,7 @@ module PortResolutionFixtures
   end
 
   def port_fixture(operation: "name_bind", protocol: "tcp", port: 12345, mappings: nil, issue: nil)
-    org = issue&.organization || Organization.find_or_create_by!(name: "port-resolution")
+    org = issue&.organization || Organization.first_or_create!(name: "port-resolution")
     issue ||= Issue.create!(organization: org, fingerprint_version: 3, fingerprint_digest: SecureRandom.hex,
       source_type: "httpd_t", target_type: "unreserved_port_t", target_class: "#{protocol}_socket", permissions: [operation],
       first_seen_at: 1.minute.ago, last_seen_at: 1.minute.ago)

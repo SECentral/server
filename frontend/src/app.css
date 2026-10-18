@@ -713,17 +713,81 @@
   padding-block-start: var(--pf-t--global--spacer--md);
 }
 
-.occurrence-investigation-guidance {
-  display: grid;
-  gap: var(--pf-t--global--spacer--md);
+.occurrence-investigation-panel h3 {
+  margin-block: 0 var(--pf-t--global--spacer--sm);
 }
 
-.occurrence-investigation-guidance h3 {
-  margin-block: 0 var(--pf-t--global--spacer--xs);
+.occurrence-investigation-panel .pf-v6-c-description-list__description {
+  overflow-wrap: anywhere;
 }
 
-.occurrence-investigation-guidance ul {
-  margin-block: var(--pf-t--global--spacer--sm) 0;
+.occurrence-audit-record + .occurrence-audit-record {
+  margin-block-start: var(--pf-t--global--spacer--md);
+}
+
+.occurrence-raw-evidence .pf-v6-c-description-list__description {
+  overflow-wrap: anywhere;
+}
+
+.occurrence-normalized-json {
+  max-height: 420px;
+  overflow: auto;
+}
+
+.occurrence-normalized-json .json-token-property {
+  color: var(--pf-t--color--blue--20);
+}
+
+.occurrence-normalized-json .json-token-string {
+  color: var(--pf-t--color--green--20);
+}
+
+.occurrence-normalized-json .json-token-number,
+.occurrence-normalized-json .json-token-boolean,
+.occurrence-normalized-json .json-token-null {
+  color: var(--pf-t--color--orange--20);
+}
+
+.occurrence-normalized-json .json-token-punctuation,
+.occurrence-normalized-json .json-token-operator {
+  color: var(--pf-t--color--gray--30);
+}
+
+.occurrence-normalized-json .pf-v6-c-code-block__pre,
+.occurrence-normalized-json .pf-v6-c-code-block__code {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+.occurrence-normalized-json-full {
+  max-height: none;
+  overflow: visible;
+}
+
+.occurrence-normalized-json-full .occurrence-code-block {
+  min-height: calc(100dvh - 20rem);
+}
+
+.occurrence-normalized-json-full .pf-v6-c-code-block__pre,
+.occurrence-normalized-json-full .pf-v6-c-code-block__code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.occurrence-raw-evidence .occurrence-code-block,
+.occurrence-normalized-details .occurrence-code-block {
+  --pf-v6-c-code-block--BackgroundColor: var(--pf-t--color--gray--95);
+  color: var(--pf-t--color--gray--10);
+}
+
+.occurrence-raw-evidence .occurrence-code-block .pf-v6-c-button,
+.occurrence-normalized-details .occurrence-code-block .pf-v6-c-button {
+  --pf-v6-c-button--m-plain--Color: var(--pf-t--color--gray--10);
+  --pf-v6-c-button--m-plain__icon--Color: var(--pf-t--color--gray--10);
+  --pf-v6-c-button--m-plain--hover--Color: var(--pf-t--color--white);
+  --pf-v6-c-button--m-plain--hover--BackgroundColor: var(--pf-t--color--gray--70);
+  --pf-v6-c-button--m-plain--m-clicked--Color: var(--pf-t--color--white);
+  --pf-v6-c-button--m-plain--m-clicked--BackgroundColor: var(--pf-t--color--gray--70);
 }
 
 @media (max-width: 767px) {

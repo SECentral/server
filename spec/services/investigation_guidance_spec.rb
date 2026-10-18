@@ -64,7 +64,7 @@ RSpec.describe InvestigationGuidance do
   end
 
   it "reports only captured network evidence" do
-    denial = double(details: { "target_evidence" => { "filesystem_paths" => [], "object_names" => [] }, "network_evidence" => { "dest_fields" => ["10.0.0.8"], "dport_fields" => ["443"], "lport_fields" => [], "proto_fields" => ["tcp"], "operations" => ["name_connect"] } }, target_paths: [], permissions: [ "name_connect" ], executable: nil)
+    denial = double(target_class: "tcp_socket", details: { "target_evidence" => { "filesystem_paths" => [], "object_names" => [] }, "network_evidence" => { "dest_fields" => ["10.0.0.8"], "dport_fields" => ["443"], "lport_fields" => [], "proto_fields" => ["tcp"], "operations" => ["name_connect"] } }, target_paths: [], permissions: [ "name_connect" ], executable: nil)
     occurrence = double(normalized_denial: denial, occurred_at: Time.utc(2026, 9, 1, 14, 20))
     issue = double(permissions: [ "name_connect" ], target_class: "tcp_socket")
 
@@ -73,6 +73,9 @@ RSpec.describe InvestigationGuidance do
 
     expect(text).to include("dest field 10.0.0.8", "dport field 443", "protocol field tcp", "network operation name_connect")
     expect(text).not_to include("service", "example.com")
+    expect(result[:observations].select { |item| item[:summary_fact] }).not_to be_empty
+    expect(result[:checks].map { |check| check[:kind] }).to include(:port_classification)
+    expect(result[:checks].map { |check| check[:kind] }).not_to include(:socket_listeners)
   end
 
   it "reports process evidence without claiming a transition" do
@@ -174,5 +177,29 @@ RSpec.describe InvestigationGuidance do
 
     expect(text).to include("4 of 10", "present on 4/4 hosts with an occurrence", "1/6 hosts without", "baseline", "2/6 hosts without", "Investigate whether")
     expect(text).not_to include("caused", "causes")
+  end
+
+  it "scopes read-only port checks to a single retained bind endpoint" do
+    %w[tcp_socket udp_socket].each do |target_class|
+      denial = double(target_class: target_class, details: { "network_evidence" => { "bind_port_fields" => ["12345"] } }, target_paths: [], permissions: ["name_bind"], executable: nil)
+      occurrence = double(normalized_denial: denial)
+      issue = double(target_class: target_class)
+
+      result = described_class.call(issue: issue, occurrence: occurrence)
+      port_checks = result[:checks].select { |item| %i[port_classification socket_listeners].include?(item[:kind]) }
+      expect(port_checks.size).to eq(2)
+      expect(port_checks).to all(include(port: 12345, operation: "name_bind", limitation: :current_state_only))
+      expect(port_checks.map { |item| InvestigationCommandRenderer.call(item) }).to all(be_present)
+      expect(result[:checks].map { |item| item[:kind] }).not_to include(:socket_context, :current_file_label)
+    end
+  end
+
+  it "does not choose an endpoint when port evidence is missing, invalid or ambiguous" do
+    [[], ["12345", "12346"], ["0"], ["65536"], ["12345;id"]].each do |ports|
+      denial = double(target_class: "tcp_socket", details: { "network_evidence" => { "bind_port_fields" => ports } }, target_paths: [], permissions: ["name_bind"], executable: nil)
+      result = described_class.call(issue: double(target_class: "tcp_socket"), occurrence: double(normalized_denial: denial))
+      expect(result[:checks].map { |item| item[:kind] }).not_to include(:port_classification, :socket_listeners)
+      expect(result[:checks].map { |item| item[:kind] }).to include(:socket_context)
+    end
   end
 end

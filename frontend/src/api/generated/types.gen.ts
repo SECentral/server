@@ -1829,9 +1829,15 @@ export type RawEventDetail = {
 
 export type OccurrenceGuidance = {
     summary: string;
+    /**
+     * Evidence observations with basis and certainty. summary_fact marks attributes already displayed in the occurrence Summary tab; clients may omit those duplicate observations.
+     */
     observations: Array<{
         [key: string]: unknown;
     }>;
+    /**
+     * Investigation checks with purpose, interpretation and limitations. Supported checks include server-rendered command strings; port checks carry validated protocol, operation and port scope. Commands inspect current host state and are not historical measurements.
+     */
     checks: Array<{
         [key: string]: unknown;
     }>;
