@@ -1885,6 +1885,10 @@ components:
         host_id: {type: integer}
         hostname: {type: [string, 'null']}
         occurrence_id: {type: integer}
+        occurrence_count:
+          description: Total retained occurrences for this host/protocol/port/operation investigation, independent of finding coverage. A null port groups occurrences without one established nonzero endpoint, not one known shared port. Older responses may omit the count.
+          type: integer
+          minimum: 1
         protocol: {type: string, enum: [tcp, udp]}
         port: {type: [integer, 'null'], minimum: 1, maximum: 65535}
         operation: {type: string, enum: [name_bind, name_connect]}
@@ -4286,6 +4290,24 @@ components:
               type: [string, "null"]
             destination_port_count:
               type: integer
+            bind_port_count:
+              description: Distinct retained local bind ports across all issue occurrences, independent of diagnosis availability.
+              type: integer
+            without_bind_port_occurrences:
+              description: Occurrences without a retained valid local bind port; meaningful for bind issues only.
+              type: integer
+            bind_ports:
+              description: At most three local bind port examples, ordered by occurrence count then port. Counts describe endpoint evidence, not finding coverage or service intent.
+              type: array
+              maxItems: 3
+              items:
+                type: object
+                required: [port, occurrence_count]
+                properties:
+                  port:
+                    type: string
+                  occurrence_count:
+                    type: integer
             destination_ports:
               description: At most three observed TCP destination-port examples with occurrence counts; no address or service identity is inferred.
               type: array
@@ -4779,6 +4801,21 @@ components:
         - evidence_digest
         - audit_records
       properties:
+        checkpoint:
+          description: Metadata from the occurrence's associated retained snapshot, never the host's latest inventory. Missing associations or fields remain null; identity/family trust states are reported separately.
+          type: object
+          properties:
+            snapshot_id: {type: [integer, 'null']}
+            observed_at: {type: [string, 'null'], format: date-time}
+            kernel_release: {type: [string, 'null']}
+        collection:
+          description: Retained collection and receipt metadata for this audit event. Installation ID does not imply a historically observed agent version.
+          type: object
+          properties:
+            agent_installation_id: {type: integer}
+            schema_version: {type: integer}
+            agent_received_at: {type: string, format: date-time}
+            server_received_at: {type: string, format: date-time}
         id:
           type: integer
         audit_timestamp:

@@ -11,6 +11,7 @@ import {
 } from "@patternfly/react-core";
 import { ApiError } from "../api/client";
 import { createSession } from "../api/sessions";
+import logo from "../assets/secentral-logo.svg";
 
 export function Login() {
   const [username, setUsername] = useState("");
@@ -35,7 +36,12 @@ export function Login() {
   };
 
   return (
-    <LoginPage loginTitle="Log in to SECentral">
+    <LoginPage
+      loginTitle="Log in to SECentral"
+      brandImgSrc={logo}
+      brandImgAlt="SECentral"
+      brandImgProps={{ alt: "SECentral", className: "app-brand-logo app-login-logo", width: 192, height: 52 }}
+    >
       {error !== null && (
         <Alert variant="danger" isInline title={error} className="pf-v6-u-mb-md" />
       )}

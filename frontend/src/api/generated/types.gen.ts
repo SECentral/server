@@ -270,6 +270,10 @@ export type PortInvestigation = {
     host_id: number;
     hostname: string | null;
     occurrence_id: number;
+    /**
+     * Total retained occurrences for this host/protocol/port/operation investigation, independent of finding coverage. A null port groups occurrences without one established nonzero endpoint, not one known shared port. Older responses may omit the count.
+     */
+    occurrence_count?: number;
     protocol: 'tcp' | 'udp';
     port: number | null;
     operation: 'name_bind' | 'name_connect';
@@ -1498,6 +1502,21 @@ export type IssueIntelligenceSummary = {
         process_command?: string | null;
         destination_port_count?: number;
         /**
+         * Distinct retained local bind ports across all issue occurrences, independent of diagnosis availability.
+         */
+        bind_port_count?: number;
+        /**
+         * Occurrences without a retained valid local bind port; meaningful for bind issues only.
+         */
+        without_bind_port_occurrences?: number;
+        /**
+         * At most three local bind port examples, ordered by occurrence count then port. Counts describe endpoint evidence, not finding coverage or service intent.
+         */
+        bind_ports?: Array<{
+            port: string;
+            occurrence_count: number;
+        }>;
+        /**
          * At most three observed TCP destination-port examples with occurrence counts; no address or service identity is inferred.
          */
         destination_ports?: Array<{
@@ -1792,6 +1811,23 @@ export type RawAuditRecordDetail = {
 };
 
 export type RawEventDetail = {
+    /**
+     * Metadata from the occurrence's associated retained snapshot, never the host's latest inventory. Missing associations or fields remain null; identity/family trust states are reported separately.
+     */
+    checkpoint?: {
+        snapshot_id?: number | null;
+        observed_at?: string | null;
+        kernel_release?: string | null;
+    };
+    /**
+     * Retained collection and receipt metadata for this audit event. Installation ID does not imply a historically observed agent version.
+     */
+    collection?: {
+        agent_installation_id?: number;
+        schema_version?: number;
+        agent_received_at?: string;
+        server_received_at?: string;
+    };
     id: number;
     audit_timestamp: string;
     audit_sequence: number;

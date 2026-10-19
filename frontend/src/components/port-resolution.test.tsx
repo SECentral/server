@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import type { ResolutionWorkflow as Workflow, ChangePlan } from "../api/resolution";
 import type { IssueDetailResponse } from "../api/issue";
@@ -20,7 +20,7 @@ const candidate: Workflow["candidates"][number] = {
 const service = { id: "http", label: "HTTP service", description: "Reference HTTP service classification; confirm the intended role.",
   source: "Fixture reference policy", source_url: "https://example.test/reference/http", macro_url: "https://example.test/reference/macro", source_entry: "network_port(http, ...) declares http_port_t" };
 const investigation: NonNullable<Workflow["port_investigations"]>[number] = {
-  host_id: 1, hostname: "web-1", occurrence_id: 11, protocol: "tcp", port: 12345, operation: "name_bind", observed_type: "unreserved_port_t",
+  host_id: 1, hostname: "web-1", occurrence_id: 11, occurrence_count: 1, protocol: "tcp", port: 12345, operation: "name_bind", observed_type: "unreserved_port_t",
   state: "ready", reason: "Compare correcting Listen, an existing endpoint, a relevant Boolean or a mapping. Generated options are not exhaustive.",
   inventory_status: "observed", local_status: "observed", latest_observed_at: "2026-10-17T10:00:00Z", type_count: 1,
   current_mappings: [{ type: "unreserved_port_t", start: 1024, end: 32767, provenance: "not_confirmed_custom" }],
@@ -35,14 +35,20 @@ function plan(): ChangePlan {
   return { ...candidate, id: candidate.id, persistence: "Persistent local mapping; no firewall change.",
     preview_steps: [{ title: "Inspect local overrides", command: "semanage port -l -C", persistence: "inspection", explanation: "Verify no conflicting use." }],
     apply_steps: [{ title: "Add reviewed port mapping", command: "sudo semanage port -a -p tcp -t http_port_t 12345", persistence: "port_mapping", explanation: candidate.expected_effect }],
-    verification_steps: [{ title: "Verify effective mapping and workload", command: "semanage port -l", persistence: "inspection", explanation: "Retry the real listener and request; check fresh AVCs and delivery health." }],
+    verification_steps: [{ title: "Verify effective mapping and workload", command: "semanage port -l", persistence: "inspection", explanation: "Retry the real listener and request; check fresh AVCs and delivery health. Silence alone is not success." }],
     rollback_steps: [{ title: "Remove only the new local singleton", command: "sudo semanage port -d -p tcp 12345", persistence: "port_mapping", explanation: "Only if this reviewed change was applied and no later changes intervened." }],
     rollback_description: "Restore the previous base-range behavior; never delete a pre-existing local mapping." };
 }
-function mount(state: Workflow) {
+function mount(state: Workflow, inspectionDetail?: IssueDetailResponse, entry = "/issues/7") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const detail = { operator_guidance: { source: { host_id: 1, occurrence_id: 11, path: null }, possible_fix: investigation.reason } } as IssueDetailResponse;
-  return render(<QueryClientProvider client={client}><MemoryRouter><ResolutionWorkflow issueId={7} stage="intent" initialData={state} initialDataUpdatedAt={Date.now()} detail={detail} /></MemoryRouter></QueryClientProvider>);
+  const detail = { operator_guidance: { source: { host_id: 1, occurrence_id: 11, hostname: "web-1", occurred_at: "2026-10-17T10:00:00Z", observed_type: "unreserved_port_t", path: null }, checks: [], manual_check: "Confirm workload intent", possible_fix: investigation.reason, verification: "Retry the actual workload", verification_limit: "Silence alone is not success", restriction: "Keep unwanted access denied" } } as unknown as IssueDetailResponse;
+  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[entry]}><HistoryControls /><ResolutionWorkflow issueId={7} stage="intent" initialData={state} initialDataUpdatedAt={Date.now()} detail={inspectionDetail ?? detail} /></MemoryRouter></QueryClientProvider>);
+}
+
+function HistoryControls() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  return <><button onClick={() => navigate(-1)}>Back</button><button onClick={() => navigate(1)}>Forward</button><output aria-label="Location">{location.search}</output></>;
 }
 
 describe("Port troubleshooting", () => {
@@ -59,7 +65,7 @@ describe("Port troubleshooting", () => {
     const user = userEvent.setup();
     mount(state);
     expect(screen.getByRole("article", { name: "Port investigation" })).toHaveTextContent("Local bind");
-    expect(screen.getByText(/Intersecting observed ranges:/)).toHaveTextContent("unreserved_port_t 1024–32767");
+    expect(screen.getByRole("article", { name: "Port investigation" })).toHaveTextContent("Recorded classification: unreserved_port_t 1024–32767");
     expect(screen.queryByRole("button", { name: /Copy sudo semanage/ })).not.toBeInTheDocument();
     expect(document.querySelectorAll(".resolution-candidate-card")).toHaveLength(0);
     expect(screen.getByLabelText("What service should listen on this port?")).toHaveValue("");
@@ -72,11 +78,11 @@ describe("Port troubleshooting", () => {
     expect(screen.getByText(candidate.intent_prompt)).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Confirm intent" }));
     const reviewed = await screen.findByRole("region", { name: "Selected change plan" });
-    const copy = within(reviewed).getByRole("button", { name: "Copy sudo semanage port -a -p tcp -t http_port_t 12345" });
+    const copy = within(reviewed).getByRole("button", { name: "Copy command: sudo semanage port -a -p tcp -t http_port_t 12345" });
     const badge = within(reviewed).getAllByText("Changes SELinux port mapping")[0];
     expect(badge.compareDocumentPosition(copy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(reviewed).queryByText("Changes host-wide Boolean")).not.toBeInTheDocument();
-    expect(within(reviewed).getByRole("region", { name: "Verify port change" })).toHaveTextContent("real listener and request");
+    expect(within(reviewed).getByRole("region", { name: "Verify port change" })).toHaveTextContent("Test the intended operation through the confined workload.");
     expect(reviewed).toHaveTextContent("never delete a pre-existing local mapping");
   });
 
@@ -85,23 +91,143 @@ describe("Port troubleshooting", () => {
       reason: "A service-specific range overlaps TCP/12345. Confirm its owner and inspect semanage port -l -C; no replacement is generated." }] };
     mount(state);
     expect(screen.getByRole("article", { name: "Port investigation" })).toHaveTextContent("service-specific range overlaps");
-    expect(screen.getByText(/Stored effective inventory:/)).toHaveTextContent("partial");
+    expect(screen.getByRole("article", { name: "Port investigation" })).toHaveTextContent("Inventory coverage: effective partial");
     expect(screen.queryByRole("button", { name: "Choose intent" })).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain("sudo semanage port");
   });
 
   it("keeps other ports on the same host secondary and retains outbound-connect semantics", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ host: { id: 1, hostname: "web-1" }, guidance: null }), { status: 200 })));
     const other = { ...candidate, id: "another-port", title: "Classify TCP/23456 as http_port_t", evidence_basis: { ...candidate.evidence_basis, port: 23456, occurrence_id: 22, operation: "name_connect" } };
     mount({ ...workflow(), candidates: [other, candidate], port_investigations: [investigation, { ...investigation, occurrence_id: 22, port: 23456, operation: "name_connect" }] });
     expect(screen.queryByText(other.title)).not.toBeInTheDocument();
     const user = userEvent.setup();
-    await user.click(screen.getByText("Other port evidence examples · 1"));
-    const secondary = screen.getByText(/TCP\/23456 · Outbound connect/).closest("article")!;
-    await user.selectOptions(within(secondary).getByLabelText("What is the intended destination service?"), "http");
+    await user.click(screen.getByRole("tab", { name: /TCP\/23456/ }));
+    const secondary = screen.getByRole("article", { name: "Port investigation" });
+    await user.selectOptions(within(secondary).getByLabelText("What remote service does this workload connect to?"), "http");
     await user.selectOptions(within(secondary).getByLabelText("Policy-supported port type"), "http_port_t");
     expect(screen.getByText(other.title)).toBeVisible();
-    expect(screen.getByLabelText("What service should listen on this port?")).toHaveValue("");
+    expect(screen.queryByLabelText("What service should listen on this port?")).not.toBeInTheDocument();
     expect(screen.queryByText(/Historical checkpoint/)).not.toBeInTheDocument();
+  });
+
+  it("browses resource B without mutating resource A's durable review and restores URL history", async () => {
+    const state = workflow();
+    state.port_investigations!.push({ ...investigation, port: 23456, occurrence_id: 22, occurrence_count: 5 });
+    state.candidates.push({ ...candidate, id: "port-b", evidence_basis: { ...candidate.evidence_basis, port: 23456, occurrence_id: 22 } });
+    state.intent = { candidate_id: candidate.id, candidate_kind: candidate.kind, selected_intent: candidate.intent_prompt,
+      operator: "test", selected_at: "2026-10-17T11:00:00Z", evidence_version: "port-v1", status: "selected" };
+    state.freshness = "current";
+    state.change_plan = plan();
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      expect(url).toMatch(/\/api\/v1\/issues\/7/);
+      expect(options?.method ?? "GET").toBe("GET");
+      return new Response(JSON.stringify(url.endsWith("/occurrences/22") ? { id: 22, host: { id: 1, hostname: "web-1" }, guidance: { checks: [{ command: "ss -ltnp 'sport = :23456'", reason: "Inspect listeners", expected: "Confirm owner" }] } } : state), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    mount(state);
+    expect(screen.getByRole("region", { name: "Selected change plan" })).toBeVisible();
+    expect(document.querySelectorAll(".resolution-candidate-card")).toHaveLength(1);
+    expect(screen.queryByText(/Intent is unknown/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: /TCP\/23456/ }));
+    expect(screen.getByText(/Viewing TCP\/23456; the reviewed plan is on TCP\/12345/)).toBeVisible();
+    expect(screen.getByRole("tab", { name: /TCP\/12345.*1 denial.*Review current/ })).toBeVisible();
+    expect(screen.getByRole("tab", { name: /TCP\/23456.*5 denials/ })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Copy command: ss -ltnp 'sport = :23456'" })).toBeVisible();
+    expect(screen.getByRole("region", { name: "Inspect active resource" })).toHaveTextContent("Inspect listeners");
+    expect(screen.queryByRole("region", { name: "Selected change plan" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Copy sudo/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Location")).toHaveTextContent("resource=1%3Atcp%3A23456%3Aname_bind");
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByRole("region", { name: "Selected change plan" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Forward" }));
+    expect(screen.queryByRole("region", { name: "Selected change plan" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Switch to reviewed plan" }));
+    expect(screen.getByRole("region", { name: "Selected change plan" })).toBeVisible();
+    expect(fetchMock.mock.calls.every((call) => !call[1] || !["PATCH", "DELETE"].includes(String((call[1] as RequestInit)?.method)))).toBe(true);
+  });
+
+  it("keeps inspection without intent, consolidates matching pre-change checks, and retains post-change verification", async () => {
+    const state = workflow();
+    const detail = { operator_guidance: { source: { host_id: 1, occurrence_id: 11, protocol: "tcp", port: 12345, operation: "name_bind", path: null },
+      checks: [{ title: "Inspect local overrides", command: "semanage port -l -C", interpretation: "Stop for a changed range." }],
+      manual_check: "Confirm ownership", possible_fix: "Compare approaches", verification: "Retry the actual application request", verification_limit: "Silence alone is not success", restriction: "Keep unwanted access denied" } } as IssueDetailResponse;
+    const view = mount(state, detail);
+    expect(screen.getByRole("region", { name: "Check" })).toHaveTextContent("semanage port -l -C");
+    view.unmount();
+    state.intent = { candidate_id: candidate.id, candidate_kind: candidate.kind, selected_intent: candidate.intent_prompt,
+      operator: "test", selected_at: "2026-10-17T11:00:00Z", evidence_version: "port-v1", status: "selected" };
+    state.freshness = "current";
+    state.change_plan = plan();
+    state.change_plan.verification_steps![0].command = "semanage port -l -C";
+    detail.operator_guidance!.checks.push({ title: "Listener ownership", command: "ss -ltnp", interpretation: "Inspect the intended owner." });
+    const reviewedView = mount(state, detail);
+    expect(screen.getByRole("region", { name: "Check" })).toHaveTextContent("Listener ownership");
+    expect(screen.getAllByRole("button", { name: "Copy command: semanage port -l -C" })).toHaveLength(2);
+    expect(screen.getByRole("region", { name: "Selected change plan" })).toHaveTextContent("Retry the actual application request");
+    expect(screen.getByRole("region", { name: "Selected change plan" })).toHaveTextContent("Retry the actual application request");
+    expect(screen.getByRole("button", { name: "Copy command: ss -ltnp" })).toBeVisible();
+    reviewedView.unmount();
+    state.change_plan.preview_steps[0].command = "semanage port -l";
+    mount(state, detail);
+    expect(screen.getAllByRole("button", { name: "Copy command: semanage port -l -C" })).toHaveLength(2);
+  });
+
+  it("opens rollback from a phase deep link and retains prior-state warnings before its mutation Copy", async () => {
+    const state = workflow();
+    state.intent = { candidate_id: candidate.id, candidate_kind: candidate.kind, selected_intent: candidate.intent_prompt,
+      operator: "test", selected_at: "2026-10-17T11:00:00Z", evidence_version: "port-v1", status: "selected" };
+    state.freshness = "current";
+    state.change_plan = plan();
+    mount(state, undefined, "/issues/7?resource=1%3Atcp%3A12345%3Aname_bind&phase=rollback");
+    expect(screen.getByRole("button", { name: "Rollback procedure" })).toHaveAttribute("aria-expanded", "true");
+    const rollback = document.getElementById("plan-rollback")!;
+    const copy = within(rollback).getByRole("button", { name: "Copy command: sudo semanage port -d -p tcp 12345" });
+    expect(within(rollback).getByText(/no later changes intervened/).compareDocumentPosition(copy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(rollback).getByText("Changes SELinux port mapping").compareDocumentPosition(copy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Rollback procedure" }));
+    expect(screen.getByRole("button", { name: "Rollback procedure" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByLabelText("Location")).not.toHaveTextContent("phase=rollback");
+    expect(screen.getByLabelText("Location")).toHaveTextContent("resource=1%3Atcp%3A12345%3Aname_bind");
+  });
+
+  it("restores a URL-selected identical port on another host without exposing the reviewed host's plan", () => {
+    const state = workflow();
+    state.port_investigations!.push({ ...investigation, host_id: 2, hostname: "web-2", occurrence_id: 22 });
+    state.intent = { candidate_id: candidate.id, candidate_kind: candidate.kind, selected_intent: candidate.intent_prompt,
+      operator: "test", selected_at: "2026-10-17T11:00:00Z", evidence_version: "port-v1", status: "selected" };
+    state.freshness = "current";
+    state.change_plan = plan();
+    mount(state, undefined, "/issues/7?resource=2%3Atcp%3A12345%3Aname_bind");
+    expect(screen.getByRole("tab", { name: /web-2/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("article", { name: "Port investigation" })).toHaveTextContent("web-2");
+    expect(screen.queryByRole("region", { name: "Selected change plan" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Switch to reviewed plan" })).toBeVisible();
+  });
+
+  it("falls back from an invalid resource URL and searches a bounded selector for more than five investigations", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ host: { id: 1, hostname: "web-1" }, guidance: null }), { status: 200 })));
+    const state = { ...workflow(), candidates: [], port_investigations: Array.from({ length: 8 }, (_, index) => ({ ...investigation, port: 12345 + index, occurrence_id: 11 + index })) };
+    mount(state, undefined, "/issues/7?resource=removed-resource");
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    const select = screen.getByRole("combobox", { name: "Active investigation resource" });
+    expect(select).toHaveValue("1:tcp:12345:name_bind");
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "Search investigation resources" }), "12352");
+    expect(within(select).getAllByRole("option")).toHaveLength(2);
+    await user.selectOptions(select, "1:tcp:12352:name_bind");
+    expect(screen.getByRole("article", { name: "Port investigation" })).toHaveTextContent("TCP/12352");
+    expect(screen.getByLabelText("Location")).toHaveTextContent("resource=1%3Atcp%3A12352%3Aname_bind");
+  });
+
+  it("reports a failed active-resource inspection without presenting it as a successful empty check", async () => {
+    const state = { ...workflow(), port_investigations: [investigation, { ...investigation, port: 23456, occurrence_id: 22 }] };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { message: "Inspection evidence unavailable" } }), { status: 503 })));
+    mount(state, undefined, "/issues/7?resource=1%3Atcp%3A23456%3Aname_bind");
+    expect(await screen.findByRole("heading", { name: /Could not load resource inspection/ })).toBeVisible();
+    expect(within(screen.getByRole("region", { name: "Inspect active resource" })).queryByRole("button", { name: /Copy/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Selected change plan" })).not.toBeInTheDocument();
   });
 
   it("searches every discovered type beyond twelve without inventing descriptions or requiring known service intent", async () => {

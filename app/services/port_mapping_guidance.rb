@@ -22,7 +22,7 @@ class PortMappingGuidance
   end
 
   def call
-    investigations, proposals, seen = [], [], []
+    investigations, proposals, seen = [], [], {}
     @occurrences.each do |occurrence|
       denial = occurrence.normalized_denial
       endpoint = self.class.endpoint(denial)
@@ -30,12 +30,15 @@ class PortMappingGuidance
 
       protocol, operation, port = endpoint.values_at(:protocol, :operation, :port)
       key = [occurrence.host_id, protocol, port, operation]
-      next if seen.include?(key)
+      if seen.key?(key)
+        seen[key][:occurrence_count] += 1
+        next
+      end
 
-      seen << key
       investigation = { host_id: occurrence.host_id, hostname: occurrence.host.hostname, occurrence_id: occurrence.id,
         protocol: protocol, port: port, operation: operation, observed_type: denial.target_type,
-        state: "unavailable", types: [], type_count: 0 }
+        occurrence_count: 1, state: "unavailable", types: [], type_count: 0 }
+      seen[key] = investigation
       investigations << investigation
       unless port
         investigation[:reason] = "A single nonzero #{operation == 'name_bind' ? 'local bind' : 'destination'} port was not retained. Identify the exact endpoint in the occurrence and service configuration; do not infer it from another event."

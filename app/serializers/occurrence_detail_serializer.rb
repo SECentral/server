@@ -35,6 +35,17 @@ class OccurrenceDetailSerializer
         checkpoint_port_inventory_status: raw_event.checkpoint_port_inventory(occurrence.host_snapshot)["status"],
         checkpoint_file_context_mappings_status: raw_event.checkpoint_trust(occurrence.host_snapshot).file_context_mappings["status"],
         checkpoint_policy_identity: raw_event.checkpoint_policy_identity(occurrence.host_snapshot),
+        checkpoint: {
+          snapshot_id: occurrence.host_snapshot_id,
+          observed_at: raw_event.host_observed_at,
+          kernel_release: occurrence.host_snapshot&.details&.dig("platform", "kernel_release")
+        },
+        collection: {
+          agent_installation_id: raw_event.agent_installation_id,
+          schema_version: raw_event.schema_version,
+          agent_received_at: raw_event.agent_received_at,
+          server_received_at: raw_event.server_received_at
+        },
         permissive_policy_state: PolicyPermissiveDomains.for_occurrence(occurrence, policy_states),
         completion_reason: raw_event.completion_reason,
         evidence_digest: raw_event.evidence_digest,

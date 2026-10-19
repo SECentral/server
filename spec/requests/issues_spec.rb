@@ -373,9 +373,27 @@ RSpec.describe "Issues API", type: :request do
       expect(response).to have_http_status(:ok)
       checks = JSON.parse(response.body).fetch("guidance").fetch("checks")
       expect(checks).to include(include("kind" => "port_classification", "command" => "semanage port -l", "target" => "tcp/12345"))
+      expect(checks).to include(include("kind" => "port_local_classification", "command" => "semanage port -l -C", "target" => "tcp/12345"))
       listener = checks.find { |item| item["kind"] == "socket_listeners" }
       expect(Shellwords.split(listener.fetch("command"))).to eq(["ss", "-ltnp", "sport = :12345"])
     end
+  end
+
+  it "returns historical checkpoint and receipt provenance rather than the host's current inventory" do
+    issue = create_issue
+    occurrence = create_occurrence(issue)
+    occurrence.host_snapshot.update!(details: { "platform" => { "kernel_release" => "historical-kernel" } })
+    latest = HostSnapshot.create!(host: occurrence.host, details: { "platform" => { "kernel_release" => "latest-kernel" } })
+    occurrence.host.host_snapshot_observations.create!(agent_installation: occurrence.raw_event.agent_installation, host_snapshot: latest,
+      first_observed_at: Time.current, last_observed_at: Time.current, first_received_at: Time.current, last_received_at: Time.current)
+    get "/api/v1/issues/#{issue.id}/occurrences/#{occurrence.id}"
+    body = JSON.parse(response.body).fetch("raw_event")
+    expect(body.fetch("checkpoint")).to include("snapshot_id" => occurrence.host_snapshot_id, "kernel_release" => "historical-kernel", "observed_at" => occurrence.raw_event.host_observed_at.iso8601(3))
+    expect(body.fetch("collection")).to include("agent_installation_id" => occurrence.raw_event.agent_installation_id, "schema_version" => 2,
+      "agent_received_at" => occurrence.raw_event.agent_received_at.iso8601(3), "server_received_at" => occurrence.raw_event.server_received_at.iso8601(3))
+    occurrence.update!(host_snapshot: nil)
+    get "/api/v1/issues/#{issue.id}/occurrences/#{occurrence.id}"
+    expect(JSON.parse(response.body).dig("raw_event", "checkpoint")).to include("snapshot_id" => nil, "kernel_release" => nil)
   end
 
   it "preserves network destinations independently of policy findings and scopes mixed checkpoint coverage" do
@@ -405,6 +423,23 @@ RSpec.describe "Issues API", type: :request do
     expect(summaries.map { |item| item["resource"] }).to eq(["TCP/12345", "TCP/12346", "TCP/12345"])
     expect(queries.none? { |sql| sql.include?('FROM "raw_audit_records"') || sql.include?('FROM "raw_events"') }).to be(true)
     expect(IssueIntelligence.destination_ports({ "network_evidence" => { "dest_fields" => ["127.0.0.1", "example.test", "12345", "12345"] } })).to eq(["12345"])
+  end
+
+  it "summarizes bind endpoints across all occurrences independently of findings and pagination" do
+    issue = create_issue(target_type: "unreserved_port_t", target_class: "tcp_socket", permissions: ["name_bind"])
+    ["12345", "23451", "23451", nil, "99999"].each_with_index do |port, index|
+      occurrence = create_occurrence(issue, "bind-summary-#{index}", index + 1)
+      occurrence.normalized_denial.update!(target_class: issue.target_class, permissions: issue.permissions,
+        details: { "network_evidence" => { "bind_port_fields" => [port].compact } })
+    end
+    get "/api/v1/issues/#{issue.id}"
+    expect(JSON.parse(response.body).dig("intelligence", "resource_summary")).to include(
+      "bind_port_count" => 2, "without_bind_port_occurrences" => 2,
+      "bind_ports" => [{ "port" => "23451", "occurrence_count" => 2 }, { "port" => "12345", "occurrence_count" => 1 }])
+    get "/api/v1/issues/#{issue.id}/occurrences", params: { view: "summary", limit: 2, page: 2 }
+    body = JSON.parse(response.body)
+    expect(body.fetch("meta")).to include("total" => 5, "page" => 2)
+    expect(body.fetch("occurrences").map { |item| item["resource"] }).to eq(["TCP/23451", "TCP/23451"])
   end
 
   it "composes conditional-read and file-context findings, then retains policy knowledge when the path is unavailable" do

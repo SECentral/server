@@ -55,8 +55,15 @@ class Api::V1::IssueOccurrencesController < Api::V1::BaseController
         evidence = denial.details.to_h.fetch("target_evidence", {})
         paths = Array(evidence["filesystem_paths"])
         names = Array(evidence["object_names"])
-        ports = denial.target_class == "tcp_socket" && denial.permissions.include?("name_connect") ? IssueIntelligence.destination_ports(denial.details) : []
-        resource = ports.one? ? "TCP/#{ports.first}" : ports.any? ? "Multiple TCP destination ports" : paths.first || names.first
+        protocol = { "tcp_socket" => "TCP", "udp_socket" => "UDP" }[denial.target_class]
+        ports = if protocol && denial.permissions.include?("name_bind")
+          IssueIntelligence.bind_ports(denial.details)
+        elsif protocol == "TCP" && denial.permissions.include?("name_connect")
+          IssueIntelligence.destination_ports(denial.details)
+        else
+          []
+        end
+        resource = ports.one? ? "#{protocol}/#{ports.first}" : ports.any? ? "Multiple #{protocol} ports" : paths.first || names.first
         { id: occurrence.id, occurred_at: occurrence.occurred_at,
           host: { id: occurrence.host_id, hostname: occurrence.host.hostname },
           resource: resource, absolute_path: paths.present?,

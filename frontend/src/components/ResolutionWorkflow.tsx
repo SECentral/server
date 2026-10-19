@@ -1,15 +1,18 @@
-import { Alert, Button, FormGroup, FormSelect, FormSelectOption, Label, SearchInput, Spinner, Stack, StackItem, TextInput } from "@patternfly/react-core";
+import { Alert, Button, Card, CardBody, CodeBlock, CodeBlockAction, CodeBlockCode, FormGroup, FormSelect, FormSelectOption, Label, SearchInput, Spinner, Stack, StackItem, Tab, Tabs, TabTitleText, TextInput, Tooltip } from "@patternfly/react-core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useId, useState, type ReactNode } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import ShieldAltIcon from "@patternfly/react-icons/dist/esm/icons/shield-alt-icon";
 import CheckCircleIcon from "@patternfly/react-icons/dist/esm/icons/check-circle-icon";
 import ExclamationTriangleIcon from "@patternfly/react-icons/dist/esm/icons/exclamation-triangle-icon";
 import CopyIcon from "@patternfly/react-icons/dist/esm/icons/copy-icon";
-import type { IssueDetailResponse } from "../api/issue";
-import { ContextSidebar, ObservedAccessFlow, TechnicalEvidenceDisclosure, evidenceRecord, valueText } from "./WorkbenchEvidence";
+import { fetchIssueOccurrence, type IssueDetailResponse } from "../api/issue";
+import { ContextSidebar, EvidenceLink, ObservedAccessFlow, TechnicalEvidenceDisclosure, evidenceRecord, valueText } from "./WorkbenchEvidence";
 import { clearIntent, createDraft, exportDraft, fetchDrafts, fetchResolutions, removeEntry, selectIntent, stagePermission,
   type ChangePlan as PlanData, type PolicyDraftExport, type ResolutionWorkflow as Workflow } from "../api/resolution";
+import { activeResolutionResource, resolutionResources } from "./resolutionResources";
+import { OperatorChecks, OperatorVerification, ReadOnlyCommands } from "./OperatorGuidance";
+import { Disclosure as ExpandableSection } from "./Disclosure";
 
 function download(filename: string, content: string) {
   const url = URL.createObjectURL(new Blob([content], { type: "text/plain;charset=utf-8" }));
@@ -22,46 +25,80 @@ function download(filename: string, content: string) {
 
 export function CopyCommand({ command }: { command: string }) {
   const [message, setMessage] = useState("");
-  return <div className="command-block"><pre tabIndex={0} aria-label="Exact command"><code>{command}</code></pre><Button variant="secondary" icon={<CopyIcon />} aria-label={`Copy ${command}`} onClick={() => {
+  return <div className="command-block"><CodeBlock actions={<CodeBlockAction><Tooltip content="Copy to clipboard"><Button variant="plain" icon={<CopyIcon />} aria-label={`Copy command: ${command}`} onClick={() => {
     if (!navigator.clipboard) { setMessage("Copy unavailable; select the command text"); return; }
     void navigator.clipboard.writeText(command).then(() => setMessage("Copied"), () => setMessage("Copy unavailable; select the command text"));
-  }}>Copy</Button><small role="status">{message}</small></div>;
+  }} /></Tooltip></CodeBlockAction>}><CodeBlockCode tabIndex={0} aria-label="Exact command">{command}</CodeBlockCode></CodeBlock><small role="status">{message}</small></div>;
 }
 
 function optionTitle(basis: Record<string, unknown>, title: string) {
   return valueText(basis.boolean) ? `Enable ${basis.boolean}` : valueText(basis.path) ? "Restore configured SELinux labeling" : title;
 }
 
-function ChangePlanStep({ step, number }: { step: PlanData["preview_steps"][number]; number?: number }) {
-  return <article className="change-plan-step"><header>{number != null && <span className="step-number">{number}</span>}<h3>{step.title}</h3>
-    <Label color={step.persistence === "persistent" ? "orange" : "blue"} isCompact>{step.persistence === "port_mapping" ? "Persistent port mapping" : step.persistence === "persistent" ? "Persistent · optional" : step.persistence === "temporary" ? "Runtime only" : step.title.toLowerCase().includes("preview") ? "Non-mutating preview" : step.persistence === "inspection" ? "Inspect" : "Single object"}</Label></header>
+function ChangePlanStep({ step, explanation }: { step: PlanData["preview_steps"][number]; explanation?: string }) {
+  return <article className="change-plan-step"><header><h4>{step.title}</h4>
+    {step.persistence !== "port_mapping" && <Label color={step.persistence === "persistent" ? "orange" : "blue"} isCompact>{step.persistence === "persistent" ? "Persistent · optional" : step.persistence === "temporary" ? "Runtime only" : step.title.toLowerCase().includes("preview") ? "Non-mutating preview" : step.persistence === "inspection" ? "Inspect" : "Single object"}</Label>}</header>
     {step.persistence !== "inspection" && <Label color="orange">{step.persistence === "port_mapping" ? "Changes SELinux port mapping" : step.persistence === "configured_label" ? "Changes file labels" : "Changes host-wide Boolean"}</Label>}
-    <p className="step-detail">{step.explanation}</p><CopyCommand command={step.command} /></article>;
+    <p className="step-detail">{explanation ?? step.explanation}</p><CopyCommand command={step.command} /></article>;
 }
 
-function ChangePlan({ plan }: { plan: PlanData }) {
+function ChangePlan({ plan, detail }: { plan: PlanData; detail?: IssueDetailResponse }) {
+  const [params, setParams] = useSearchParams();
+  const [rollbackOpen, setRollbackOpen] = useState(false);
+  const showRollback = rollbackOpen || params.get("phase") === "rollback";
   const file = plan.scope_kind === "single_object";
   const port = plan.scope_kind === "host_port";
-  return <section className="selected-change-plan" aria-label="Selected change plan"><header className="workbench-section-header"><h2>Selected change plan</h2><Label color="blue">Reviewed · current</Label></header>
-    <h3 className="plan-title">{optionTitle(plan.evidence_basis, plan.title)}</h3>
-    <div className="plan-scope"><ShieldAltIcon aria-hidden="true" /><strong>{port ? "Host protocol/port classification" : file ? "Single evidenced object · no recursion" : "Host-wide SELinux boolean"}</strong><a href="#plan-rollback">Rollback ↓</a></div>
-    {!file && <>{!port && <><p className="plan-warning"><ExclamationTriangleIcon aria-hidden="true" /> May affect other policy rules beyond this occurrence.</p><p>{plan.expected_effect}</p></>}<p>{plan.persistence}</p><p>{plan.scope_warning}</p></>}
+  return <section className="selected-change-plan" aria-label="Selected change plan"><header className="workbench-section-header"><h3>Reviewed runbook</h3><Label color="blue">Review current against retained evidence</Label></header>
+    <div className="plan-scope"><ShieldAltIcon aria-hidden="true" /><strong>{port ? "Host protocol/port classification" : file ? "Single evidenced object · no recursion" : "Host-wide SELinux boolean"}</strong><a href="#plan-rollback" onClick={() => setRollbackOpen(true)}>Rollback</a></div>
     <p>{plan.scope_description}</p>
-    {port && <PriorPortMappings basis={plan.evidence_basis} />}
-    <details className="plan-mechanism"><summary>Why this affects the denial</summary><p>{plan.explanation}</p></details>
-    <div className="plan-steps" id="plan-inspection">{plan.preview_steps.map((step, i) => <ChangePlanStep key={step.command} step={step} number={i + 1} />)}
-      {file ? <details className="file-apply-disclosure"><summary>Apply — only after successful inspection</summary><p>Current object has not been verified. Stop if it is missing, replaced, not intended here, or its configured label is unsuitable.</p><p>{plan.scope_warning}</p><p>{plan.expected_effect}</p><p>{plan.persistence}</p>{plan.apply_steps.map((step, i) => <ChangePlanStep key={step.command} step={step} number={plan.preview_steps.length + i + 1} />)}</details>
-        : plan.apply_steps.map((step, i) => <ChangePlanStep key={step.command} step={step} number={plan.preview_steps.length + i + 1} />)}</div>
-    {plan.verification_steps && <section aria-label="Verify port change"><h3>Verify the workload</h3>{plan.verification_steps.map((step) => <ChangePlanStep key={step.command} step={step} />)}</section>}
-    <section className="plan-rollback" id="plan-rollback"><h3>Rollback</h3><p>{plan.rollback_description}</p>{plan.rollback_steps.map((step) => <ChangePlanStep key={step.command} step={step} />)}</section>
-    <details className="plan-uncertainty"><summary>Remaining uncertainty</summary><ul>{plan.limitations.map((text) => <li key={text}>{text}</li>)}</ul></details>
-    <TechnicalEvidenceDisclosure basis={plan.evidence_basis} />
+    <ExpandableSection className="plan-mechanism" toggleText="Why this affects the denial"><p>{plan.explanation}</p></ExpandableSection>
+    <section id="plan-inspection" tabIndex={-1}><h3>1. Inspect host baseline <Label isCompact color="blue">Read-only</Label></h3>
+      {port && <PriorPortMappings basis={plan.evidence_basis} />}
+      <ReadOnlyCommands checks={plan.preview_steps.map((step) => ({ title: step.title, command: step.command, interpretation: step.explanation }))} />
+      {detail && <OperatorChecks detail={detail} runbookCommands={plan.preview_steps.map((step) => step.command)} supplemental />}
+    </section>
+    <section><h3>2. Apply after inspection</h3>
+    {!file && !port && <><p>{plan.persistence}</p><p>{plan.scope_warning}</p><p className="plan-warning"><ExclamationTriangleIcon aria-hidden="true" /> May affect other policy rules beyond this occurrence.</p><p>{plan.expected_effect}</p></>}
+      {file ? <ExpandableSection className="file-apply-disclosure" toggleText="Apply — only after successful inspection"><p>Stop if the object is missing, replaced, unintended, or its configured label is unsuitable.</p><p>{plan.scope_warning}</p><p>{plan.expected_effect}</p><p>{plan.persistence}</p>{plan.apply_steps.map((step) => <ChangePlanStep key={step.command} step={step} />)}</ExpandableSection>
+        : plan.apply_steps.map((step) => <ChangePlanStep key={step.command} step={step} explanation={port ? "Persistently maps this protocol/port; may affect other workloads on this host." : undefined} />)}</section>
+    <section aria-label={port ? "Verify port change" : "Verify workload"}><h3>{port ? "3. Verify classification & workload" : "3. Verify workload"}</h3>
+      {!!plan.verification_steps?.length && <ReadOnlyCommands checks={plan.verification_steps.map((step) => ({ title: step.title, command: step.command, interpretation: port ? `Confirm ${String(plan.evidence_basis.target_port_type ?? "the reviewed type")} for this protocol/port.` : step.explanation }))} />}
+      {detail ? <OperatorVerification detail={detail} inline includeLimit={!port || !plan.verification_steps?.length} /> : <p>Test the intended operation through the confined workload. Confirm the expected response, enforcement/domain state, fresh AVCs and event-delivery health.</p>}
+    </section>
+    <ExpandableSection className="plan-rollback" id="plan-rollback" tabIndex={-1} toggleText="Rollback procedure" isExpanded={showRollback} onToggle={(_event, expanded) => {
+      setRollbackOpen(expanded);
+      if (!expanded && params.get("phase") === "rollback") setParams((previous) => { const next = new URLSearchParams(previous); next.delete("phase"); return next; });
+    }}><p>{plan.rollback_description}</p>{plan.rollback_steps.map((step) => <ChangePlanStep key={step.command} step={step} />)}</ExpandableSection>
+    {plan.limitations.length > 0 && <div className="plan-uncertainty"><h3>Remaining uncertainty</h3><ul>{plan.limitations.map((text) => <li key={text}>{text}</li>)}</ul></div>}
+    <EvidenceLink target="reviewed-plan-evidence" occurrenceId={typeof plan.evidence_basis.occurrence_id === "number" ? plan.evidence_basis.occurrence_id : undefined}>Evidence & provenance for this reviewed plan</EvidenceLink>
     <Button variant="secondary" onClick={() => download("secentral-change-plan.json", JSON.stringify(plan, null, 2))}>Export reviewed plan</Button>
-    <small className="workbench-caption">Selection, copy and export do not apply a change.</small>
   </section>;
 }
 
 type Candidate = Workflow["candidates"][number];
+
+function FocusedResource({ issueId, workflow, detail, stage, onShowTechnicalEvidence }: { issueId: number; workflow: Workflow; detail?: IssueDetailResponse; stage: "observed" | "context"; onShowTechnicalEvidence?: () => void }) {
+  const [params] = useSearchParams();
+  const active = activeResolutionResource(workflow, params.get("resource"), detail?.operator_guidance?.source);
+  const candidate = active?.candidates[0];
+  const source = detail?.operator_guidance?.source;
+  const path = valueText(candidate?.evidence_basis.path) ?? (!active ? source?.path : null);
+  const occurrenceId = active?.port?.occurrence_id ?? candidate?.evidence_basis.occurrence_id ?? source?.occurrence_id;
+  const hostId = active?.port?.host_id ?? candidate?.host_id ?? source?.host_id;
+  const needsOccurrence = typeof occurrenceId === "number" && (occurrenceId !== workflow.observed_access?.occurrence_id || hostId !== workflow.observed_access?.host_id || !!path && path !== workflow.observed_access?.resource);
+  const query = useQuery({ queryKey: ["issue-occurrence", issueId, occurrenceId], queryFn: () => fetchIssueOccurrence(issueId, occurrenceId as number), enabled: needsOccurrence });
+  if (needsOccurrence && (query.isPending || query.isError || !query.data?.normalized_denial || query.data.id !== occurrenceId || query.data.host?.id !== hostId)) return <section aria-label={stage === "observed" ? "Observed access" : "Investigation context"}>{query.isPending ? <Spinner size="md" aria-label="Loading active resource" /> : <Alert isInline variant="warning" title="Active resource evidence unavailable"><Button variant="link" onClick={() => void query.refetch()}>Retry evidence</Button></Alert>}</section>;
+  const occurrence = needsOccurrence ? query.data : undefined;
+  const denial = occurrence?.normalized_denial;
+  const access = occurrence && denial ? {
+    occurrence_id: occurrence.id, host_id: occurrence.host.id, hostname: occurrence.host.hostname,
+    actor: denial.command ?? denial.executable ?? "Process not recorded", source_type: denial.source_type ?? "Not recorded",
+    resource: active?.port ? `${active.port.protocol.toUpperCase()}/${active.port.port ?? "port not recorded"}` : path ?? (denial.target_paths.length === 1 ? denial.target_paths[0] : "Resource identity not established"),
+    target_type: denial.target_type ?? "Not recorded", object_class: denial.target_class ?? "unknown", permissions: denial.permissions ?? [],
+    operation_label: (denial.permissions ?? []).join(", ") || "access", outcome: "DENIED" as const, observed_at: occurrence.occurred_at
+  } : workflow.observed_access;
+  return stage === "observed" ? access && <ObservedAccessFlow access={access} /> : detail && <ContextSidebar detail={detail} workflow={workflow} focusedAccess={access} onShowTechnicalEvidence={onShowTechnicalEvidence} />;
+}
 
 function priorPortState(basis: Record<string, unknown>) {
   return Array.isArray(basis.prior_mappings) && basis.prior_mappings.length
@@ -70,12 +107,27 @@ function priorPortState(basis: Record<string, unknown>) {
 }
 
 function PriorPortMappings({ basis }: { basis: Record<string, unknown> }) {
-  return <><p>Recorded prior state: {priorPortState(basis)}</p>{Array.isArray(basis.prior_policy_records) && <p>Exact policy record boundaries: {basis.prior_policy_records.map((item) => {
+  const observedRecords = Array.isArray(basis.prior_mappings) ? basis.prior_mappings.map((item) => { const range = evidenceRecord(item); return { type: range.type, start: range.start, end: range.end }; }) : [];
+  const exactRecords = Array.isArray(basis.prior_policy_records) ? basis.prior_policy_records.map((item) => { const range = evidenceRecord(item); return { type: range.type, start: range.start, end: range.end }; }) : [];
+  return <><p>Recorded prior state: {priorPortState(basis)}</p>{Array.isArray(basis.prior_policy_records) && JSON.stringify(observedRecords) !== JSON.stringify(exactRecords) && <p>Exact policy record boundaries: {basis.prior_policy_records.map((item) => {
     const record = evidenceRecord(item); return `${record.type} ${record.start}–${record.end}`;
   }).join("; ") || "No intersecting record"}. These distinguish add from modify when inventory ranges were coalesced.</p>}</>;
 }
 
 type PortInvestigationData = NonNullable<Workflow["port_investigations"]>[number];
+
+function ResourceInspection({ issueId, occurrenceId }: { issueId: number; occurrenceId: number }) {
+  const query = useQuery({ queryKey: ["issue-occurrence", issueId, occurrenceId], queryFn: () => fetchIssueOccurrence(issueId, occurrenceId) });
+  if (query.isSuccess && (!query.data || typeof query.data !== "object" || !query.data.host || !query.data.guidance)) return <section aria-label="Inspect active resource"><h3>Inspect host baseline</h3><p>Scoped checks are unavailable for this occurrence. Review its source record before continuing.</p></section>;
+  return <section aria-label="Inspect active resource"><h3>Inspect host baseline</h3>
+    {query.isPending ? <Spinner aria-label="Loading resource inspection" size="md" /> : query.isError ? <Alert variant="warning" isInline title="Could not load resource inspection"><Button variant="link" onClick={() => void query.refetch()}>Retry inspection</Button></Alert>
+      : <><p>Investigation example: <Link to={`/hosts/${query.data.host.id}/occurrences/${occurrenceId}`}>{query.data.host.hostname} · #{occurrenceId}</Link>. Inspect current state; a failed check is not a successful comparison.</p>
+        {query.data.guidance ? <><ReadOnlyCommands checks={query.data.guidance.checks.flatMap((check) => typeof check.command === "string" ? [{ title: typeof check.reason === "string" ? check.reason : "Inspect current host state", command: check.command, interpretation: typeof check.expected === "string" ? check.expected : "" }] : [])} />
+          {query.data.guidance.checks.filter((check) => !check.command && typeof check.reason === "string").map((check, index) => <p key={index}>{String(check.reason)}</p>)}</>
+          : <p>No scoped inspection guidance is available. Review the occurrence record and identify the intended workload.</p>}
+      </>}
+  </section>;
+}
 
 function PortTypeSelection({ investigation, candidates, workflow, busy, onSelect }: { investigation: PortInvestigationData; candidates: Candidate[]; workflow: Workflow; busy: boolean; onSelect: (c: Candidate) => void }) {
   const fieldId = useId();
@@ -95,12 +147,12 @@ function PortTypeSelection({ investigation, candidates, workflow, busy, onSelect
     <h4>Consider a port classification</h4>
     <p>Policy permission is not service suitability. Confirm the intended service from application configuration; neither the process name nor the port number establishes it.</p>
     <Stack hasGutter>
-      <StackItem><FormGroup fieldId={`${fieldId}-service`} label={investigation.operation === "name_bind" ? "What service should listen on this port?" : "What is the intended destination service?"}>
+      <StackItem><FormGroup fieldId={`${fieldId}-service`} label={investigation.operation === "name_bind" ? "What service should listen on this port?" : "What remote service does this workload connect to?"}>
         <FormSelect id={`${fieldId}-service`} value={service} onChange={(_event, value) => { setService(value); setSearch(""); setType(""); }}>
           <FormSelectOption value="" label="Not sure / another service — show all types" />
           {services.map((item) => <FormSelectOption key={item.id} value={item.id} label={item.label} />)}
         </FormSelect>
-      </FormGroup><small>{service ? "Your stated service intent filters documented reference associations. It is not observed host evidence or approval of a change." : "Intent is unknown. You can investigate or deliberately select a technical type without choosing a service."}</small></StackItem>
+      </FormGroup><small>{service ? "Your stated service intent filters documented reference associations. It is not observed host evidence or approval of a change." : "No service filter selected. You can investigate or deliberately select a technical type without choosing a service."}</small></StackItem>
       <StackItem><SearchInput aria-label="Search policy-supported port types" placeholder="Search types or reference service descriptions" value={search} onChange={(_event, value) => { setSearch(value); setType(""); }} onClear={() => { setSearch(""); setType(""); }} /></StackItem>
       <StackItem><FormGroup fieldId={`${fieldId}-type`} label="Policy-supported port type">
         <FormSelect id={`${fieldId}-type`} value={selectedType} onChange={(_event, value) => setType(value)}>
@@ -118,13 +170,13 @@ function PortTypeSelection({ investigation, candidates, workflow, busy, onSelect
         : <p>No reference service description is available for this type. Review service documentation; its name alone does not establish suitability.</p>}
       <p>{selected.explanation}</p>
       {selected.existing_endpoints.length > 0 && <p>Observed endpoint/range examples: {selected.existing_endpoints.map((range) => `${investigation.protocol.toUpperCase()}/${range.start}${range.end !== range.start ? `–${range.end}` : ""}`).join(", ")}. Confirm ownership and application configuration before using an existing endpoint.</p>}
-      {candidate ? <ResolutionCandidateCard key={candidate.id} candidate={candidate} selected={reviewed?.id === candidate.id} freshness={workflow.freshness} busy={busy} onSelect={onSelect} />
+      {candidate ? candidate.id === workflow.intent?.candidate_id ? <p>This is the reviewed selection shown below; browsing does not replace its review.</p> : <ResolutionCandidateCard key={candidate.id} candidate={candidate} selected={false} freshness={workflow.freshness} busy={busy} onSelect={onSelect} />
         : <p>The retained prerequisites do not support a reviewed mapping change for this type. Continue investigating the evidence and alternatives above.</p>}
     </section>}
   </section>;
 }
 
-function PortInvestigation({ investigation, workflow, busy, onSelect }: { investigation: PortInvestigationData; workflow: Workflow; busy: boolean; onSelect: (c: Candidate) => void }) {
+function PortInvestigation({ investigation, workflow, busy, onSelect, children }: { investigation: PortInvestigationData; workflow: Workflow; busy: boolean; onSelect: (c: Candidate) => void; children?: ReactNode }) {
   const bind = investigation.operation === "name_bind";
   const candidates = workflow.candidates.filter((item) => item.kind === "set_port_mapping" && item.host_id === investigation.host_id &&
     item.evidence_basis.protocol === investigation.protocol && item.evidence_basis.port === investigation.port && item.evidence_basis.operation === investigation.operation);
@@ -132,11 +184,13 @@ function PortInvestigation({ investigation, workflow, busy, onSelect }: { invest
   return <article className="pf-v6-u-mt-md" aria-label="Port investigation">
     <h3>{investigation.protocol.toUpperCase()}/{investigation.port ?? "port not recorded"} · {bind ? "Local bind" : "Outbound connect"} · {investigation.hostname ?? `Host ${investigation.host_id}`}</h3>
     <p><Link to={`/hosts/${investigation.host_id}/occurrences/${investigation.occurrence_id}`}>Occurrence #{investigation.occurrence_id}</Link> · AVC label <code>{investigation.observed_type}</code></p>
-    <p><Label color="grey">{investigation.state.replaceAll("_", " ")}</Label> {investigation.reason}</p>
-    {investigation.inventory_status && <p>Stored effective inventory: {investigation.inventory_status}; local overrides: {investigation.local_status ?? "unknown"}{investigation.latest_observed_at && <> · <time dateTime={investigation.latest_observed_at}>{investigation.latest_observed_at}</time></>}. Recheck on host; this is not a fresh inspection.</p>}
-    {investigation.current_mappings && <p>Intersecting observed ranges: {priorPortState({ prior_mappings: investigation.current_mappings })}</p>}
+    {!reviewedPort && !["ready", "unavailable"].includes(investigation.state) && <p>{investigation.reason}</p>}
+    {investigation.inventory_status === "observed" && investigation.local_status === "observed" && investigation.current_mappings && <p><strong>Recorded classification:</strong> {priorPortState({ prior_mappings: investigation.current_mappings })}</p>}
+    {(investigation.inventory_status !== "observed" || investigation.local_status !== "observed") && investigation.inventory_status && <p>Inventory coverage: effective {investigation.inventory_status} · local overrides {investigation.local_status ?? "unknown"}</p>}
+    {children}
     {investigation.types.length > 0 && <>{!reviewedPort && <p>Before any mapping change, inspect current effective/local ranges and ownership. A port mapping persists on this host and can affect other workloads using this protocol/port; it is not a per-process exception or firewall rule.</p>}
-      <PortTypeSelection investigation={investigation} candidates={candidates} workflow={workflow} busy={busy} onSelect={onSelect} /></>}
+      {reviewedPort ? <ExpandableSection toggleText="Explore another classification"><PortTypeSelection investigation={investigation} candidates={candidates} workflow={workflow} busy={busy} onSelect={onSelect} /></ExpandableSection>
+        : <PortTypeSelection investigation={investigation} candidates={candidates} workflow={workflow} busy={busy} onSelect={onSelect} />}</>}
   </article>;
 }
 
@@ -149,18 +203,29 @@ function ResolutionCandidateCard({ candidate, selected, freshness, busy, onSelec
   const path = valueText(basis.path);
   const port = candidate.scope_kind === "host_port";
   const current = selected && freshness === "current";
+  const historicalLimit = (text: string) => text === "Checkpoint state is not an AVC-time or apply-time measurement.";
+  const visibleLimitations = candidate.limitations.filter((text) => !historicalLimit(text));
+  if (current) return <article className="resolution-candidate-card resolution-selected" aria-label={optionTitle(basis, candidate.title)}>
+    <header><h3>Reviewed selection: {optionTitle(basis, candidate.title)}</h3><Label color="blue" isCompact>Selected · current</Label></header>
+    <EvidenceLink target={`option-${candidate.id}`} occurrenceId={typeof basis.occurrence_id === "number" ? basis.occurrence_id : undefined}>Evidence supporting this option</EvidenceLink>
+  </article>;
   return <article className={`resolution-candidate-card ${selected ? "resolution-selected" : ""} ${unavailable ? "candidate-muted" : ""}`} aria-label={optionTitle(basis, candidate.title)}>
-    <header><ShieldAltIcon aria-hidden="true" /><h3>{path ?? (unavailable && valueText(basis.boolean) ? String(basis.boolean) : optionTitle(basis, candidate.title))}</h3>{selected && <Label color={current ? "blue" : "orange"} icon={<CheckCircleIcon />}>{current ? "Selected · current" : "Selected · review required"}</Label>}</header>
+    <header><ShieldAltIcon aria-hidden="true" /><h3>{path ?? (unavailable && valueText(basis.boolean) ? String(basis.boolean) : optionTitle(basis, candidate.title))}</h3>{selected && <Label color={current ? "blue" : "orange"} icon={<CheckCircleIcon />}>{current ? "Selected · current" : "Selected · review required"}</Label>}{unavailable && <Label color="grey">{candidate.scope_kind === "host_boolean" && state === "On" ? "Latest observation: On" : "Plan unavailable"}</Label>}</header>
+    {unavailable && <Alert variant="info" isInline isPlain title={candidate.scope_kind === "host_boolean" && state === "On" ? "Recheck runtime state on the host before considering a change." : "Retained evidence does not support a change plan."}>{candidate.unavailable_reason}</Alert>}
     {path ? <p className="candidate-label-change"><code>{valueText(basis.observed_context)?.split(":")[2] ?? "Observed label"}</code><span aria-label="to">→</span><code>{valueText(basis.expected_context)?.split(":")[2] ?? "Expected label"}</code></p>
       : <p className="candidate-relevance">{port ? candidate.explanation : unavailable && state === "On" ? "Latest observation recorded this capability On." : "Matching independent policy path"}</p>}
-    <dl className="candidate-facts">{!path && !port && <><div><dt>Historical checkpoint</dt><dd>Off{valueText(basis.checkpoint_observed_at) && <> · {String(basis.checkpoint_observed_at)}</>}</dd></div><div><dt>Latest observed state</dt><dd><Label color={state === "Off" ? "orange" : "grey"} isCompact>{state}</Label>{candidate.latest_observed_at && <> · <time dateTime={candidate.latest_observed_at}>{candidate.latest_observed_at}</time></>} · stored observation, not a fresh host inspection</dd></div></>}<div><dt>Scope</dt><dd>{port ? "Host protocol/port classification" : candidate.scope_kind === "host_boolean" ? "Host-wide boolean" : "Targeted path relabel"}</dd></div><div><dt>Host</dt><dd>{candidate.hostname ?? "Host not recorded"}</dd></div>{typeof basis.occurrence_id === "number" && <div><dt>Evidence example</dt><dd><Link to={`/hosts/${candidate.host_id}/occurrences/${basis.occurrence_id}`}>Occurrence #{basis.occurrence_id}</Link></dd></div>}</dl>
+    <dl className="candidate-facts">{!path && !port && <div><dt>Recorded state</dt><dd>Off at checkpoint · latest observation: <Label color={state === "Off" ? "orange" : "grey"} isCompact>{state}</Label>. Recheck runtime state.</dd></div>}<div><dt>Scope</dt><dd>{port ? "Host protocol/port classification" : candidate.scope_kind === "host_boolean" ? "Host-wide boolean" : "Targeted path relabel"} · {candidate.hostname ?? "Host not recorded"}</dd></div>{typeof basis.occurrence_id === "number" && <div><dt>Evidence example</dt><dd><Link to={`/hosts/${candidate.host_id}/occurrences/${basis.occurrence_id}`}>Occurrence #{basis.occurrence_id}</Link></dd></div>}</dl>
     {candidate.scope_kind === "host_boolean" && <p className="candidate-breadth">Can enable broader access through other policy rules; not limited to this occurrence or destination.</p>}
-    {candidate.presentation_reason && <p>{candidate.presentation_reason}</p>}
-    {unavailable ? <p className="candidate-unavailable">{candidate.unavailable_reason ?? (state === "On" ? "Enabling it is not a current resolution option. Check current runtime state and retry the intended workload first." : "Current retained evidence does not support an actionable plan.")}</p>
-      : current ? <span className="selected-association"><CheckCircleIcon aria-hidden="true" /> Selected plan below</span>
-        : confirming ? <div className="intent-confirmation"><p>{candidate.intent_prompt}</p><Button variant="primary" isDisabled={busy} onClick={() => onSelect(candidate)}>Confirm intent</Button><Button variant="link" onClick={() => setConfirming(false)}>Cancel</Button></div>
-          : <><Button variant="primary" isDisabled={busy} onClick={() => setConfirming(true)}>{selected ? "Review updated option" : path ? "Choose this path" : "Choose intent"}</Button><p className="workbench-caption">Review this option to see copyable inspection and change commands.</p></>}
-    <TechnicalEvidenceDisclosure basis={{ explanation: candidate.explanation, scope: candidate.scope_description, breadth: candidate.scope_warning, ...basis, limitations: candidate.limitations }} title={unavailable ? "Why is this shown?" : "Evidence supporting this option"} />
+    {!unavailable && (confirming ? <div className="intent-confirmation"><p>{candidate.intent_prompt}</p><Button variant="primary" isDisabled={busy} onClick={() => onSelect(candidate)}>Confirm intent</Button><Button variant="link" onClick={() => setConfirming(false)}>Cancel</Button></div>
+          : <><Button variant="primary" isDisabled={busy} onClick={() => setConfirming(true)}>{selected ? "Review updated option" : path ? "Choose this path" : "Choose intent"}</Button><p className="workbench-caption">Review this option to see copyable inspection and change commands.</p></>)}
+    <p>{candidate.scope_warning}</p>
+    {visibleLimitations.length > 0 && <ul>{visibleLimitations.map((text) => <li key={text}>{text}</li>)}</ul>}
+    <ExpandableSection toggleText="Evidence & limitations">
+      {!path && !port && <p>Checkpoint: {valueText(basis.checkpoint_observed_at) ?? "Time not recorded"}. Latest observation: {candidate.latest_observed_at ?? "Time not recorded"}; not a fresh host inspection.</p>}
+      {candidate.presentation_reason && <p>{candidate.presentation_reason}</p>}
+      {candidate.limitations.filter(historicalLimit).map((text) => <p key={text}>{text}</p>)}
+      <EvidenceLink target={`option-${candidate.id}`} occurrenceId={typeof basis.occurrence_id === "number" ? basis.occurrence_id : undefined}>{unavailable ? "Why is this shown?" : "Evidence supporting this option"}</EvidenceLink>
+    </ExpandableSection>
   </article>;
 }
 
@@ -211,72 +276,131 @@ function DraftWorkspace({ issueId, occurrenceId }: { issueId: number; occurrence
           <Button variant="link" isDisabled={busy} onClick={() => void run(() => removeEntry(selected.id, entry.id))}>Remove staged permission</Button></article>)}
         <ul>{selected.limitations.map((text) => <li key={text}>{text}</li>)}</ul>
         <Button variant="secondary" isDisabled={busy || !selected.entries.length} onClick={() => void run(async () => { const result = await exportDraft(selected.id, "json"); setExported(result); download(result.filename, result.content); })}>Export semantic draft</Button>
-        <details><summary>Review proposed literal policy export</summary><p>A literal allow rule affects all objects of its target type, not just the recorded path or port. These rules have not been compiled or evaluated against the retained policy.</p>
+        <ExpandableSection toggleText="Review proposed literal policy export"><p>A literal allow rule affects all objects of its target type, not just the recorded path or port. These rules have not been compiled or evaluated against the retained policy.</p>
           <TextInput aria-label="Policy module name" value={moduleName} onChange={(_e, value) => { setModuleName(value); setLiteralConfirmed(false); }} />
           <label><input type="checkbox" checked={literalConfirmed} onChange={(e) => setLiteralConfirmed(e.target.checked)} /> I reviewed the alternatives and intend the literal type-wide permissions in this draft.</label>
           <Button variant="secondary" isDisabled={busy || !literalConfirmed || !selected.entries.length} onClick={() => void run(async () => { const result = await exportDraft(selected.id, "te", moduleName, literalConfirmed, selected.evidence_version); setExported(result); download(result.filename, result.content); })}>Export proposed .te</Button>
-        </details>
+        </ExpandableSection>
         {exported && <div><Label color="orange">{exported.validation_status}</Label><p>Exported {exported.filename}</p>{exported.validation_status === "unvalidated" && <pre>{exported.content}</pre>}{exported.build_steps.map((command) => <CopyCommand key={command} command={command} />)}<p>Compilation instructions do not establish exact-policy effectiveness. No installation command is generated.</p></div>}
       </>}
     </>}
   </section>;
 }
 
-export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpdatedAt, detail, onShowTechnicalEvidence, children }: { issueId: number; stage: "observed" | "intent" | "context"; initialData?: Workflow; initialDataUpdatedAt?: number; detail?: IssueDetailResponse; onShowTechnicalEvidence?: () => void; children?: ReactNode }) {
+export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpdatedAt, detail, onShowTechnicalEvidence, children }: { issueId: number; stage: "observed" | "intent" | "context" | "actions" | "draft"; initialData?: Workflow; initialDataUpdatedAt?: number; detail?: IssueDetailResponse; onShowTechnicalEvidence?: () => void; children?: ReactNode }) {
   const client = useQueryClient();
   const query = useQuery({ queryKey: ["issue-resolutions", issueId], queryFn: () => fetchResolutions(issueId), initialData, initialDataUpdatedAt, staleTime: 30_000 });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showDrafts, setShowDrafts] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const [resourceSearch, setResourceSearch] = useState("");
+  const phase = params.get("phase");
+  const requestedResource = params.get("resource");
+  useEffect(() => {
+    if (stage === "intent" && !phase && requestedResource) {
+      document.querySelector<HTMLElement>('[aria-label="Investigation resources"] [role="tab"][aria-selected="true"]')?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    }
+  }, [stage, phase, requestedResource]);
+  useEffect(() => {
+    if (stage !== "intent" || !phase || !["inspection", "rollback"].includes(phase)) return;
+    document.getElementById(`plan-${phase}`)?.focus();
+    document.getElementById(`plan-${phase}`)?.scrollIntoView?.({ block: "start" });
+  }, [stage, phase, requestedResource, query.dataUpdatedAt]);
+  const showDrafts = params.get("workspace") === "draft";
+  const toggleDrafts = () => setParams((previous) => {
+    const next = new URLSearchParams(previous);
+    if (showDrafts) next.delete("workspace"); else next.set("workspace", "draft");
+    return next;
+  });
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true); setError(null);
     try { await action(); }
     catch (e) { setError(e instanceof Error ? e.message : "Intent update failed"); }
     finally { await client.invalidateQueries({ queryKey: ["issue-resolutions", issueId] }); setBusy(false); }
   };
-  if (query.isPending) return stage === "observed" ? <Spinner size="md" aria-label="Loading observed access" /> : null;
-  if (query.isError) return stage === "intent" ? <Alert variant="warning" isInline title="Could not load resolution options">{query.error.message}</Alert> : null;
+  if (query.isPending || query.isError) return stage === "intent" ? <Card isCompact className="resolution-options"><CardBody><section aria-label="Resolution options"><h2>Resolution workspace</h2>
+    {query.isError ? <Alert variant="warning" isInline title="Could not load resolution options">{query.error.message}</Alert> : <Spinner size="md" aria-label="Loading resolution options" />}
+    {!requestedResource && detail && <OperatorChecks detail={detail} />}
+  </section></CardBody></Card> : stage === "observed" && query.isPending ? <Spinner size="md" aria-label="Loading observed access" /> : null;
   // A newly fetched issue core may be newer than the shared workflow cache.
   const workflow = initialData && (initialDataUpdatedAt ?? 0) > query.dataUpdatedAt ? initialData : query.data;
-  if (stage === "observed") {
-    const access = workflow.observed_access;
-    return access ? <ObservedAccessFlow access={access} /> : null;
-  }
-  if (stage === "context") return detail ? <ContextSidebar detail={detail} workflow={workflow} onShowTechnicalEvidence={onShowTechnicalEvidence} /> : null;
+  if (stage === "observed" || stage === "context") return <FocusedResource issueId={issueId} workflow={workflow} detail={detail} stage={stage} onShowTechnicalEvidence={onShowTechnicalEvidence} />;
+  if (stage === "actions") return <>
+    {workflow.observed_access && <Button variant="secondary" onClick={toggleDrafts} isExpanded={showDrafts} aria-controls="issue-policy-draft">{showDrafts ? "Close policy draft workspace" : "Open policy draft workspace"}</Button>}
+  </>;
+  if (stage === "draft") return showDrafts && workflow.observed_access ? <section id="issue-policy-draft" className="issue-section">
+    <p>Draft evidence: <Link to={`/hosts/${workflow.observed_access.host_id}/occurrences/${workflow.observed_access.occurrence_id}`}>{workflow.observed_access.hostname} · #{workflow.observed_access.occurrence_id}</Link>. Resource browsing does not change this staging source.</p>
+    <DraftWorkspace key={`${issueId}-${workflow.observed_access.occurrence_id}`} issueId={issueId} occurrenceId={workflow.observed_access.occurrence_id} />
+  </section> : null;
   const selected = workflow.candidates.find((c) => c.id === workflow.intent?.candidate_id);
-  const alternatives = workflow.candidates.filter((c) => c.id !== selected?.id);
   const source = detail?.operator_guidance?.source;
-  const portInvestigations = workflow.port_investigations ?? [];
-  const sourcePort = source?.protocol ? source : portInvestigations.find((item) => item.occurrence_id === source?.occurrence_id);
-  const sameExample = (c: Candidate) => !source || (c.host_id === source.host_id && (!valueText(c.evidence_basis.path) || c.evidence_basis.path === source.path) &&
-    (c.kind !== "set_port_mapping" || (c.evidence_basis.port === sourcePort?.port && c.evidence_basis.protocol === sourcePort?.protocol && c.evidence_basis.operation === sourcePort?.operation)));
-  const primaryPorts = portInvestigations.filter((item) => !source || item.occurrence_id === source.occurrence_id || (item.host_id === source.host_id && item.protocol === sourcePort?.protocol && item.port === sourcePort?.port && item.operation === sourcePort?.operation));
-  const otherPorts = portInvestigations.filter((item) => !primaryPorts.includes(item));
-  const exampleOptions = alternatives.filter((c) => c.kind !== "set_port_mapping" && sameExample(c));
-  const primaryOptions = exampleOptions.filter((c) => c.presentation !== "technical_alternative");
-  const technicalOptions = exampleOptions.filter((c) => c.presentation === "technical_alternative");
-  const otherExamples = alternatives.filter((c) => c.kind !== "set_port_mapping" && !sameExample(c));
+  const resources = resolutionResources(workflow);
+  const reviewedResource = resources.find((resource) => resource.candidates.some((c) => c.id === workflow.intent?.candidate_id));
+  const active = activeResolutionResource(workflow, requestedResource, source);
+  const selectedHere = !!selected && !!active?.candidates.includes(selected);
+  const alternatives = (active?.candidates ?? workflow.candidates).filter((c) => c.id !== selected?.id && c.kind !== "set_port_mapping");
+  const primaryOptions = alternatives.filter((c) => c.presentation !== "technical_alternative");
+  const technicalOptions = alternatives.filter((c) => c.presentation === "technical_alternative");
+  const plan = selectedHere && workflow.freshness === "current" ? workflow.change_plan : null;
+  const sameCheckScope = !!source && !!selected && selected.host_id === source.host_id &&
+    (selected.kind === "set_port_mapping" ? selected.evidence_basis.port === source.port && selected.evidence_basis.protocol === source.protocol && selected.evidence_basis.operation === source.operation
+      : selected.kind === "restore_configured_label" ? selected.evidence_basis.path === source.path : selected.evidence_basis.occurrence_id === source.occurrence_id);
+  const inspectionElsewhere = !!active && !!source && (active.port ? active.port.host_id === source.host_id &&
+    (active.port.occurrence_id === source.occurrence_id || (active.port.port === source.port && active.port.protocol === source.protocol && active.port.operation === source.operation))
+    : active.candidates.some((candidate) => candidate.host_id === source.host_id && (source.path ? candidate.evidence_basis.path === source.path : candidate.evidence_basis.occurrence_id === source.occurrence_id)));
+  const resourceOccurrenceId = active?.port?.occurrence_id ?? active?.candidates[0]?.evidence_basis.occurrence_id;
+  const inspection = !plan && ((inspectionElsewhere || !active) && detail?.operator_guidance ? <OperatorChecks detail={detail} />
+    : active && typeof resourceOccurrenceId === "number" && Number.isSafeInteger(resourceOccurrenceId) && resourceOccurrenceId > 0 ? <ResourceInspection key={active.key} issueId={issueId} occurrenceId={resourceOccurrenceId} /> : null);
+  const compactPorts = resources.length > 0 && resources.every((resource) => resource.port && resource.port.host_id === resources[0].port?.host_id && resource.port.operation === resources[0].port?.operation);
+  const sameFileHost = resources.length > 0 && resources.every((resource) => !resource.port && resource.candidates[0]?.host_id === resources[0].candidates[0]?.host_id);
+  const compactName = (resource: typeof resources[number]) => {
+    const path = valueText(resource.candidates[0]?.evidence_basis.path);
+    if (compactPorts && resource.port) return `${resource.port.protocol.toUpperCase()}/${resource.port.port ?? "port not recorded"}`;
+    if (!path) return resource.label;
+    const parts = path.split("/").filter(Boolean);
+    const parent = parts.at(-2) ?? "";
+    const shortParent = parent.length > 20 ? `…${parent.slice(-16)}` : parent;
+    return `${parts.length > 2 ? "…/" : "/"}${shortParent ? `${shortParent}/` : ""}${parts.at(-1) ?? ""}${sameFileHost ? "" : ` · ${resource.candidates[0].hostname ?? `Host ${resource.candidates[0].host_id}`}`}`;
+  };
+  const resourceName = (resource: typeof resources[number]) => resources.some((other) => other.key !== resource.key && compactName(other) === compactName(resource)) ? resource.label : compactName(resource);
+  const useTabs = resources.length <= 5 && !(resources.length > 3 && resources.some((resource) => resource.candidates.some((candidate) => candidate.evidence_basis.path)));
+  const resourceLabel = (resource: typeof resources[number]) => `${resourceName(resource)}${resource.port?.occurrence_count != null ? ` (${resource.port.occurrence_count} denial${resource.port.occurrence_count === 1 ? "" : "s"})` : ""}${resource === reviewedResource ? workflow.freshness === "current" ? " · Review current" : " · Review required" : ""}`;
+  const navigateResource = (key: string) => setParams((previous) => {
+    const next = new URLSearchParams(previous);
+    next.set("resource", key);
+    next.delete("phase");
+    return next;
+  });
   const choose = (c: Candidate) => void run(() => selectIntent(issueId, c.id, c.evidence_version));
-  return <>
-    <section className="resolution-options" aria-label="Resolution options"><header className="workbench-section-header"><h2>Possible fix</h2>{workflow.intent && <Button variant="link" isDisabled={busy} onClick={() => void run(() => clearIntent(issueId))}>Clear selected intent</Button>}</header>
-      <p className="workbench-caption">Commands are for operator review and configuration management. SECentral does not apply changes.</p>
+  return <Card isCompact className="resolution-options"><CardBody>
+    <section aria-label="Resolution options"><header className="workbench-section-header"><h2>Resolution workspace</h2>{workflow.intent && <Button variant="link" isDisabled={busy} onClick={() => void run(() => clearIntent(issueId))}>Clear selected intent</Button>}</header>
       {error && <Alert variant="danger" isInline title="Intent update failed">{error}</Alert>}
       {workflow.freshness && workflow.freshness !== "current" && <div className="stale-plan" role="alert"><h3><ExclamationTriangleIcon aria-hidden="true" /> {workflow.freshness === "no_longer_supported" ? "Plan no longer supported" : "Evidence changed"}</h3><p>This plan was reviewed against older SELinux state. Commands are hidden until the updated evidence is reviewed.</p><EvidenceChangeSummary workflow={workflow} /><strong>Review this option again before using its commands.</strong></div>}
-      {detail?.operator_guidance && <p>{detail.operator_guidance.possible_fix}</p>}
-      {primaryPorts.map((item) => <div key={`${issueId}-${item.host_id}-${item.protocol}-${item.port}-${item.operation}`}>{source && item.occurrence_id !== source.occurrence_id && <p>This is the newest retained example for the investigation host/endpoint; the checks above keep their original occurrence scope.</p>}<PortInvestigation investigation={item} workflow={workflow} busy={busy} onSelect={choose} /></div>)}
-      {otherPorts.length > 0 && <details className="other-options"><summary>Other port evidence examples · {otherPorts.length}</summary><p>Separate host/endpoint investigations; intent and selection here do not apply to another resource.</p>{otherPorts.map((item) => <PortInvestigation key={`${issueId}-${item.host_id}-${item.protocol}-${item.port}-${item.operation}`} investigation={item} workflow={workflow} busy={busy} onSelect={choose} />)}</details>}
-      {children}
+      {workflow.intent && !selectedHere && <p role="status" className="resource-review-notice">
+        {reviewedResource ? <>Viewing {active ? resourceName(active) : "another resource"}; the reviewed plan is on {resourceName(reviewedResource)}. <Button variant="link" onClick={() => navigateResource(reviewedResource.key)}>Switch to reviewed plan</Button></>
+          : <>The reviewed resource is no longer supported by retained evidence; no reviewed commands are shown.</>}
+      </p>}
+      {resources.length > 1 && (useTabs ? <Tabs activeKey={active.key} onSelect={(_event, key) => navigateResource(String(key))} aria-label="Investigation resources" isBox>
+        {resources.map((resource) => <Tab key={resource.key} eventKey={resource.key} aria-label={`${resource.label}${resourceLabel(resource).slice(resourceName(resource).length)}`} title={<TabTitleText>{resourceLabel(resource)}</TabTitleText>} tabContentId="issue-resource-panel" />)}
+      </Tabs> : <Stack hasGutter>
+        <StackItem><SearchInput aria-label="Search investigation resources" value={resourceSearch} onChange={(_event, value) => setResourceSearch(value)} onClear={() => setResourceSearch("")} /></StackItem>
+        <StackItem><FormSelect aria-label="Active investigation resource" value={active.key} onChange={(_event, key) => navigateResource(key)}>
+          {resources.filter((resource) => resource.key === active.key || resource.label.toLowerCase().includes(resourceSearch.toLowerCase())).map((resource) => <FormSelectOption key={resource.key} value={resource.key} label={resource.label + resourceLabel(resource).slice(resourceName(resource).length)} />)}
+        </FormSelect></StackItem>
+      </Stack>)}
+      <section id="issue-resource-panel" role={resources.length > 1 && useTabs ? "tabpanel" : undefined} tabIndex={0} aria-label={`Active resource: ${active?.label ?? "Investigation example"}`}>
+      {active && !active.port && <p><strong>Inspecting:</strong> {active.label}</p>}
+      {detail?.operator_guidance && (!active || inspectionElsewhere) && source?.path && <p>{detail.operator_guidance.possible_fix}</p>}
+      {active?.port ? <PortInvestigation key={`${issueId}-${active.key}`} investigation={active.port} workflow={workflow} busy={busy} onSelect={choose}>{inspection}</PortInvestigation> : inspection}
+      {(!active || inspectionElsewhere) && children}
       {!workflow.candidates.length && !children && <p>No reviewed change plan yet. Use the checks above and review the workload configuration with its operator; a manual next step can be appropriate.</p>}
-      {selected && <>{!sameExample(selected) && <p>The reviewed plan below is for another host/resource example. The investigation checks above remain scoped to their linked example; use the selected plan's own inspection steps.</p>}<CandidateGroup candidates={[selected]} workflow={workflow} busy={busy} onSelect={choose} /></>}
-      {selected ? exampleOptions.length > 0 && <details className="other-options"><summary>Other options · {exampleOptions.length}</summary><CandidateGroup candidates={exampleOptions} workflow={workflow} busy={busy} onSelect={choose} /></details>
-        : <><CandidateGroup candidates={primaryOptions} workflow={workflow} busy={busy} onSelect={choose} />{technicalOptions.length > 0 && <details className="other-options"><summary>Technical policy alternatives · {technicalOptions.length}</summary><p>A matching policy path alone does not establish a suitable fix. These rules match through a source attribute; confirm their purpose and broader effects.</p><CandidateGroup candidates={technicalOptions} workflow={workflow} busy={busy} onSelect={choose} /></details>}</>}
-      {otherExamples.length > 0 && <details className="other-options"><summary>Other host/resource examples · {otherExamples.length}</summary><p>Separate evidence and inspection scope; do not apply the selected example's results to these resources.</p><CandidateGroup candidates={otherExamples} workflow={workflow} busy={busy} onSelect={choose} /></details>}
+      {selectedHere && (selected.kind === "set_port_mapping" ? <ResolutionCandidateCard candidate={selected} selected freshness={workflow.freshness} busy={busy} onSelect={choose} /> : <CandidateGroup candidates={[selected]} workflow={workflow} busy={busy} onSelect={choose} />)}
+      {plan && <ChangePlan plan={plan} detail={sameCheckScope ? detail : undefined} />}
+      {selectedHere ? alternatives.length > 0 && <ExpandableSection className="other-options" toggleText={`Alternative approaches · ${alternatives.length}${alternatives.some((candidate) => candidate.scope_kind === "host_boolean") ? " · Host-wide Boolean; broader access" : ""}`}><CandidateGroup candidates={alternatives} workflow={workflow} busy={busy} onSelect={choose} /></ExpandableSection>
+        : <><CandidateGroup candidates={primaryOptions} workflow={workflow} busy={busy} onSelect={choose} />{technicalOptions.length > 0 && <ExpandableSection className="other-options" toggleText={`Alternative policy approaches · ${technicalOptions.length} · Host-wide scope`}><p>These matching paths use a source attribute; review the capability's purpose and broader effects.</p><CandidateGroup candidates={technicalOptions} workflow={workflow} busy={busy} onSelect={choose} /></ExpandableSection>}</>}
       {workflow.candidates.length > 0 && !selected && <p className="workbench-caption">You can choose neither and continue investigating.</p>}
+      {!plan && detail?.triage_guidance && (!active || inspectionElsewhere) && <ExpandableSection toggleText="Post-restoration verification checklist"><OperatorVerification detail={detail} inline /></ExpandableSection>}
+      </section>
     </section>
-    {workflow.change_plan && workflow.freshness === "current" && <ChangePlan plan={workflow.change_plan} />}
-    <details className="other-approaches"><summary>Intent history & policy draft</summary>
-      {workflow.history.length > 0 && <details><summary>Intent history</summary><ul>{workflow.history.map((change, i) => <li key={i}>{change.created_at} · {change.operator} · {change.action}</li>)}</ul></details>}
-      {workflow.observed_access && <><p>Need a custom SELinux policy instead?</p><Button variant="secondary" onClick={() => setShowDrafts(!showDrafts)}>{showDrafts ? "Close policy draft workspace" : "Open policy draft workspace"}</Button>{showDrafts && <DraftWorkspace issueId={issueId} occurrenceId={workflow.observed_access.occurrence_id} />}</>}
-    </details>
-  </>;
+  </CardBody></Card>;
 }

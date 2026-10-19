@@ -1,22 +1,24 @@
-import { Alert, Breadcrumb, BreadcrumbItem, Button, ExpandableSection, Label, Pagination, Spinner, TextInput, Title } from "@patternfly/react-core";
+import { Alert, Breadcrumb, BreadcrumbItem, Button, Card, CardBody, Label, Pagination, Spinner, TextInput, Title } from "@patternfly/react-core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import {
   fetchIssue,
   fetchIssueAnalysis,
   fetchIssueOccurrencePage,
-  fetchIssueOccurrence,
   updateIssueDisposition,
   updateIssueStatus,
   type Diagnosis,
   type IssueDetailResponse,
   type OccurrenceDetail
 } from "../api/issue";
-import { OccurrenceRawEvidence } from "../components/OccurrenceEvidence";
+import { EvidenceLink } from "../components/WorkbenchEvidence";
+import { Disclosure as ExpandableSection } from "../components/Disclosure";
+import { IssueTechnicalEvidence } from "../components/IssueTechnicalEvidence";
+import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
 import { ResolutionWorkflow } from "../components/ResolutionWorkflow";
-import { OperatorChecks, OperatorVerification, StandardRestoration } from "../components/OperatorGuidance";
+import { StandardRestoration } from "../components/OperatorGuidance";
 import { EMBEDDED_PAGE_SIZES, pageSize } from "../pagination";
 
 const STATUS_OPTIONS = ["open", "resolved", "ignored"] as const;
@@ -62,13 +64,6 @@ function permissionLabel(permission: string): string {
   } as Record<string, string>)[permission] ?? permission.replaceAll("_", " ");
 }
 
-function namesFromOccurrences(occurrences: OccurrenceDetail[]): string[] {
-  return [...new Set(occurrences.flatMap((occurrence) => {
-    const names = row(occurrence.normalized_denial.details.target_evidence).object_names;
-    return Array.isArray(names) ? names.filter((name): name is string => typeof name === "string") : [];
-  }))];
-}
-
 function networkValue(occurrences: OccurrenceDetail[], key: "dport_fields" | "dest_fields" | "bind_port_fields"): string | null {
   const port = (value: unknown): string | null => (typeof value === "string" || typeof value === "number") && /^\d+$/.test(String(value)) && Number(value) <= 65535 ? String(value) : null;
   for (const occurrence of occurrences) {
@@ -101,7 +96,7 @@ function practicalHeadline(issue: { source_type: string; target_type: string; ta
   const process = text(diagnosisEvidence.process_command) ?? occurrences.find((occurrence) => occurrence.normalized_denial.command)?.normalized_denial.command;
   const actor = process ?? processCommand ?? `The ${issue.source_type} domain`;
   const resource = resourceFor(issue, diagnosis, occurrences, paths, names, destinationPort);
-  const blocked = diagnosisEvidence.syscall_failed === true || diagnosis?.title.toLowerCase().includes("blocked") === true;
+  const blocked = diagnosisEvidence.syscall_failed === true && diagnosisEvidence.enforcement_mode === "enforcing";
   if (permission === "name_connect") return `${actor} was ${blocked ? "blocked from" : "denied permission for"} connecting to ${resource}.`;
   if (permission === "name_bind") return `${actor} was ${blocked ? "blocked from" : "denied permission for"} binding locally on ${resource}.`;
   if (permission === "execute") return blocked ? `${actor} could not execute ${resource}.` : `${actor} was denied permission to execute ${resource}.`;
@@ -127,25 +122,29 @@ function primaryFindingLead(diagnosis: Diagnosis): string | null {
   return text(row(diagnosis).lead) ?? text(row(diagnosis).finding);
 }
 
-function primaryLimitation(diagnosis: Diagnosis): string {
+function issueHeadline(detail: IssueDetailResponse): string {
+  const { issue, intelligence } = detail;
+  const summary = intelligence.resource_summary;
+  if (["tcp_socket", "udp_socket"].includes(issue.target_class) && issue.permissions.includes("name_bind") && (summary?.bind_port_count ?? 0) > 0) {
+    const protocol = issue.target_class === "udp_socket" ? "UDP" : "TCP";
+    const ports = summary!.bind_ports?.map((item) => item.port).join(", ") ?? "";
+    const more = Math.max(0, summary!.bind_port_count! - (summary!.bind_ports?.length ?? 0));
+    return `${summary?.process_command ?? `The ${issue.source_type} domain`} was denied local ${protocol} binding on ${summary!.bind_port_count === 1 ? "port" : "ports"} ${ports}${more ? ` and ${more} more` : ""}${summary?.without_bind_port_occurrences ? "; some denial ports were not recorded" : ""}.`;
+  }
+  if (issue.target_class === "tcp_socket" && issue.permissions.includes("name_connect") && (summary?.destination_port_count ?? 0) > 1) return `${summary?.process_command ?? `The ${issue.source_type} domain`} was denied outbound TCP connections.`;
+  if (issue.target_class === "file" && issue.permissions.length === 1 && issue.permissions[0] === "read" && (summary?.name_count ?? 0) > 1) return `${summary?.process_command ?? `The ${issue.source_type} domain`} was denied reading files labeled ${issue.target_type}.`;
+  if ((summary?.path_count ?? 0) > 1 || (summary?.name_count ?? 0) > 1) return `${summary?.process_command ?? `The ${issue.source_type} domain`} was denied ${issue.permissions.map(permissionLabel).join(", ")} on ${issue.target_class} objects labeled ${issue.target_type}.`;
+  return practicalHeadline(issue, detail.diagnosis, [], intelligence.paths, intelligence.names, summary?.process_command, summary?.destination_ports?.length === 1 ? summary.destination_ports[0].port : null);
+}
+
+function primaryLimitation(diagnosis: Diagnosis): string | null {
   if (diagnosis.kind === "file_context_mismatch") return "The expected label was checked shortly after the denial; it may not reflect the label configuration at that time.";
   if (diagnosis.kind === "conditional_allow_inactive" && diagnosis.operation === "execute") return "This denial does not establish that a domain transition was attempted or intended.";
-  if (diagnosis.kind === "conditional_allow_inactive") return "Checkpoint boolean state does not tell us whether this workload should have this capability.";
+  if (diagnosis.kind === "conditional_allow_inactive") return null;
   if (diagnosis.kind === "no_matching_allow" && diagnosis.permissions?.includes("entrypoint")) return "Audit evidence does not establish whether this launch is part of expected workload behavior.";
   if (diagnosis.kind === "no_matching_allow" && diagnosis.source_domain === "mysqld_t") return "SECentral cannot infer the intended database path or label from this denial.";
   if (diagnosis.kind === "no_matching_allow") return "No matching allow does not establish that this workload should receive the access.";
   return diagnosis.limitation;
-}
-
-function EvidenceFacts({ diagnosis }: { diagnosis: Diagnosis }) {
-  const facts = rows((diagnosis as Row).evidence).filter((item) => text(item.fact));
-  if (!facts.length) return null;
-  return (
-    <section aria-label="Evidence supporting this finding" className="issue-evidence-facts">
-      <h3>Why this finding</h3>
-      <ul>{facts.map((fact, index) => <li key={index}>{String(fact.fact)} <small>{fact.certainty === "derived" ? "Derived from correlated evidence" : "Observed evidence"}</small></li>)}</ul>
-    </section>
-  );
 }
 
 function ContextComparison({ diagnosis }: { diagnosis: Diagnosis }) {
@@ -164,70 +163,6 @@ function ContextComparison({ diagnosis }: { diagnosis: Diagnosis }) {
   );
 }
 
-function PolicyConditions({ diagnosis }: { diagnosis: Diagnosis }) {
-  const conditionRows = rows(diagnosis.condition_boolean_states);
-  const rules = rows(diagnosis.conditional_rules);
-  if (!conditionRows.length && !rules.length) return <p>Conditional-rule or boolean-state detail is not available for this finding.</p>;
-  const conditions = conditionRows.length ? conditionRows : rules;
-  return (
-    <div className="issue-policy-conditions">
-      {conditions.map((condition, index) => {
-        const expression = text(condition.expression);
-        const rule = text(condition.rule);
-        const booleans = rows(condition.booleans);
-        return (
-          <article key={`${rule ?? expression ?? "condition"}-${index}`}>
-            <div className="issue-policy-condition-header">
-              <strong>{expression ?? rule ?? "Conditional allow rule"}</strong>
-              <Label color={condition.state === "inactive" ? "orange" : condition.state === "active" ? "green" : "grey"} isCompact>{text(condition.state) ? displayState(String(condition.state)) : "State unavailable"}</Label>
-            </div>
-            {booleans.length > 0 ? (
-              <ul>{booleans.map((boolean, booleanIndex) => {
-                const name = text(boolean.name) ?? "Boolean";
-                const current = typeof boolean.current === "boolean" ? (boolean.current ? "On" : "Off") : text(boolean.status) ? displayState(String(boolean.status)) : "Unavailable";
-                return <li key={`${name}-${booleanIndex}`}><code>{name}</code>: {current}{text(boolean.description) && <> — {String(boolean.description)}</>}</li>;
-              })}</ul>
-            ) : <p>Boolean state for this condition was not available.</p>}
-            {rule && (["read", "name_connect"].includes(diagnosis.operation ?? "") ? <pre>{rule}</pre> : <details><summary>Exact SELinux allow rule</summary><pre>{rule}</pre></details>)}
-          </article>
-        );
-      })}
-      {!conditionRows.length && rules.filter((rule) => text(rule.rule)).map((rule, index) => <details key={`rule-${index}`}><summary>Exact SELinux allow rule</summary><pre>{String(rule.rule)}</pre></details>)}
-    </div>
-  );
-}
-
-function PolicyEvaluations({ diagnosis }: { diagnosis: Diagnosis }) {
-  const evaluations = rows((diagnosis as Row).evaluations);
-  if (!evaluations.length) return null;
-  return <details className="issue-technical-details"><summary>Policy evaluation evidence</summary>{evaluations.map((evaluation, index) => (
-    <article key={index}>
-      <p>{Array.isArray(evaluation.permissions) ? evaluation.permissions.join(", ") : "Denied permission"}: <strong>{text(evaluation.result) ?? "state unavailable"}</strong></p>
-      {text(evaluation.policy_identity) && <p>Policy identity <code>{String(evaluation.policy_identity)}</code></p>}
-      {text(evaluation.evaluator_version) && <p>Evaluator version <code>{String(evaluation.evaluator_version)}</code></p>}
-      {Array.isArray(evaluation.matching_rules) && evaluation.matching_rules.length > 0
-        ? <ul>{evaluation.matching_rules.map((rule, ruleIndex) => <li key={ruleIndex}><code>{typeof rule === "string" ? rule : JSON.stringify(rule)}</code></li>)}</ul>
-        : <p>No matching allow rule was returned for this permission.</p>}
-      {Array.isArray(evaluation.limitations) && evaluation.limitations.map((limitation, limitationIndex) => <p key={limitationIndex}>{String(limitation)}</p>)}
-    </article>
-  ))}</details>;
-}
-
-function PolicyProvenance({ diagnosis }: { diagnosis: Diagnosis }) {
-  const values = row(diagnosis);
-  const identity = text(values.policy_identity);
-  const checkpoint = text(values.checkpoint_observed_at);
-  if (!identity && !checkpoint) return null;
-  return <details className="issue-policy-provenance">
-    <summary>Policy provenance</summary>
-    <dl className="issue-technical-facts">
-      {identity && <div><dt>Policy identity at checkpoint</dt><dd><code>{identity}</code></dd></div>}
-      {checkpoint && <div><dt>Associated host checkpoint</dt><dd><time dateTime={checkpoint}>{checkpoint}</time></dd></div>}
-    </dl>
-    {checkpoint && <p>This is checkpoint evidence, not a measurement made at AVC time.</p>}
-  </details>;
-}
-
 function BooleanCheckpointSummary({ diagnosis }: { diagnosis: Diagnosis }) {
   const conditions = rows(diagnosis.condition_boolean_states);
   const booleans = conditions.flatMap((condition) => rows(condition.booleans));
@@ -239,7 +174,7 @@ function BooleanCheckpointSummary({ diagnosis }: { diagnosis: Diagnosis }) {
 function DiagnosisEvidence({ diagnosis }: { diagnosis: Diagnosis }) {
   return <>
     {diagnosis.kind === "file_context_mismatch" && <ContextComparison diagnosis={diagnosis} />}
-    {diagnosis.kind === "conditional_allow_inactive" && <BooleanCheckpointSummary diagnosis={diagnosis} />}
+    {diagnosis.kind === "conditional_allow_inactive" && <ExpandableSection toggleText="Conditional policy paths"><BooleanCheckpointSummary diagnosis={diagnosis} /><EvidenceLink target="policy-evaluation-evidence">Inspect policy evaluation</EvidenceLink></ExpandableSection>}
   </>;
 }
 
@@ -247,37 +182,8 @@ function LabelMismatchGuidance({ guidance }: { guidance: NonNullable<IssueDetail
   return <article className="issue-label-guidance">
     <Title headingLevel="h3" size="xl">{guidance.title}</Title>
     <p>Labeling may explain this access; the cause is not confirmed. Check the current object and configured context below.</p>
-    <details><summary>Why this investigation lead</summary><p>{guidance.summary}</p><p>{guidance.path_count} distinct qualifying paths; the investigation example is representative, not whole-issue coverage.</p></details>
+    <ExpandableSection toggleText="Why this investigation lead"><p>{guidance.summary}</p><p>{guidance.path_count} distinct qualifying paths; the investigation example is representative, not whole-issue coverage.</p></ExpandableSection>
   </article>;
-}
-
-function DiagnosisTechnicalEvidence({ diagnosis }: { diagnosis: Diagnosis }) {
-  const kind = diagnosis.kind;
-  return (
-      <section className="issue-selinux-explanation" aria-label="SELinux explanation">
-        {kind === "file_context_mismatch" && <section className="issue-context-evidence"><h3>Full labeling evidence</h3>
-          {diagnosis.path && <p className="issue-context-path">Path <code>{diagnosis.path}</code>{diagnosis.file_type && <> · {diagnosis.file_type}</>}</p>}
-          <p>AVC context <code className="issue-full-context">{diagnosis.observed_context ?? "Not recorded"}</code></p>
-          <p>Expected context <code className="issue-full-context">{diagnosis.expected_context ?? "Not available"}</code></p>
-          {diagnosis.expected_context_observed_at && <p>Exact inspection time <time dateTime={diagnosis.expected_context_observed_at}>{diagnosis.expected_context_observed_at}</time></p>}
-        </section>}
-        {kind === "conditional_allow_inactive" && <>
-          {diagnosis.operation === "name_connect" && <p>These are independent rules, not a requirement to enable every listed setting. Values come from the associated checkpoint.</p>}
-          {diagnosis.operation === "read" && <p>Under the recorded checkpoint state, this conditional rule did not provide the denied read permission. That does not establish the expected filesystem label or the only reason for the workload failure.</p>}
-          {diagnosis.operation === "name_connect" && <p><code>name_connect</code> controls connecting a socket to a labeled network port. Under the recorded checkpoint state, the matching conditional rules did not provide this permission. That does not establish workload intent or the only reason for the failure. Destination address and service identity are not established by this finding.</p>}
-          <p className="issue-denial-tuple">
-            <code>{diagnosis.source_domain ?? "Source type not recorded"}</code> → <code>{diagnosis.operation ?? diagnosis.permissions?.[0] ?? "Permission not recorded"}</code> → <code>{diagnosis.target_type ?? "Target type not recorded"}:{diagnosis.target_class ?? "Object class not recorded"}</code>
-            {diagnosis.destination_port && <> · TCP destination <code>{diagnosis.destination_port}</code></>}
-            {diagnosis.bind_port && <> · TCP bind <code>{diagnosis.bind_port}</code></>}
-          </p>
-          <section aria-label="Conditional rule evidence"><h3>Conditional policy path</h3><PolicyConditions diagnosis={diagnosis} /></section>
-        </>}
-        {kind === "no_matching_allow" && <p className="issue-denial-tuple"><code>{diagnosis.source_domain ?? "Source type"}</code> → <code>{diagnosis.permissions?.join(", ") ?? "Denied permission"}</code> → <code>{diagnosis.target_type ?? "Target type"}:{diagnosis.target_class ?? "Object class"}</code></p>}
-        <EvidenceFacts diagnosis={diagnosis} />
-        <PolicyEvaluations diagnosis={diagnosis} />
-        {(kind === "conditional_allow_inactive" || kind === "no_matching_allow") && <PolicyProvenance diagnosis={diagnosis} />}
-      </section>
-  );
 }
 
 function diagnosisVariantDetail(diagnosis: Diagnosis | null | undefined): string | null {
@@ -293,24 +199,18 @@ function diagnosisVariantDetail(diagnosis: Diagnosis | null | undefined): string
   return detail;
 }
 
-function FindingCard({ detail, onShowOccurrences }: { detail: IssueDetailResponse; onShowOccurrences: () => void }) {
-  const { issue, intelligence, diagnosis, triage_guidance, findings, finding_coverage, host_explanations, policy_analysis } = detail;
-  const findingHost = diagnosis && host_explanations.find((host) => host.diagnosis_groups.some((group) => group.sample_occurrence_ids.includes(diagnosis.occurrence_id)))?.hostname;
-  const values = row(diagnosis);
-  const hostId = typeof values.host_id === "number" ? values.host_id : null;
+function FindingCard({ detail }: { detail: IssueDetailResponse }) {
+  const { issue, intelligence, diagnosis, triage_guidance, findings, policy_analysis } = detail;
   const lead = diagnosis ? primaryFindingLead(diagnosis) : null;
-  return <section aria-labelledby="finding-title" className="issue-section issue-primary-finding"><h2 id="finding-title">What SECentral found</h2>
+  const conditionalTitle = diagnosis?.kind === "conditional_allow_inactive" ? `${diagnosis.source_domain ?? issue.source_type} was denied ${diagnosis.operation === "name_bind" ? "binding" : diagnosis.operation === "name_connect" ? "connecting to" : diagnosis.operation === "read" ? "reading" : "executing"} ${diagnosis.path ?? (diagnosis.bind_port || diagnosis.destination_port ? `${issue.target_class === "udp_socket" ? "UDP" : "TCP"}/${diagnosis.bind_port ?? diagnosis.destination_port}` : `objects labeled ${diagnosis.target_type ?? issue.target_type}`)}.` : null;
+  return <section aria-labelledby="finding-title" className="issue-section issue-primary-finding"><h2 id="finding-title">Diagnosis</h2>
     {policy_analysis.status !== "evaluated" && <p role="status">Policy analysis: {displayState(policy_analysis.status)}. Retained facts and local checks remain available; this is not a completed policy assessment.</p>}
      {!diagnosis && triage_guidance ? <LabelMismatchGuidance guidance={triage_guidance} /> : diagnosis ? <article>
-      <Title headingLevel="h3" size="xl">{diagnosis.kind === "conditional_allow_inactive" ? diagnosis.operation === "name_connect" ? rows(diagnosis.conditional_rules).length > 1 ? "Matching conditional policy paths were inactive" : "A matching conditional policy path was inactive" : diagnosis.operation === "read" ? "A matching SELinux rule exists, but its condition was inactive" : "A relevant SELinux allow rule was inactive" : diagnosis.title}</Title>
-      {lead && diagnosis.kind !== "conditional_allow_inactive" && <p className="issue-finding-lead">{lead}</p>}
+      <Title headingLevel="h3" size="xl">{conditionalTitle ?? diagnosis.title}</Title>
+      {lead && <p className="issue-finding-lead">{lead}</p>}
+      {diagnosis.kind === "conditional_allow_inactive" && <p>Recorded target type: <code>{diagnosis.target_type ?? issue.target_type}</code></p>}
       <DiagnosisEvidence diagnosis={diagnosis} />
-      <p className="issue-limitation"><strong>What remains unknown:</strong> {primaryLimitation(diagnosis)}</p>
-      <details className="finding-followup"><summary>Check next · limitations & coverage</summary>
-        <div className="issue-next-check"><h3>Check next</h3><p>{diagnosis.next_step}</p></div>
-        {findings?.[0] && <small aria-label="Finding coverage">{diagnosis.operation === "name_connect" && finding_coverage && `Conditional-policy findings cover ${(finding_coverage[diagnosis.kind] ?? 0).toLocaleString()} of ${issue.occurrences_count.toLocaleString()} denials. `}{diagnosis.kind === "file_context_mismatch" ? "This path is evidenced in" : diagnosis.operation === "name_connect" ? "Shown destination finding covers" : "Supported for"} {findings[0].occurrence_count.toLocaleString()} of {issue.occurrences_count.toLocaleString()} denials.{diagnosis.kind === "file_context_mismatch" && ` Based on ${findings[0].observation_count} distinct inspection observation(s).`}{(findings[0].reused_observation_occurrences ?? 0) > 0 && ` ${findings[0].reused_observation_occurrences} denials reuse another event's inspection within the same checkpoint.`} </small>}
-        <small>Based on a retained denial{findingHost ? ` on ${findingHost}` : ""}. {hostId ? <Link to={`/hosts/${hostId}/occurrences/${diagnosis.occurrence_id}`}>View source event</Link> : <a href="#issue-occurrences" onClick={onShowOccurrences}>View source event</a>}</small>
-      </details>
+       {primaryLimitation(diagnosis) && <p className="issue-limitation"><strong>Limitation:</strong> {primaryLimitation(diagnosis)}</p>}
      </article> : <MissingExplanation issue={issue} paths={intelligence.paths} names={intelligence.names} hasFindings={(findings?.length ?? 0) > 0} policyAnalysis={policy_analysis} />}
   </section>;
 }
@@ -358,7 +258,7 @@ function MissingExplanation({
       <p><strong>{hasFindings ? "Individual occurrences have findings; check their scope." : "Cause not confirmed; start with the checks below."}</strong></p>
       <p>SELinux recorded target label <code>{issue.target_type}</code> for this denied access.</p>
       {fileTarget && paths.length === 0 && <p><strong>No absolute path was retained.</strong> SECentral cannot compare the recorded label with expected path labeling without a complete path.</p>}
-      <details><summary>Retained evidence & analysis availability</summary>
+      <ExpandableSection toggleText="Retained evidence & analysis availability">
        {fileTarget && paths.length > 0 && <p>Observed paths: {paths.slice(0, 3).map((path) => <span key={path}><code>{path}</code> </span>)}</p>}
       {fileTarget && names.length > 0 && <p>Resource examples: {names.slice(0, 3).join(", ")}. Inspect occurrences for individual evidence.</p>}
       {fileTarget && paths.length > 0 && <p>No event-linked expected-context observation is available. Check current labeling on the host.</p>}
@@ -368,7 +268,7 @@ function MissingExplanation({
       {limitations.map((limitation) => <p key={limitation}>{limitation.replaceAll("_", " ")}</p>)}
       {!status && limitations.length === 0 && <p>Review the occurrence evidence and policy availability for the affected host.</p>}
       <div className="issue-next-check"><h3>Check next</h3><ul>{nextChecks.map((check) => <li key={check}>{check}</li>)}</ul></div>
-      </details>
+      </ExpandableSection>
     </div>
   );
 }
@@ -391,51 +291,31 @@ function FleetSection({
   const hypotheses = relatedAnalysis?.hypotheses.filter((hypothesis) => ["policy_version_correlation", "local_file_context_difference", "custom_policy_difference"].includes(hypothesis.kind)) ?? [];
   return (
     <section className="issue-fleet-section" aria-labelledby="issue-fleet-title">
-      <header><div><h2 id="issue-fleet-title">Where this occurs</h2><p>{fleet.affected_host_count} affected host{fleet.affected_host_count === 1 ? "" : "s"} · {fleetSummary(fleet.state, fleet.affected_host_count)}</p></div></header>
-      <ul className="issue-host-explanations">
+      <header><div><h2 id="issue-fleet-title">Fleet Scope & Occurrences</h2><p>{fleet.affected_host_count} affected host{fleet.affected_host_count === 1 ? "" : "s"} · {fleetSummary(fleet.state, fleet.affected_host_count)}</p></div></header>
+      <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Finding distribution">
+        <Thead><Tr><Th>Host</Th><Th>Finding coverage</Th><Th>Finding groups</Th><Th>Evidence</Th></Tr></Thead><Tbody>
         {hostExplanations.map((host) => {
           const groups = host.diagnosis_groups ?? [];
-          const titles = groups.map((group) => group.diagnosis?.title ?? "Cause not confirmed");
           const unexplained = host.unexplained_occurrence_count;
-          let summary = host.diagnosis?.title ?? "Some occurrence causes remain unconfirmed";
-          if (host.status === "disagreement") {
-            const patterns = groups.length + host.additional_diagnosis_group_count;
-            summary = `${titles.length ? [...new Set(titles)].join("; ") : "Different occurrence evidence"}${patterns > 1 ? ` · ${patterns} explanations` : ""}${unexplained ? `; ${unexplained} without a complete explanation` : ""}`;
-          } else if (host.status === "insufficient_evidence") {
-            summary = `${titles.join("; ") || "Cause not confirmed"}${unexplained ? ` · ${unexplained} occurrence${unexplained === 1 ? "" : "s"} awaiting a supported finding` : ""}`;
-          }
           const occurrenceSummary = host.status === "disagreement"
             ? `Mixed findings across ${host.occurrence_count} occurrences`
             : host.status === "insufficient_evidence"
               ? `${unexplained} of ${host.occurrence_count} occurrences lack a complete explanation`
               : `Same explanation across ${host.occurrence_count} occurrences`;
-          return <li key={host.host_id}>
-            <Link to={`/hosts/${host.host_id}`}>{host.hostname ?? `Host ${host.host_id}`}</Link>
-            <span>{summary}</span>
-            <small>{occurrenceSummary}</small>
-            {host.status !== "agreement" && host.diagnosis && diagnosisVariantDetail(host.diagnosis) && <small>{diagnosisVariantDetail(host.diagnosis)}</small>}
-            {(host.status === "disagreement" || groups.some((group) => (group.policy_provenance ?? []).length > 0)) && groups.length > 0 && <ul className="issue-diagnosis-groups">{groups.map((group, index) => <li key={`${group.diagnosis?.kind ?? "unknown"}-${index}`}>
-              <strong>{diagnosisVariantDetail(group.diagnosis) ?? "Cause not confirmed"}</strong> · {group.count} occurrence{group.count === 1 ? "" : "s"}
-              {((group.policy_provenance ?? []).length > 0 || group.sample_occurrence_ids.length > 0) && <details className="issue-group-provenance">
-                <summary>Technical provenance</summary>
-                {group.sample_occurrence_ids.length > 0 && <p>Example occurrence{group.sample_occurrence_ids.length === 1 ? "" : "s"}: {group.sample_occurrence_ids.map((occurrenceId) => `#${occurrenceId}`).join(", ")}</p>}
-                {diagnosisVariantDetail(group.diagnosis) && <small>{diagnosisVariantDetail(group.diagnosis)}</small>}
-                {(group.policy_provenance ?? []).map((provenance) => <dl key={provenance.policy_identity} className="issue-technical-facts">
-                  <div><dt>Loaded policy identity</dt><dd><code>{provenance.policy_identity}</code></dd></div>
-                  {provenance.checkpoint_observed_at && <div><dt>Checkpoint</dt><dd><time dateTime={provenance.checkpoint_observed_at}>{formatUtc(provenance.checkpoint_observed_at)}</time></dd></div>}
-                  <div><dt>Example occurrence</dt><dd>#{provenance.occurrence_id}</dd></div>
-                </dl>)}
-                {group.additional_policy_identity_count > 0 && <small>{group.additional_policy_identity_count} more policy identities.</small>}
-              </details>}
-            </li>)}</ul>}
-          </li>;
+          return <Tr key={host.host_id}>
+            <Td dataLabel="Host"><Link to={`/hosts/${host.host_id}`}>{host.hostname ?? `Host ${host.host_id}`}</Link></Td>
+            <Td dataLabel="Finding coverage"><p>{host.occurrence_count - unexplained} supported · {unexplained} unconfirmed</p><small>{occurrenceSummary}</small></Td>
+            <Td dataLabel="Finding groups"><ul>{groups.map((group, index) => <li key={index}>{diagnosisVariantDetail(group.diagnosis) ?? "Cause not confirmed"} · {group.count} occurrence{group.count === 1 ? "" : "s"}</li>)}</ul>
+              {host.additional_diagnosis_group_count > 0 && <small>{host.additional_diagnosis_group_count} more groups; inspect occurrence records</small>}
+            </Td>
+            <Td dataLabel="Evidence"><EvidenceLink target={`host-evidence-${host.host_id}`} occurrenceId={host.diagnosis_groups[0]?.sample_occurrence_ids[0]}>View group evidence</EvidenceLink></Td>
+          </Tr>;
         })}
-      </ul>
-      {fleet.affected_host_count > 1 && <details className="issue-fleet-leads" onToggle={(event) => onRelatedToggle(event.currentTarget.open)}>
-        <summary>Check for additional fleet correlations</summary>
+      </Tbody></Table>
+      {fleet.affected_host_count > 1 && <ExpandableSection className="issue-fleet-leads" toggleText="Fleet correlations" onToggle={(_event, open) => onRelatedToggle(open)}>
         {loadingRelated && <p>Checking supporting fleet evidence…</p>}
-        {relatedError && <p>Additional fleet evidence could not be loaded.</p>}
-        {!loadingRelated && !relatedError && hypotheses.length === 0 && <p>No additional fleet correlation is supported by the available evidence.</p>}
+        {relatedError && <p>Fleet correlations could not be loaded.</p>}
+        {!loadingRelated && !relatedError && hypotheses.length === 0 && <p>No fleet correlation is supported by the available evidence.</p>}
         {hypotheses.map((hypothesis) => (
         <article key={hypothesis.kind}>
           <h3>{hypothesis.label}</h3>
@@ -446,59 +326,8 @@ function FleetSection({
           {hypothesis.temporal_scope && <small>Evidence scope: {displayState(hypothesis.temporal_scope)}</small>}
         </article>
       ))}
-      </details>}
+      </ExpandableSection>}
     </section>
-  );
-}
-
-function IssueOccurrence({ occurrence }: { occurrence: OccurrenceDetail }) {
-  const denial = occurrence.normalized_denial;
-  const names = namesFromOccurrences([occurrence]);
-  const port = denial.target_class === "tcp_socket" && denial.permissions?.includes("name_connect") ? networkValue([occurrence], "dport_fields") ?? networkValue([occurrence], "dest_fields") : null;
-  const resource = port ? `TCP/${port}` : denial.target_paths[0] ?? names[0] ?? `${denial.target_class ?? "object"} labeled ${denial.target_type ?? "unknown"}`;
-  const operation = denial.permissions?.map(permissionLabel).join(", ") || "SELinux access";
-  const details = row(denial.details);
-  const syscall = rows(details.syscall_evidence)[0];
-  const enforcement = text(details.enforcement_mode) ?? (details.permissive === false ? "enforcing" : details.permissive === true ? "permissive" : "not recorded");
-  return (
-    <details className="issue-occurrence">
-      <summary>
-        <span className="issue-occurrence-primary"><strong>{occurrence.host.hostname ?? `Host ${occurrence.host.id}`}</strong><span>Occurrence #{occurrence.id} · {operation} · {resource} · {denial.target_type ?? "unknown target type"}</span></span>
-        <time dateTime={occurrence.occurred_at} title={formatUtc(occurrence.occurred_at)}>{timeAgo(occurrence.occurred_at)}</time>
-      </summary>
-      <div className="issue-occurrence-content">
-        <section><h3>What happened</h3><p>{denial.command ? <><code>{denial.command}</code> ({denial.source_type ?? "unknown domain"})</> : <code>{denial.source_type ?? "unknown domain"}</code>} was denied {operation} on <code>{resource}</code>. Target <code>{denial.target_type ?? "unknown"}:{denial.target_class ?? "unknown class"}</code>; {enforcement} mode.</p></section>
-        <details><summary>SELinux evidence · {denial.permissions?.join(", ") || "permission unavailable"}</summary>
-          {denial.permissions?.includes("entrypoint") && <p>SELinux did not permit a file with this label to act as the executable entry point for this execution path. This does not establish an intended domain transition.</p>}
-          <dl className="issue-technical-facts">
-            <div><dt>AVC time / host</dt><dd><time dateTime={occurrence.occurred_at}>{formatUtc(occurrence.occurred_at)}</time> · {occurrence.host.hostname ?? occurrence.host.id}</dd></div>
-            <div><dt>Source context</dt><dd><code>{denial.source_context ?? "Not recorded"}</code></dd></div>
-            <div><dt>Target context at denial</dt><dd><code>{denial.target_context ?? "Not recorded"}</code></dd></div>
-            <div><dt>Executable</dt><dd><code>{denial.executable ?? "Not recorded"}</code></dd></div>
-            <div><dt>Syscall result</dt><dd>{syscall ? <code>{String(syscall.syscall ?? "syscall")} · success={String(syscall.success)} · exit={String(syscall.exit ?? "unknown")}</code> : "Not recorded"}</dd></div>
-            <div><dt>Audit sequence</dt><dd>{occurrence.raw_event.audit_sequence} · boot <code>{occurrence.raw_event.boot_id}</code></dd></div>
-          </dl>
-          {rows(details.policy_evaluations).length > 0 && <details><summary>Policy evaluation and rules</summary>{rows(details.policy_evaluations).map((evaluation, index) => (
-            <article key={index}>
-              <p>{Array.isArray(evaluation.permissions) ? evaluation.permissions.join(", ") : "Policy evaluation"}: <strong>{text(evaluation.result) ?? "result unavailable"}</strong></p>
-              {text(evaluation.policy_identity) && <p>Policy identity <code>{String(evaluation.policy_identity)}</code></p>}
-              {Array.isArray(evaluation.matching_rules) && evaluation.matching_rules.length > 0
-                ? <ul>{evaluation.matching_rules.map((rule, ruleIndex) => <li key={ruleIndex}><code>{typeof rule === "string" ? rule : JSON.stringify(rule)}</code></li>)}</ul>
-                : <p>No matching allow rule was returned for this permission.</p>}
-            </article>
-          ))}</details>}
-        </details>
-        {occurrence.raw_event.file_context_observations && occurrence.raw_event.file_context_observations.length > 0 && <details><summary>Expected-context evidence</summary>{rows(occurrence.raw_event.file_context_observations).map((item, index) => <article key={index}><p><code>{String(item.path)}</code>: {String(item.status)}{text(item.expected_context) && <> · <code>{String(item.expected_context)}</code></>}</p><p>Inspected after the denial at {String(item.observed_at)} using {String(item.resolver ?? "matchpathcon")}. {text(item.reason)}</p></article>)}</details>}
-        {occurrence.guidance && <details><summary>Occurrence checks and limitations</summary>
-          {occurrence.guidance.observations.length > 0 && <ul>{occurrence.guidance.observations.map((item, index) => <li key={index}>{text(row(item).observation) ?? "Evidence observed."}</li>)}</ul>}
-          {occurrence.guidance.checks.map((item, index) => <article key={index}><p>{text(row(item).reason) ?? "Review related evidence."}</p>{text(row(item).expected) && <p>{String(row(item).expected).replaceAll("_", " ")}</p>}{text(row(item).command) && <details><summary>Inspection command</summary><code>{String(row(item).command)}</code></details>}</article>)}
-          {occurrence.guidance.missing_evidence.length > 0 && <p><strong>Unavailable:</strong> {occurrence.guidance.missing_evidence.join("; ")}</p>}
-          {occurrence.guidance.historical_limitations.map((limitation) => <p key={limitation}><strong>Time limitation:</strong> {limitation}</p>)}
-        </details>}
-        <details><summary>Technical details and raw audit records</summary><OccurrenceRawEvidence occurrence={occurrence} collapsed /></details>
-        <Link to={`/hosts/${occurrence.host.id}/occurrences/${occurrence.id}`}>Open occurrence record</Link>
-      </div>
-    </details>
   );
 }
 
@@ -509,24 +338,34 @@ export function IssueDetail() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const detailQuery = useQuery({ queryKey: ["issue", issueId], queryFn: () => fetchIssue(issueId), enabled: validId });
-  const [showOccurrences, setShowOccurrences] = useState(() => searchParams.get("tab") === "occurrences");
+  const showOccurrences = searchParams.get("tab") === "occurrences";
+  const setShowOccurrences = (open: boolean) => setSearchParams((previous) => {
+    const next = new URLSearchParams(previous); if (open) next.set("tab", "occurrences"); else next.delete("tab"); return next;
+  });
   const [showRelatedFleet, setShowRelatedFleet] = useState(false);
   const [technicalEvidenceIssueId, setTechnicalEvidenceIssueId] = useState<number | null>(null);
-  const showTechnicalEvidence = technicalEvidenceIssueId === issueId;
+  const evidenceTarget = searchParams.get("evidence");
+  const showTechnicalEvidence = technicalEvidenceIssueId === issueId || !!evidenceTarget || !!searchParams.get("evidence_tab");
+  useEffect(() => {
+    if (!evidenceTarget) return;
+    const target = document.getElementById(evidenceTarget) ?? document.getElementById("issue-technical-evidence");
+    target?.focus();
+    target?.scrollIntoView?.({ block: "start" });
+  }, [evidenceTarget, detailQuery.dataUpdatedAt]);
   const requestedPage = Number(searchParams.get("occurrence_page") ?? 1);
   const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   const perPage = pageSize(searchParams.get("occurrence_limit"), EMBEDDED_PAGE_SIZES, 10);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
   const occurrencesQuery = useQuery({ queryKey: ["issue-occurrence-page", issueId, page, perPage], queryFn: () => fetchIssueOccurrencePage(issueId, page, perPage), enabled: validId && showOccurrences });
   const setOccurrencePage = (nextPage: number, size = perPage) => {
-    setSelectedId(null);
     const next = new URLSearchParams(searchParams);
     next.set("tab", "occurrences");
     next.set("occurrence_page", String(nextPage));
     next.set("occurrence_limit", String(size));
     setSearchParams(next);
   };
-  const selectedQuery = useQuery({ queryKey: ["issue-occurrence", issueId, selectedId], queryFn: () => fetchIssueOccurrence(issueId, selectedId!), enabled: validId && selectedId !== null });
+  const inspectOccurrence = (occurrenceId: number) => {
+    setSearchParams((previous) => { const next = new URLSearchParams(previous); next.delete("phase"); next.set("evidence", "audit-evidence"); next.set("evidence_tab", "audit"); next.set("evidence_occurrence", String(occurrenceId)); return next; });
+  };
   const analysisQuery = useQuery({ queryKey: ["issue-analysis", issueId], queryFn: () => fetchIssueAnalysis(issueId), enabled: validId && showRelatedFleet });
   const [pendingDisposition, setPendingDisposition] = useState<string | null>(null);
   const [dispositionNote, setDispositionNote] = useState("");
@@ -577,24 +416,20 @@ export function IssueDetail() {
   if (detailQuery.isPending) return <div aria-label="Loading issue" className="issue-loading"><Spinner size="xl" /></div>;
 
   const { issue, intelligence, diagnosis, triage, host_explanations, fleet_explanation, policy_analysis, findings, additional_finding_count } = detailQuery.data;
-  const occurrences = selectedQuery.data ? [selectedQuery.data] : [];
-  const paths = intelligence.paths;
-  const names = intelligence.names;
   const disposition = pendingDisposition ?? issue.disposition;
 
   return (
-    <main className="issue-investigation">
+    <div className="issue-investigation">
       <Breadcrumb aria-label="Breadcrumb" className="pf-v6-u-mb-sm"><BreadcrumbItem><Link to="/issues">SELinux issues</Link></BreadcrumbItem><BreadcrumbItem isActive>Issue #{issue.id}</BreadcrumbItem></Breadcrumb>
       <header className="issue-investigation-header">
         <div>
-          <Title headingLevel="h1" size="2xl" className="pf-v6-u-mt-0">{issue.target_class === "tcp_socket" && issue.permissions.includes("name_connect") && (intelligence.resource_summary?.destination_port_count ?? 0) > 1 ? `${intelligence.resource_summary?.process_command ?? `The ${issue.source_type} domain`} was denied outbound TCP connections.` : issue.target_class === "file" && issue.permissions.length === 1 && issue.permissions[0] === "read" && (intelligence.resource_summary?.name_count ?? 0) > 1 ? `${intelligence.resource_summary?.process_command ?? `The ${issue.source_type} domain`} was denied reading files labeled ${issue.target_type}.` : practicalHeadline(issue, diagnosis, [], paths, names, intelligence.resource_summary?.process_command, intelligence.resource_summary?.destination_ports?.length === 1 ? intelligence.resource_summary.destination_ports[0].port : null)}</Title>
+           <Title headingLevel="h1" size="2xl" className="pf-v6-u-mt-0">{issueHeadline(detailQuery.data)}</Title>
           <p className="issue-operation-label">{issue.occurrences_count.toLocaleString()} denial{issue.occurrences_count === 1 ? "" : "s"} · {issue.affected_hosts} server{issue.affected_hosts === 1 ? "" : "s"}{(intelligence.resource_summary?.name_count ?? 0) > 1 && ` · ${intelligence.resource_summary!.name_count.toLocaleString()} filenames`} · First {timeAgo(issue.first_seen_at)} · Last {timeAgo(issue.last_seen_at)}</p>
           {(intelligence.resource_summary?.destination_ports?.length ?? 0) > 0 && <p className="issue-operation-label">Recorded destination ports: {intelligence.resource_summary!.destination_ports!.map((item) => `TCP/${item.port} (${item.occurrence_count} denial${item.occurrence_count === 1 ? "" : "s"})`).join(" · ")}{intelligence.resource_summary!.destination_port_count! > 3 && ` · ${intelligence.resource_summary!.destination_port_count! - 3} more ports`}</p>}
         </div>
         <div className="issue-workflow">
           <Label color={issue.display_status === "resolved" ? "green" : issue.display_status === "ignored" ? "grey" : issue.display_status === "regressed" ? "orange" : "blue"}>{displayState(issue.display_status)}</Label>
-          <details>
-            <summary>Actions · {displayState(issue.disposition)}</summary>
+          <ExpandableSection toggleText={`Actions · ${displayState(issue.disposition)}`}>
             <div className="issue-workflow-panel">
               {workflowError && <Alert variant="danger" isInline title="Workflow update failed">{workflowError}</Alert>}
               <label>Lifecycle status<select aria-label="Issue status" value={issue.status} disabled={savingStatus} onChange={(event) => void changeStatus(event.target.value as typeof STATUS_OPTIONS[number])}>{STATUS_OPTIONS.map((status) => <option key={status} value={status}>{displayState(status)}</option>)}</select></label>
@@ -602,43 +437,44 @@ export function IssueDetail() {
               <TextInput value={dispositionNote} onChange={(_event, value) => setDispositionNote(value)} aria-label="Disposition note" placeholder="Note (optional)" />
               <Button variant="primary" isDisabled={savingDisposition || (disposition === issue.disposition && !dispositionNote.trim())} onClick={() => void applyDisposition()}>{savingDisposition ? "Applying…" : "Save disposition"}</Button>
             </div>
-          </details>
+          </ExpandableSection>
+          <Button variant="secondary" onClick={() => setShowKeepRestriction(!showKeepRestriction)} isExpanded={showKeepRestriction} aria-controls="restriction-note">Keep restriction</Button>
+          <ResolutionWorkflow issueId={issueId} stage="actions" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} />
+          {showKeepRestriction && <section id="restriction-note" aria-label="Keep restriction" className="issue-workflow-panel">
+            <p>Record why this access should remain denied. This saves a note without declaring it harmless, changing policy or marking the issue resolved.</p>
+            {workflowError && <Alert variant="danger" isInline title="Could not save acknowledgement">{workflowError}</Alert>}
+            <TextInput aria-label="Restriction note" value={dispositionNote} onChange={(_event, value) => { setDispositionNote(value); setAcknowledgementSaved(false); }} />
+            <Button variant="secondary" isDisabled={savingDisposition || !dispositionNote.trim()} onClick={() => void applyDisposition(true)}>Save acknowledgement</Button>
+            {acknowledgementSaved && <p role="status">Acknowledgement saved. Restriction and lifecycle status unchanged.</p>}
+          </section>}
         </div>
       </header>
 
+      <ResolutionWorkflow issueId={issueId} stage="draft" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} />
+
       <div className="issue-workbench">
       <div className="issue-workspace">
-      <ResolutionWorkflow issueId={issueId} stage="observed" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} />
+      <ResolutionWorkflow issueId={issueId} stage="observed" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} detail={detailQuery.data} />
 
-      <FindingCard detail={detailQuery.data} onShowOccurrences={() => setShowOccurrences(true)} />
-      <OperatorChecks detail={detailQuery.data} />
+      <Card isCompact><CardBody>
+        <FindingCard detail={detailQuery.data} />
+      </CardBody></Card>
 
       <ResolutionWorkflow issueId={issueId} stage="intent" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} detail={detailQuery.data}>
         {!diagnosis && detailQuery.data.triage_guidance ? <StandardRestoration detail={detailQuery.data} /> : undefined}
       </ResolutionWorkflow>
-      <section className="issue-section" aria-label="Keep restriction">
-        <Button variant="secondary" onClick={() => setShowKeepRestriction(!showKeepRestriction)} isExpanded={showKeepRestriction}>Keep restriction</Button>
-        {showKeepRestriction && <div className="pf-v6-u-mt-sm">
-          <p>Record why this access should remain denied. This saves a note without declaring it harmless, changing policy or marking the issue resolved. Use Actions to review classification or optionally ignore future attention.</p>
-          {workflowError && <Alert variant="danger" isInline title="Could not save acknowledgement">{workflowError}</Alert>}
-          <TextInput aria-label="Restriction note" value={dispositionNote} onChange={(_event, value) => { setDispositionNote(value); setAcknowledgementSaved(false); }} />
-          <Button variant="secondary" isDisabled={savingDisposition || !dispositionNote.trim()} onClick={() => void applyDisposition(true)}>Save acknowledgement</Button>
-          {acknowledgementSaved && <p role="status">Acknowledgement saved. Restriction and lifecycle status unchanged.</p>}
-        </div>}
-      </section>
-      <OperatorVerification detail={detailQuery.data} />
       </div>
       <ResolutionWorkflow issueId={issueId} stage="context" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} detail={detailQuery.data} onShowTechnicalEvidence={() => setTechnicalEvidenceIssueId(issueId)} />
       </div>
 
-      {((findings?.length ?? 0) > 1 || (issue.target_class === "file" && (intelligence.resource_summary?.without_absolute_path_occurrences ?? 0) > 0) || (additional_finding_count ?? 0) > 0 || policy_analysis.limitations.length > 0) && <details className="workbench-additional"><summary>Additional investigation</summary><section aria-label="Additional investigation" className="issue-section">
-        <h2>Additional investigation</h2>
-        {findings?.slice(1).map((finding, index) => <details key={index}><summary>{finding.diagnosis.title} · {finding.occurrence_count.toLocaleString()} denials</summary><p>{primaryFindingLead(finding.diagnosis) ?? text(row(finding.diagnosis).finding)}</p><DiagnosisEvidence diagnosis={finding.diagnosis} /><p><strong>Check next:</strong> {finding.diagnosis.next_step}</p><p>{primaryLimitation(finding.diagnosis)}</p><details><summary>Technical evidence for this finding</summary><DiagnosisTechnicalEvidence diagnosis={finding.diagnosis} /></details></details>)}
+      {((findings?.length ?? 0) > 1 || (issue.target_class === "file" && (intelligence.resource_summary?.without_absolute_path_occurrences ?? 0) > 0) || (additional_finding_count ?? 0) > 0 || policy_analysis.limitations.length > 0) && <ExpandableSection className="workbench-additional" toggleText="Findings & evidence gaps"><section aria-label="Findings & evidence gaps" className="issue-section">
+        {findings?.slice(1).map((finding, index) => <ExpandableSection key={index} toggleText={`${finding.diagnosis.title} · ${finding.occurrence_count.toLocaleString()} denials`}><p>{primaryFindingLead(finding.diagnosis) ?? text(row(finding.diagnosis).finding)}</p><DiagnosisEvidence diagnosis={finding.diagnosis} /><p><strong>Check next:</strong> {finding.diagnosis.next_step}</p><p>{primaryLimitation(finding.diagnosis)}</p><EvidenceLink target="policy-evaluation-evidence">Technical evidence for this finding</EvidenceLink></ExpandableSection>)}
         {issue.target_class === "file" && (intelligence.resource_summary?.without_absolute_path_occurrences ?? 0) > 0 && <div><h3>Path-based label check unavailable</h3><p>{intelligence.resource_summary!.without_absolute_path_occurrences.toLocaleString()} of {issue.occurrences_count.toLocaleString()} denials contain filenames but no complete filesystem path. SECentral cannot determine whether <code>{issue.target_type}</code> is the expected label for those files.</p></div>}
-        {(additional_finding_count ?? 0) > 0 && <p>{additional_finding_count} additional finding variant(s). Inspect host and occurrence evidence for their coverage.</p>}
-        {diagnosis && policy_analysis.limitations.map((limitation) => <p key={limitation}>{limitation}</p>)}
-      </section></details>}
+        {(additional_finding_count ?? 0) > 0 && <p>{additional_finding_count} finding variant(s) not shown. Inspect host and occurrence evidence for their coverage.</p>}
+         {diagnosis && policy_analysis.limitations.length > 0 && <div><p>Some occurrence policy assessments have limitations. These describe occurrence assessments, not the eligibility of a separate reviewed plan.</p><ul>{policy_analysis.limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}</ul><p>Unconfirmed occurrence examples: {host_explanations.flatMap((host) => host.diagnosis_groups.filter((group) => !group.diagnosis).flatMap((group) => group.sample_occurrence_ids.map((id) => <Link key={`${host.host_id}-${id}`} to={`/hosts/${host.host_id}/occurrences/${id}`}>{host.hostname} · #{id} </Link>)))}</p></div>}
+      </section></ExpandableSection>}
 
+      <Card isCompact className="issue-fleet-occurrences"><CardBody>
       <FleetSection
         hostExplanations={host_explanations}
         fleet={fleet_explanation}
@@ -648,31 +484,29 @@ export function IssueDetail() {
         onRelatedToggle={setShowRelatedFleet}
       />
 
-      {triage.signals.length > 0 && <details className="issue-activity-context"><summary>Occurrence pattern</summary><ul>{triage.signals.map((signal) => <li key={signal.code}><strong>{signal.label}:</strong> {signal.explanation}</li>)}</ul></details>}
+      {triage.signals.length > 0 && <ExpandableSection className="issue-activity-context" toggleText="Occurrence pattern"><ul>{triage.signals.map((signal) => <li key={signal.code}><strong>{signal.label}:</strong> {signal.explanation}</li>)}</ul></ExpandableSection>}
 
-      <section id="issue-occurrences" aria-labelledby="occurrences-title" className="issue-section issue-occurrences-section">
-        <header><div><h2 id="occurrences-title">Occurrences</h2><p>{issue.occurrences_count} retained denial{issue.occurrences_count === 1 ? "" : "s"}{occurrencesQuery.data && ` · ${(occurrencesQuery.data.meta.page - 1) * occurrencesQuery.data.meta.page_size + (occurrencesQuery.data.meta.total ? 1 : 0)}–${Math.min(occurrencesQuery.data.meta.page * occurrencesQuery.data.meta.page_size, occurrencesQuery.data.meta.total)} of ${occurrencesQuery.data.meta.total}`}</p></div></header>
+      <section id="issue-occurrences" tabIndex={-1} aria-labelledby="occurrences-title" className="issue-section issue-occurrences-section">
+        <header><div><h3 id="occurrences-title">Retained occurrences</h3><p>{issue.occurrences_count} retained denial{issue.occurrences_count === 1 ? "" : "s"}{occurrencesQuery.data && ` · ${(occurrencesQuery.data.meta.page - 1) * occurrencesQuery.data.meta.page_size + (occurrencesQuery.data.meta.total ? 1 : 0)}–${Math.min(occurrencesQuery.data.meta.page * occurrencesQuery.data.meta.page_size, occurrencesQuery.data.meta.total)} of ${occurrencesQuery.data.meta.total}`}</p></div></header>
         {!showOccurrences ? <Button variant="secondary" onClick={() => setShowOccurrences(true)}>Show recent occurrences</Button>
           : occurrencesQuery.isPending ? <div aria-label="Loading occurrences"><Spinner /></div>
           : occurrencesQuery.isError ? <Alert variant="warning" isInline title="Could not load occurrences">{occurrencesQuery.error instanceof Error ? occurrencesQuery.error.message : "Unknown error"}</Alert>
             : occurrencesQuery.data.occurrences.length ? <>
-              <table className="pf-v6-c-table" aria-label="Occurrence summary"><thead><tr><th scope="col">Time (UTC)</th>{issue.affected_hosts > 1 && <th scope="col">Host</th>}<th scope="col">Resource</th>{issue.target_class !== "tcp_socket" && <th scope="col">Path evidence</th>}<th scope="col">Inspect</th></tr></thead><tbody>{occurrencesQuery.data.occurrences.map((item) => <tr key={item.id}><td>{formatUtc(item.occurred_at)}</td>{issue.affected_hosts > 1 && <td>{item.host.hostname}</td>}<td><code>{item.resource ?? "Not recorded"}</code></td>{issue.target_class !== "tcp_socket" && <td>{item.absolute_path ? "Absolute path" : "Basename only"}</td>}<td><Button variant="link" onClick={() => setSelectedId(item.id)} aria-label={`Inspect occurrence ${item.id}`}>View evidence</Button></td></tr>)}</tbody></table>
+              <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Occurrence summary"><Thead><Tr><Th>Time (UTC)</Th><Th>Host</Th><Th>Resource</Th>{!issue.target_class.endsWith("_socket") && <Th>Path evidence</Th>}<Th>Inspect</Th></Tr></Thead><Tbody>{occurrencesQuery.data.occurrences.map((item) => <Tr key={item.id}><Td dataLabel="Time (UTC)">{formatUtc(item.occurred_at)}</Td><Td dataLabel="Host"><Link to={`/hosts/${item.host.id}`}>{item.host.hostname}</Link></Td><Td dataLabel="Resource"><code>{item.resource ?? "Not recorded"}</code></Td>{!issue.target_class.endsWith("_socket") && <Td dataLabel="Path evidence">{item.absolute_path ? "Absolute path" : item.resource ? "Basename only" : "Not recorded"}</Td>}<Td dataLabel="Inspect"><Button variant="link" onClick={() => inspectOccurrence(item.id)} aria-label={`Inspect occurrence ${item.id}`}>View evidence</Button></Td></Tr>)}</Tbody></Table>
               <div className="table-pagination"><Pagination itemCount={occurrencesQuery.data.meta.total} page={occurrencesQuery.data.meta.page} perPage={occurrencesQuery.data.meta.page_size}
                 perPageOptions={EMBEDDED_PAGE_SIZES.map((value) => ({ title: String(value), value }))} titles={{ paginationAriaLabel: "Issue occurrence pagination" }}
                 isDisabled={occurrencesQuery.isFetching} onSetPage={(_event, value) => setOccurrencePage(value)} onPerPageSelect={(_event, size) => setOccurrencePage(1, size)} /></div>
-              {selectedId !== null && <section aria-label="Selected occurrence evidence">{selectedQuery.isPending ? <Spinner aria-label="Loading occurrence evidence" /> : selectedQuery.isError ? <Alert variant="warning" isInline title="Could not load occurrence evidence" /> : occurrences.map((occurrence) => <IssueOccurrence key={occurrence.id} occurrence={occurrence} />)}</section>}
               <Button className="pf-v6-u-mt-md" variant="link" onClick={() => setShowOccurrences(false)}>Hide occurrences</Button></>
               : <p>No occurrences are retained for this issue.</p>}
       </section>
+      </CardBody></Card>
 
-      <ExpandableSection id="issue-technical-evidence" className="issue-advanced-details" toggleText="Technical details & audit provenance" isExpanded={showTechnicalEvidence} onToggle={(_event, expanded) => setTechnicalEvidenceIssueId(expanded ? issueId : null)}>
-        {showTechnicalEvidence && <>
-        {diagnosis && <DiagnosisTechnicalEvidence diagnosis={diagnosis} />}
-        <details><summary>SELinux types, class, and permission</summary><dl className="issue-technical-facts"><div><dt>Source type</dt><dd><code>{issue.source_type}</code></dd></div><div><dt>Target type</dt><dd><code>{issue.target_type}</code></dd></div><div><dt>Object class</dt><dd><code>{issue.target_class}</code></dd></div><div><dt>Denied permission set</dt><dd>{issue.permissions.map((permission) => <code key={permission}>{permission}</code>)}</dd></div></dl></details>
-        <dl className="issue-technical-facts"><div><dt>Fingerprint version</dt><dd>{issue.fingerprint_version}</dd></div><div><dt>Fingerprint</dt><dd><code>{issue.fingerprint_digest}</code></dd></div><div><dt>First seen</dt><dd><time dateTime={issue.first_seen_at}>{formatUtc(issue.first_seen_at)}</time></dd></div><div><dt>Last seen</dt><dd><time dateTime={issue.last_seen_at}>{formatUtc(issue.last_seen_at)}</time></dd></div></dl>
-        {issue.disposition_history.length > 0 && <ul>{issue.disposition_history.map((change) => <li key={change.changed_at}><time dateTime={change.changed_at}>{formatUtc(change.changed_at)}</time> {change.previous_disposition} → {change.disposition}{change.note ? ` — ${change.note}` : ""}</li>)}</ul>}
-        </>}
+      <ExpandableSection id="issue-technical-evidence" tabIndex={-1} className="issue-advanced-details" toggleText="Technical details & audit provenance" isExpanded={showTechnicalEvidence} onToggle={(_event, expanded) => {
+        setTechnicalEvidenceIssueId(expanded ? issueId : null);
+        if (!expanded && (evidenceTarget || searchParams.has("evidence_tab"))) { const next = new URLSearchParams(searchParams); next.delete("evidence"); next.delete("evidence_tab"); setSearchParams(next); }
+      }}>
+        {showTechnicalEvidence && <IssueTechnicalEvidence detail={detailQuery.data} updatedAt={detailQuery.dataUpdatedAt} />}
       </ExpandableSection>
-    </main>
+    </div>
   );
 }

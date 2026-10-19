@@ -3,6 +3,7 @@ require "rails_helper"
 RSpec.describe InvestigationCommandRenderer do
   it "keeps the full policy listing so range entries are not missed" do
     expect(described_class.call(kind: :port_classification, protocol: "tcp", port: 12345)).to eq("semanage port -l")
+    expect(described_class.call(kind: :port_local_classification, protocol: "tcp", port: 12345)).to eq("semanage port -l -C")
   end
 
   it "filters listeners by the exact local port and protocol" do
@@ -20,7 +21,7 @@ RSpec.describe InvestigationCommandRenderer do
     [{ protocol: "sctp", port: 12345 }, { protocol: "tcp;id", port: 12345 },
      { protocol: "tcp", port: "12345;id" }, { protocol: "tcp", port: 0 },
      { protocol: "tcp", port: 65_536 }, { protocol: "tcp", port: nil }].each do |endpoint|
-      %i[port_classification socket_listeners].each do |kind|
+      %i[port_classification port_local_classification socket_listeners].each do |kind|
         expect(described_class.call(endpoint.merge(kind: kind, operation: "name_bind"))).to be_nil
       end
     end

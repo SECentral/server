@@ -36,6 +36,8 @@ function conditionalDiagnosis(scenario: "002" | "003" | "005") {
     kind: "conditional_allow_inactive",
     title: execute ? "SELinux blocked an execution request" : bind ? "SELinux blocked a local port bind request" : "SELinux blocked a network connection request",
     operation,
+    enforcement_mode: "enforcing",
+    syscall_failed: true,
     source_domain: execute || !bind ? "httpd_t" : "httpd_t",
     process_command: "httpd",
     executable: "/usr/sbin/httpd",
@@ -282,7 +284,10 @@ function mockApi(fetchMock: ReturnType<typeof vi.fn>, scenario: Scenario, option
       const occurrences = occurrencePage(scenario).occurrences;
       return Promise.resolve(response(200, { occurrences: occurrences.map((item) => ({ id: item.id, occurred_at: item.occurred_at, host: item.host, resource: item.normalized_denial.target_paths[0] ?? "secentral-test.html", absolute_path: item.normalized_denial.target_paths.length > 0, target_type: item.normalized_denial.target_type, permissions: item.normalized_denial.permissions })), meta: { page: 1, page_size: 25, total: occurrences.length, total_pages: 1 } }));
     }
-    if (url.startsWith(`/api/v1/issues/${issueId}/occurrences/`)) return Promise.resolve(response(200, occurrencePage(scenario).occurrences.find((item) => url.endsWith(`/${item.id}`))));
+    if (url.startsWith(`/api/v1/issues/${issueId}/occurrences/`)) {
+      const occurrence = occurrencePage(scenario).occurrences.find((item) => url.endsWith(`/${item.id}`));
+      return Promise.resolve(occurrence ? response(200, occurrence) : response(404, { error: { message: "Occurrence not retained in this fixture" } }));
+    }
     if (url.startsWith(`/api/v1/issues/${issueId}/occurrences`)) return Promise.resolve(response(200, occurrencePage(scenario)));
     if (url === `/api/v1/issues/${issueId}/analysis`) return Promise.resolve(response(200, analysisPayload(scenario)));
     if (url === "/api/v1/issues/999") return Promise.resolve(response(404, { error: { code: "not_found", message: "Resource not found" } }));
@@ -296,6 +301,77 @@ function renderDetail(initialEntry = "/issues/7") {
 }
 
 describe("issue investigation", () => {
+  it("does not infer a blocked syscall or an active-policy conclusion from an inactive conditional path", async () => {
+    const payload = detailPayload("003");
+    payload.diagnosis = { ...payload.diagnosis!, syscall_failed: false, enforcement_mode: "permissive" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    renderDetail();
+    const heading = await screen.findByRole("heading", { level: 1 });
+    expect(heading).not.toHaveTextContent("blocked");
+    const diagnosis = screen.getByRole("region", { name: "Diagnosis" });
+    expect(within(diagnosis).getByRole("heading", { level: 3 })).toHaveTextContent("httpd_t was denied binding TCP/12345");
+    expect(within(diagnosis).getByRole("button", { name: "Conditional policy paths" })).toHaveAttribute("aria-expanded", "false");
+    expect(diagnosis).not.toHaveTextContent("no active allow rule");
+    expect(document.querySelector(".issue-investigation details")).toBeNull();
+  });
+  it("keeps Diagnosis command-free and stable while the active workspace owns resource-specific inspection", async () => {
+    const payload = detailPayload("003");
+    payload.operator_guidance = {
+      source: { host_id: 10, hostname: "web-1", occurrence_id: 101, occurred_at: "2026-09-30T16:26:25Z", path: null, observed_type: "unreserved_port_t", protocol: "tcp", port: 12345, operation: "name_bind" },
+      checks: [
+        { title: "Listener", command: "ss -ltnp", interpretation: "Confirm listener ownership" },
+        { title: "Effective mappings", command: "semanage port -l", interpretation: "Inspect ranges" },
+        { title: "Local mappings", command: "semanage port -l -C", interpretation: "Inspect overrides" }
+      ], manual_check: "Confirm intended service", possible_fix: "Compare configurations", verification: "Retry the actual workload", verification_limit: "Silence is not success", restriction: "Keep unwanted access denied"
+    };
+    payload.resolutions = { candidates: [], rejected_candidates: [], observed_access: null, intent: null, freshness: null, change_plan: null, history: [],
+      port_investigations: [12345, 23451].map((port, index) => ({ host_id: 10, hostname: "web-1", occurrence_id: index ? 202 : 101, protocol: "tcp", port,
+        operation: "name_bind", observed_type: "unreserved_port_t", occurrence_count: index ? 5 : 1, state: "blocked", reason: "Inspect intent before any change", types: [], type_count: 0 })) };
+    const occurrence = occurrencePage("003").occurrences[0];
+    occurrence.id = 202;
+    occurrence.guidance!.checks = [
+      { reason: "Effective classification", command: "semanage port -l", expected: "Check intersecting ranges" },
+      { reason: "Local overrides", command: "semanage port -l -C", expected: "Check prior state" },
+      { reason: "Listener ownership", command: "ss -ltnp 'sport = :23451'", expected: "Check intended owner" }
+    ];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => response(200, url.endsWith("/occurrences/202") ? occurrence : payload)));
+    const user = userEvent.setup();
+    renderDetail();
+    const diagnosis = await screen.findByRole("region", { name: "Diagnosis" });
+    const diagnosisText = diagnosis.textContent;
+    expect(within(diagnosis).queryByRole("button", { name: /Copy/ })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Copy command: semanage port -l" })).toHaveLength(1);
+    await user.click(screen.getByRole("tab", { name: /TCP\/23451/ }));
+    expect(await screen.findByRole("button", { name: "Copy command: ss -ltnp 'sport = :23451'" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Copy command: ss -ltnp" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Copy command: semanage port -l" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Copy command: semanage port -l -C" })).toHaveLength(1);
+    expect(await screen.findByRole("region", { name: "Observed access" })).toHaveTextContent("TCP/23451");
+    const context = await screen.findByRole("complementary", { name: "Investigation context" });
+    expect(context).toHaveTextContent("TCP/23451");
+    expect(within(context).getByRole("link", { name: "#202" })).toHaveAttribute("href", "/hosts/10/occurrences/202");
+    expect(screen.queryByRole("heading", { name: "Verify the investigation example" })).not.toBeInTheDocument();
+    expect(diagnosis.textContent).toBe(diagnosisText);
+    expect(within(diagnosis).queryByRole("button", { name: /Copy/ })).not.toBeInTheDocument();
+  });
+
+  it("uses complete bind summaries for identity and keeps finding coverage distinct from endpoint totals", async () => {
+    const payload = detailPayload("003");
+    payload.issue.occurrences_count = 6;
+    payload.intelligence.resource_summary = { absolute_path_occurrences: 0, without_absolute_path_occurrences: 6,
+      name_count: 0, path_count: 0, process_command: "httpd", bind_port_count: 2,
+      bind_ports: [{ port: "23451", occurrence_count: 4 }, { port: "12345", occurrence_count: 2 }] };
+    payload.findings = [{ diagnosis: payload.diagnosis!, occurrence_count: 1, observation_count: 0 }];
+    payload.finding_coverage = { conditional_allow_inactive: 4, unexplained: 2 };
+    payload.resolutions = { candidates: [], rejected_candidates: [], observed_access: null, intent: null, freshness: null, change_plan: null, history: [] };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    renderDetail();
+    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("denied local TCP binding on ports 23451, 12345");
+    const scope = screen.getByRole("region", { name: "Finding coverage" });
+    expect(scope).toHaveTextContent("Issue: 4 of 6 supported");
+    expect(scope).toHaveTextContent("2 unconfirmed");
+    expect(scope).toHaveTextContent("Displayed finding: 1");
+  });
   function labelingPayload() {
     const payload = detailPayload("missing-observation");
     payload.triage_guidance = {
@@ -339,7 +415,7 @@ describe("issue investigation", () => {
     expect(screen.getByRole("region", { name: "Optional restoration after verification" })).toHaveTextContent("including local customizations");
     expect(screen.getByText(/Targeted scope:/)).toBeVisible();
     expect(screen.getAllByText("Changes file labels")[0]).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Copy matchpathcon -- '/var/www/html/a file.txt'" }));
+    await user.click(screen.getByRole("button", { name: "Copy command: matchpathcon -- '/var/www/html/a file.txt'" }));
     expect(await navigator.clipboard.readText()).toBe("matchpathcon -- '/var/www/html/a file.txt'");
     expect(screen.getByText("restorecon -Rv -- /var/www/html")).not.toBeVisible();
     await user.click(screen.getByText("Broader alternative: recursive restoration"));
@@ -356,7 +432,7 @@ describe("issue investigation", () => {
     const view = renderDetail();
     expect(await screen.findByRole("heading", { name: "Potential file-context mismatch" })).toBeVisible();
     expect(screen.queryByText("Investigation lead: probable label mismatch")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Copy restorecon -v/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Copy command: restorecon -v/ })).not.toBeInTheDocument();
     view.unmount();
 
     payload.diagnosis = null;
@@ -364,7 +440,7 @@ describe("issue investigation", () => {
     payload.operator_guidance = null;
     renderDetail();
     expect(await screen.findByText("Cause not confirmed; start with the checks below.")).toBeVisible();
-    expect(screen.queryByRole("button", { name: /Copy matchpathcon/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Copy command: matchpathcon/ })).not.toBeInTheDocument();
   });
 
   it("keeps the context sidebar on the deterministic investigation example when the latest occurrence differs", async () => {
@@ -373,16 +449,18 @@ describe("issue investigation", () => {
       observed_access: { occurrence_id: 202, host_id: 20, hostname: "latest-host", actor: "httpd", source_type: "httpd_t",
         resource: "/var/www/z-latest", target_type: "user_home_t", object_class: "file", permissions: ["read"], operation_label: "read",
         outcome: "DENIED", observed_at: "2026-10-02T10:00:00Z" } };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    const occurrence = occurrencePage("001").occurrences[0];
+    occurrence.host = { id: 10, hostname: "web-1" };
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => response(200, url.endsWith("/occurrences/101") ? occurrence : payload)));
     renderDetail();
     const context = await screen.findByRole("complementary", { name: "Investigation context" });
     expect(context).toHaveTextContent("/var/www/html/a file.txt");
     expect(context).not.toHaveTextContent("/var/www/z-latest");
     expect(within(context).getByRole("link", { name: "web-1" })).toHaveAttribute("href", "/hosts/10");
     expect(within(context).getByRole("link", { name: "#101" })).toHaveAttribute("href", "/hosts/10/occurrences/101");
-    expect(screen.getByRole("region", { name: "Observed access" })).toHaveTextContent("latest-host");
-    expect(screen.getByRole("region", { name: "Check" })).toHaveTextContent("different retained investigation example");
-    expect(screen.getByRole("region", { name: "Check" })).toHaveTextContent("lexicographically first");
+    expect(within(context).getByRole("link", { name: "#202" })).toHaveAttribute("href", "/hosts/20/occurrences/202");
+    expect(within(context).getByText("Latest access")).toBeVisible();
+    expect(within(context).getByText("Observed access & finding example")).toBeVisible();
   });
 
   it("shows targeted restoration without a recursive alternative for a broad system root", async () => {
@@ -395,7 +473,7 @@ describe("issue investigation", () => {
       ] };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
     renderDetail();
-    expect(await screen.findByRole("button", { name: "Copy restorecon -v -- /etc/shadow" })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Copy command: restorecon -v -- /etc/shadow" })).toBeVisible();
     expect(screen.queryByText("Broader alternative: recursive restoration")).not.toBeInTheDocument();
     expect(screen.queryByText(/restorecon -Rv/)).not.toBeInTheDocument();
   });
@@ -407,7 +485,7 @@ describe("issue investigation", () => {
       observed_access: { occurrence_id: 101, host_id: 10, hostname: "web-1", actor: "httpd", source_type: "httpd_t",
         resource: "TCP/12345", target_type: "unreserved_port_t", object_class: "tcp_socket", permissions: ["name_connect"],
         operation_label: "connect", outcome: "DENIED", observed_at: "2026-09-30T16:26:25Z" } };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => response(200, /occurrences\/101$/.test(url) ? occurrencePage("002").occurrences[0] : payload)));
     const user = userEvent.setup();
     renderDetail();
     const flow = await screen.findByRole("region", { name: "Observed access" });
@@ -415,6 +493,7 @@ describe("issue investigation", () => {
     expect(flow).toHaveTextContent("DENIED");
     expect(flow).toHaveTextContent("TCP/12345");
     const context = screen.getByRole("complementary", { name: "Investigation context" });
+    expect(within(context).getByText("Observed access & finding example")).toBeVisible();
     expect(context).toHaveTextContent("web-1");
     expect(context).toHaveTextContent("Process");
     expect(context).toHaveTextContent("Permission");
@@ -423,8 +502,11 @@ describe("issue investigation", () => {
     expect(screen.queryByText(/allow httpd_t port_type/)).not.toBeInTheDocument();
     await user.click(within(context).getByRole("link", { name: "View technical evidence" }));
     expect(screen.getByRole("button", { name: "Technical details & audit provenance" })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("sha256:issue-fingerprint")).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Policy evaluation" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByText("sha256:issue-fingerprint")).not.toBeInTheDocument();
     expect(screen.getByText(/allow httpd_t port_type/)).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "Provenance" }));
+    expect(await screen.findByText("sha256:issue-fingerprint")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Technical details & audit provenance" }));
     expect(screen.queryByText("sha256:issue-fingerprint")).not.toBeInTheDocument();
   });
@@ -448,9 +530,11 @@ describe("issue investigation", () => {
     renderDetail();
     expect(await screen.findByRole("heading", { level: 1, name: "httpd was denied reading files labeled user_home_t." })).toBeInTheDocument();
     expect(screen.getByText(/2,057 denials · 1 server · 2,050 filenames/)).toBeInTheDocument();
+    expect(screen.getByText(/httpd_read_user_content/, { selector: ".issue-condition-summary code" })).not.toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Conditional policy paths" }));
     expect(screen.getByText(/httpd_read_user_content/, { selector: ".issue-condition-summary code" })).toBeVisible();
     expect(document.querySelector(".issue-condition-summary")).toHaveTextContent("Off");
-    await user.click(screen.getByText("Additional investigation", { selector: "summary" }));
+    await user.click(screen.getByRole("button", { name: "Findings & evidence gaps" }));
     expect(screen.getByRole("heading", { name: "Path-based label check unavailable" })).toBeVisible();
     expect(screen.getByText(/cannot determine whether/)).toHaveTextContent("user_home_t");
     expect(screen.queryByText("No evidence-backed explanation is available yet.")).not.toBeInTheDocument();
@@ -461,8 +545,6 @@ describe("issue investigation", () => {
     expect(within(explanation).getByText(/allow httpd_t user_home_type:file/)).toBeVisible();
     expect(within(explanation).getByText(/user_home_t:file/)).toBeVisible();
     expect(within(explanation).getByText("read", { selector: "code" })).toBeVisible();
-    expect(within(explanation).getByText("sha256:fixture-policy-identity")).not.toBeVisible();
-    await user.click(within(explanation).getByText("Policy provenance"));
     expect(within(explanation).getByText("sha256:fixture-policy-identity")).toBeVisible();
     expect(within(explanation).getByText("2026-09-30T16:26:00Z")).toBeVisible();
   });
@@ -474,10 +556,9 @@ describe("issue investigation", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
     renderDetail();
     expect(await screen.findByRole("heading", { name: "Potential file-context mismatch" })).toBeVisible();
-    await userEvent.setup().click(screen.getByText("Additional investigation", { selector: "summary" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Findings & evidence gaps" }));
     expect(screen.getByText("A matching SELinux read rule was inactive · 2 denials")).toBeVisible();
-    expect(screen.getByLabelText("Finding coverage")).toHaveTextContent("2 of 2 denials");
-    expect(screen.getByLabelText("Finding coverage")).toHaveTextContent("1 distinct inspection");
+    expect(screen.getByLabelText("Finding coverage")).toHaveTextContent("Displayed finding: 2");
     expect(screen.getByText(/Finding evidence varies between occurrences/)).toBeInTheDocument();
   });
   it("compares AVC-time and later expected file types for accepted Scenario 001", async () => {
@@ -513,7 +594,7 @@ describe("issue investigation", () => {
     expect(screen.getByText(/Policy evaluation is pending/)).toBeInTheDocument();
     expect(screen.getByText(/Identify the complete absolute path/)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Potential file-context mismatch" })).not.toBeInTheDocument();
-    expect(screen.queryByText("Check for additional fleet correlations")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Fleet correlations" })).not.toBeInTheDocument();
   });
 
   it("shows Scenario 002 operation, destination port, each inactive boolean, and exact rule", async () => {
@@ -524,27 +605,23 @@ describe("issue investigation", () => {
     renderDetail();
 
     expect(await screen.findByRole("heading", { level: 1, name: "httpd was blocked from connecting to TCP port 12345 (destination)." })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Matching conditional policy paths were inactive" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "httpd_t was denied connecting to TCP/12345." })).toBeInTheDocument();
     expect(screen.getByText(/TCP port 12345 \(destination\)/)).toBeInTheDocument();
     expect(screen.getAllByText("httpd_can_network_connect").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Conditional policy paths" })).toHaveAttribute("aria-expanded", "false");
+    await user.click(screen.getByRole("button", { name: "Conditional policy paths" }));
     expect(document.querySelector(".issue-condition-summary li")).toHaveTextContent("httpd_can_network_connect");
     expect(document.querySelector(".issue-condition-summary li")).toHaveTextContent("Off");
     expect(screen.getAllByText("nis_enabled").length).toBeGreaterThan(0);
     expect(screen.queryByText(/allow httpd_t port_type/)).not.toBeInTheDocument();
-    expect(screen.getByText(/Checkpoint boolean state does not tell us whether this workload should have this capability/)).toBeVisible();
+    expect(screen.queryByText(/What remains unknown/)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Technical details & audit provenance" }));
     const selinuxExplanation = document.querySelector("#issue-technical-evidence .issue-selinux-explanation");
     expect(within(selinuxExplanation as HTMLElement).getByText(/allow httpd_t port_type/)).toBeVisible();
     expect(within(selinuxExplanation as HTMLElement).getByText(/allow nsswitch_domain unreserved_port_t/)).toBeVisible();
-    expect(within(selinuxExplanation as HTMLElement).getByText(/controls connecting a socket to a labeled network port/)).toBeVisible();
-    expect(screen.getByText(/independent rules, not a requirement to enable every listed setting/)).toBeInTheDocument();
-    const provenance = document.querySelector("details.issue-policy-provenance");
-    expect(provenance).not.toHaveAttribute("open");
-    await user.click(within(provenance as HTMLElement).getByText("Policy provenance"));
-    expect(within(provenance as HTMLElement).getByText("sha256:fixture-policy-identity")).toBeInTheDocument();
-    expect(within(provenance as HTMLElement).getByText("2026-09-30T16:26:00Z")).toBeInTheDocument();
-    await user.click(screen.getByText("Check next · limitations & coverage"));
-    expect(screen.getByText(/Checkpoint boolean state does not tell us whether this workload should have this capability/)).toBeInTheDocument();
+    expect(within(selinuxExplanation as HTMLElement).getByText("sha256:fixture-policy-identity")).toBeVisible();
+    expect(within(selinuxExplanation as HTMLElement).getByText("2026-09-30T16:26:00Z")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Conditional policy paths" })).toHaveAttribute("aria-expanded", "true");
     expect(screen.queryByText(/setsebool/i)).not.toBeInTheDocument();
   });
 
@@ -564,9 +641,9 @@ describe("issue investigation", () => {
     renderDetail();
     expect(await screen.findByRole("heading", {level: 1, name: "httpd was denied outbound TCP connections."})).toBeInTheDocument();
     expect(screen.getByText(/TCP\/12345 \(2 denials\).*TCP\/12346 \(1 denial\)/)).toBeVisible();
-    expect(screen.getByLabelText("Finding coverage")).toHaveTextContent("cover 2 of 3 denials");
-    await user.click(screen.getByText("Additional investigation", { selector: "summary" }));
-    expect(screen.getByText(/a matching conditional rule was active at the associated checkpoint/)).toBeVisible();
+    expect(await screen.findByRole("region", { name: "Finding coverage" })).toHaveTextContent("Displayed finding: 1");
+    await user.click(screen.getByRole("button", { name: "Findings & evidence gaps" }));
+    expect(screen.getByText(/Some occurrence policy assessments have limitations/)).toBeVisible();
     expect(screen.getByText(/Some causes remain unconfirmed/)).toBeVisible();
     await user.click(screen.getByRole("button", {name: "Show recent occurrences"}));
     const table = await screen.findByRole("table", {name: "Occurrence summary"});
@@ -575,7 +652,8 @@ describe("issue investigation", () => {
     expect(within(table).queryByText("Path evidence")).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([url]) => /occurrences\/\d+$/.test(url))).toBe(false);
     await user.click(within(table).getByRole("button", {name: "Inspect occurrence 101"}));
-    expect(await screen.findByText(/Occurrence #101/)).toHaveTextContent("TCP/12345");
+    await screen.findByText(/Occurrence #101/);
+    expect(screen.getByRole("region", { name: "Selected occurrence evidence" })).toHaveTextContent("TCP/12345");
     expect(screen.queryByText(/TCP\/127\.0\.0\.1/)).not.toBeInTheDocument();
   });
 
@@ -586,11 +664,12 @@ describe("issue investigation", () => {
     renderDetail();
 
     expect(await screen.findByRole("heading", { level: 1, name: "httpd was blocked from binding locally on TCP port 12345 (local bind)." })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "A relevant SELinux allow rule was inactive" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "httpd_t was denied binding TCP/12345." })).toBeInTheDocument();
     expect(screen.getAllByText(/local port bind/).length).toBeGreaterThan(0);
     expect(screen.getByText(/TCP port 12345 \(local bind\)/)).toBeInTheDocument();
     expect(screen.getAllByText("nis_enabled").length).toBeGreaterThan(0);
-    expect(screen.getByText(/whether this workload is expected to bind TCP port 12345/)).toBeInTheDocument();
+    expect(screen.getByText("nis_enabled")).not.toBeVisible();
+    expect(screen.queryByText(/whether this workload is expected to bind TCP port 12345/)).not.toBeInTheDocument();
     expect(screen.queryByText(/map.*http_port_t/i)).not.toBeInTheDocument();
   });
 
@@ -605,7 +684,7 @@ describe("issue investigation", () => {
     expect(screen.getByText(/no allow rule for checking metadata on this file labeled var_t/)).toBeInTheDocument();
     expect(screen.getByText(/\/srv\/secentral-s004-mariadb\/ibdata1/)).toBeInTheDocument();
     expect(screen.getByText(/cannot infer the intended database path or label/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "View source event" })).toHaveAttribute("href", "/hosts/10/occurrences/104");
+    expect(within(await screen.findByRole("complementary", { name: "Investigation context" })).getByRole("link", { name: "#104" })).toHaveAttribute("href", "/hosts/10/occurrences/104");
     expect(screen.queryByText(/generate custom policy/i)).not.toBeInTheDocument();
   });
 
@@ -616,7 +695,7 @@ describe("issue investigation", () => {
     renderDetail();
 
     expect(await screen.findByRole("heading", { level: 1, name: /httpd could not execute \/var\/www\/cgi-bin/ })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "A relevant SELinux allow rule was inactive" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /httpd_t was denied executing/ })).toBeInTheDocument();
     expect(screen.getAllByText(/\/var\/www\/cgi-bin\/secentral-s005-helper\.sh/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("httpd_unified").length).toBeGreaterThan(0);
     expect(screen.getByText(/does not establish that a domain transition was attempted or intended/)).toBeInTheDocument();
@@ -635,26 +714,28 @@ describe("issue investigation", () => {
     expect(document.querySelector(".issue-primary-finding .issue-selinux-explanation")).toBeNull();
     expect(screen.getByText(/16 retained denials/)).toBeInTheDocument();
     expect(screen.getByText(/3 affected hosts/)).toBeInTheDocument();
-    expect(screen.getByText(/Where this occurs/).parentElement).toHaveTextContent("Same explanation across affected hosts");
+    expect(screen.getByText("Fleet Scope & Occurrences").parentElement).toHaveTextContent("Same explanation across affected hosts");
 
     await user.click(screen.getByRole("button", { name: "Technical details & audit provenance" }));
     const why = document.querySelector("#issue-technical-evidence .issue-selinux-explanation");
     expect(within(why as HTMLElement).getAllByText(/entrypoint/).length).toBeGreaterThan(0);
-    const provenance = within(why as HTMLElement).getByText("Policy provenance").closest("details");
-    expect(provenance).not.toBeNull();
-    expect(provenance).not.toHaveAttribute("open");
-    await user.click(within(provenance as HTMLElement).getByText("Policy provenance"));
-    expect(within(provenance as HTMLElement).getByText("sha256:646dfbc98b55dba4e8622f4fbb1b23cb5e0c2c133144361d05cbc2a0c6cd2cff")).toBeVisible();
+    const provenance = within(why as HTMLElement).getAllByRole("link", { name: /Policy artifact 646dfbc9/ })[0];
+    expect(provenance.getAttribute("href")).toContain("evidence_tab=provenance");
+    await user.click(provenance);
+    expect(screen.getByRole("tab", { name: "Provenance" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("sha256:646dfbc98b55dba4e8622f4fbb1b23cb5e0c2c133144361d05cbc2a0c6cd2cff", { selector: "code" })).toBeVisible();
 
     const host = await screen.findByRole("link", { name: "secentral-agent-test" });
-    const listItem = host.closest("li");
+    const listItem = host.closest("tr");
     expect(listItem).not.toBeNull();
     expect(within(listItem!).getByText("Same explanation across 4 occurrences")).toBeInTheDocument();
-    within(listItem!).getAllByText(/sha256:/).forEach((value) => expect(value).not.toBeVisible());
-    await user.click(within(listItem!).getByText("Technical provenance"));
-    expect(within(listItem!).getByText(/sha256:6029a986/)).toBeInTheDocument();
-    expect(within(listItem!).getByText(/sha256:96604a22/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "secentral-alma-9-clean" })).toBeInTheDocument();
+    expect(within(listItem!).queryByText(/sha256:/)).not.toBeInTheDocument();
+    await user.click(within(listItem!).getByRole("link", { name: "View group evidence" }));
+    const evidence = document.getElementById("host-evidence-1138")!;
+    expect(within(evidence).getAllByRole("link", { name: /Policy artifact/ })).toHaveLength(2);
+    expect(screen.getAllByText(/sha256:6029a986/, { selector: "code" })).toHaveLength(1);
+    expect(screen.getAllByText(/sha256:96604a22/, { selector: "code" })).toHaveLength(1);
+    expect(screen.getAllByRole("link", { name: "secentral-alma-9-clean" })).toHaveLength(2);
     expect(screen.getByRole("link", { name: "secentral-alma9-test" })).toBeInTheDocument();
   });
 
@@ -667,8 +748,8 @@ describe("issue investigation", () => {
 
     await screen.findByRole("heading", { level: 1, name: "runcon could not start /usr/bin/id." });
     expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContain("/api/v1/issues/1932/analysis");
-    await user.click(screen.getByText("Check for additional fleet correlations"));
-    expect(await screen.findByText(/No additional fleet correlation is supported/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Fleet correlations" }));
+    expect(await screen.findByText(/No fleet correlation is supported/)).toBeInTheDocument();
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain("/api/v1/issues/1932/analysis");
   });
 
@@ -686,17 +767,16 @@ describe("issue investigation", () => {
     expect(fetchMock.mock.calls.map(([url]) => String(url)).some((url) => /occurrences\/\d+$/.test(url))).toBe(false);
     await user.click(screen.getAllByRole("button", { name: /Inspect occurrence/ })[0]);
     await screen.findByText(/Occurrence #101/);
-    const summary = screen.getAllByText(/secentral-agent-test/).find((element) => element.closest("summary"))?.closest("summary");
-    expect(summary).toBeDefined();
-    await user.click(summary!);
-    const occurrenceHeading = (await screen.findAllByRole("heading", { name: "What happened" })).find((heading) => heading.tagName === "H3");
-    expect(occurrenceHeading?.nextElementSibling).toHaveTextContent("was denied file read");
+    expect(screen.getByRole("region", { name: "Selected occurrence evidence" }).closest("#issue-technical-evidence")).not.toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById("audit-evidence")));
+    expect(screen.getByRole("tab", { name: "Audit record" })).toHaveAttribute("aria-selected", "true");
+    const record = screen.getByRole("region", { name: "Selected occurrence evidence" });
+    expect(record).toHaveTextContent("httpd_t");
+    expect(record).toHaveTextContent("read");
+    expect(record).toHaveTextContent("user_home_t:file");
     expect(screen.queryByText(RAW_AVC)).not.toBeInTheDocument();
 
-    const openOccurrence = document.querySelector(".issue-occurrence[open]");
-    expect(openOccurrence).not.toBeNull();
-    await user.click(within(openOccurrence as HTMLElement).getByText("Technical details and raw audit records"));
-    await user.click(within(openOccurrence as HTMLElement).getByRole("button", { name: "Raw AVC" }));
+    await user.click(within(record).getByRole("button", { name: "Raw AVC" }));
     expect(await screen.findByText(RAW_AVC)).toBeInTheDocument();
     expect(document.querySelector("script")).toBeNull();
   });
@@ -766,16 +846,19 @@ describe("issue investigation", () => {
       observed_access: { occurrence_id: 202, host_id: 20, hostname: "web-latest", actor: "worker", source_type: "httpd_t",
         resource: "/var/www/html/z.txt", target_type: "user_home_t", object_class: "file", permissions: ["read"],
         operation_label: "read", outcome: "DENIED", observed_at: "2026-10-01T10:00:00Z" } };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    const occurrence = occurrencePage("001").occurrences[0];
+    occurrence.host = { id: 10, hostname: "web-1" };
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => response(200, url.endsWith("/occurrences/101") ? occurrence : payload)));
     renderDetail();
-    const check = await screen.findByRole("region", { name: "Check" });
-    expect(check).toHaveTextContent("different retained investigation example");
-    expect(within(check).getByRole("link", { name: /web-1/ })).toHaveAttribute("href", "/hosts/10/occurrences/101");
+    const context = await screen.findByRole("complementary", { name: "Investigation context" });
+    expect(within(context).getByText("Observed access & finding example")).toBeVisible();
+    expect(within(context).getByRole("link", { name: "#101" })).toHaveAttribute("href", "/hosts/10/occurrences/101");
+    expect(within(context).getByRole("link", { name: "#202" })).toHaveAttribute("href", "/hosts/20/occurrences/202");
     const observed = await screen.findByRole("region", { name: "Observed access" });
-    expect(within(observed).getByRole("link", { name: /web-latest/ })).toHaveAttribute("href", "/hosts/20/occurrences/202");
-    expect(observed).toHaveTextContent("worker");
+    expect(observed).toHaveTextContent("/var/www/html/a file.txt");
+    expect(observed).not.toHaveTextContent("worker");
     expect(screen.getByText(/Policy analysis: Error/)).toBeVisible();
-    expect(screen.getByRole("region", { name: "Verify" })).toHaveTextContent("permissiveness and delivery health");
+    expect(screen.getByRole("button", { name: "Post-restoration verification checklist" })).toHaveAttribute("aria-expanded", "false");
   });
 
   it("acknowledges keeping a restriction using a note without accepting a pending harmless classification or changing status", async () => {

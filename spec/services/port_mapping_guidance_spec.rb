@@ -25,6 +25,27 @@ RSpec.describe PortMappingGuidance do
     expect(proposal[:candidate][:expected_effect]).to include("other workloads", "opens no firewall")
   end
 
+  it "counts all retained endpoint occurrences separately for each host without changing proposal semantics" do
+    issue, occurrence, host, = port_fixture
+    original = result(issue)[:proposals].sole
+    raw = occurrence.raw_event.dup
+    raw.audit_sequence += 1
+    raw.save!
+    denial = occurrence.normalized_denial.dup
+    denial.raw_event = raw
+    denial.save!
+    repeated = occurrence.dup
+    repeated.raw_event = raw
+    repeated.normalized_denial = denial
+    repeated.occurred_at += 1.second
+    repeated.save!
+    _issue, _other_occurrence, other_host, = port_fixture(issue: issue)
+
+    data = result(issue)
+    expect(data[:investigations].to_h { |item| [item[:host_id], item[:occurrence_count]] }).to eq(host.id => 2, other_host.id => 1)
+    expect(data[:proposals].find { |item| item[:basis][:host_id] == host.id }.slice(:semantic_basis, :plan)).to eq(original.slice(:semantic_basis, :plan))
+  end
+
   it "keeps UDP bind and TCP connect distinct and never uses connect evidence as a local bind" do
     bind, = port_fixture(protocol: "udp")
     expect(result(bind)[:proposals].sole[:plan][:apply_steps].sole[:command]).to include("-p udp")

@@ -5,6 +5,11 @@ class IssueIntelligence
       .filter_map { |value| value.to_s if value.to_s.match?(/\A\d+\z/) && value.to_i.between?(0, 65_535) }.uniq
   end
 
+  def self.bind_ports(details)
+    Array(details.to_h.dig("network_evidence", "bind_port_fields"))
+      .filter_map { |value| value.to_i.to_s if value.to_s.match?(/\A\d+\z/) && value.to_i.between?(0, 65_535) }.uniq
+  end
+
   def self.call(issue)
     new(issue).call
   end
@@ -29,6 +34,11 @@ class IssueIntelligence
     else
       {}
     end
+    bind_ports = if %w[tcp_socket udp_socket].include?(@issue.target_class) && @issue.permissions.include?("name_bind")
+      rows.flat_map { |row| self.class.bind_ports(row[2]) }.tally
+    else
+      {}
+    end
     intelligence = {
       occurrence_summaries: occurrence_summaries,
       paths: rows.flat_map { |row| target_evidence(row[2])["filesystem_paths"] }.uniq.sort,
@@ -37,6 +47,10 @@ class IssueIntelligence
         absolute_path_occurrences: rows.count { |row| target_evidence(row[2])["filesystem_paths"].present? },
         without_absolute_path_occurrences: rows.count { |row| target_evidence(row[2])["filesystem_paths"].empty? },
         destination_port_count: destination_ports.size,
+        bind_port_count: bind_ports.size,
+        bind_ports: bind_ports.sort_by { |port, count| [ -count, port.to_i ] }.first(3)
+          .map { |port, count| { port: port, occurrence_count: count } },
+        without_bind_port_occurrences: rows.count { |row| self.class.bind_ports(row[2]).empty? },
         destination_ports: destination_ports.sort_by { |port, count| [ -count, port.to_i ] }.first(3)
           .map { |port, count| { port: port, occurrence_count: count } }
       },

@@ -18,7 +18,6 @@ import {
   DescriptionListDescription,
   DescriptionListGroup,
   DescriptionListTerm,
-  ExpandableSection,
   Label,
   Stack,
   StackItem,
@@ -30,6 +29,7 @@ import { Fragment, useState, type ReactNode } from "react";
 import Prism from "prismjs/components/prism-core";
 import "prismjs/components/prism-json";
 import type { OccurrenceDetail } from "../api/issue";
+import { Disclosure as ExpandableSection } from "./Disclosure";
 
 export function formatUtc(iso: string): string {
   return `${new Intl.DateTimeFormat("en", {
@@ -62,6 +62,8 @@ function Facts({ fields, isHorizontal = false }: { fields: [string, React.ReactN
     </dl>
   );
 }
+
+export { Facts as EvidenceFacts };
 
 function jsonTokens(token: Prism.TokenStream): ReactNode {
   if (typeof token === "string") return token;
