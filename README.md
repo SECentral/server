@@ -12,6 +12,8 @@ does not automatically deploy policy changes.
 The Rails application serves a React + TypeScript SPA. PostgreSQL stores server
 data. See [TEST.md](TEST.md) for development and test instructions.
 
+See [Contributing](CONTRIBUTING.md) for feedback and contribution guidelines.
+
 ## Self-hosted deployment
 
 The production `Containerfile` builds the Rails application and its SPA. The
