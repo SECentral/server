@@ -8,7 +8,7 @@
 # For a containerized dev environment, see Dev Containers: https://guides.rubyonrails.org/getting_started_with_devcontainer.html
 
 # Make sure RUBY_VERSION matches the Ruby version in .ruby-version
-ARG RUBY_VERSION=4.0.6
+ARG RUBY_VERSION=4.0.7
 FROM docker.io/library/node:24-trixie-slim AS node
 FROM docker.io/library/ruby:$RUBY_VERSION-slim AS base
 
@@ -17,9 +17,11 @@ WORKDIR /rails
 
 # Install base packages
 RUN apt-get update -qq && \
+    apt-get upgrade --no-install-recommends -y && \
     apt-get install --no-install-recommends -y curl libjemalloc2 postgresql-client setools && \
     ln -s /usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2 /usr/local/lib/libjemalloc.so && \
-    rm -rf /var/lib/apt/lists /var/cache/apt/archives
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Set production environment variables and enable jemalloc for reduced memory usage and latency.
 ENV RAILS_ENV="production" \
@@ -34,7 +36,8 @@ FROM base AS build
 # Install packages needed to build gems
 RUN apt-get update -qq && \
     apt-get install --no-install-recommends -y build-essential git libpq-dev libyaml-dev pkg-config && \
-    rm -rf /var/lib/apt/lists /var/cache/apt/archives
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules

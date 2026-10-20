@@ -55,6 +55,7 @@ jobs:
           context: .
           file: Containerfile
           platforms: linux/amd64
+          pull: true
           push: true
           tags: quay.io/secentral/server:${{ needs.version.outputs.version }}
           labels: |
