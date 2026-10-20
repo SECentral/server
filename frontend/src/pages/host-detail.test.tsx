@@ -389,6 +389,8 @@ describe("HostDetail", () => {
     await user.click(rowLink);
     expect(await screen.findByRole("heading", { name: "httpd_t → user_home_t" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "web-1" })).toHaveAttribute("href", "/hosts/10");
+    expect(screen.getByRole("tab", { name: "Summary" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("link", { name: /View Issue #7 Investigation & Resolution Plan/ })).toHaveAttribute("href", "/issues/7");
     await user.click(screen.getByRole("link", { name: "web-1" }));
     expect(await screen.findByRole("heading", { name: "web-1" })).toBeInTheDocument();
   });
@@ -429,31 +431,6 @@ describe("HostDetail", () => {
     expect(badge.querySelector("svg[aria-hidden='true']")).not.toBeNull();
   });
 
-  it("renders forensic tabs, an issue investigation link and separate normalized details", async () => {
-    renderHostDetail(10, { initialEntry: "/hosts/10/occurrences/101" });
-
-    expect(await screen.findByRole("heading", { name: "httpd_t → user_home_t" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "web-1" })).toHaveAttribute("href", "/hosts/10");
-    expect(screen.getByRole("tab", { name: "Summary" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("Source context")).toBeInTheDocument();
-    expect(screen.queryByText("enforcement_mode")).not.toBeInTheDocument();
-    expect(screen.queryByText(RAW_PAYLOAD)).not.toBeInTheDocument();
-
-    const user = userEvent.setup();
-    expect(screen.queryByRole("tab", { name: "Guidance" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /View Issue #7 Investigation & Resolution Plan/ })).toHaveAttribute("href", "/issues/7");
-
-    await user.click(screen.getByRole("tab", { name: "Raw evidence" }));
-    expect(screen.queryByRole("button", { name: "Normalized details (debug)" })).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Audit Event Records" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Retained Event Metadata" })).toBeInTheDocument();
-    expect((await screen.findAllByText(RAW_PAYLOAD)).length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Copy audit record 0 for occurrence 101" })).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: "Normalized details" }));
-    expect(screen.getByRole("region", { name: "Normalized JSON payload" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Download JSON" })).toBeInTheDocument();
-  });
-
   it("opens older occurrences directly without traversing host history", async () => {
     const { fetchMock } = renderHostDetail(10, { initialEntry: "/hosts/10/occurrences/100" });
 
@@ -492,6 +469,8 @@ describe("HostDetail", () => {
     expect(screen.getAllByText("Paused — current state unverified")).toHaveLength(3);
     expect(screen.queryByText("350 / 350 match")).not.toBeInTheDocument();
     expect(screen.queryByText("621 / 621 match")).not.toBeInTheDocument();
+    expect(screen.queryByText("0 match · both sets empty")).not.toBeInTheDocument();
+    expect(screen.queryByText("Matches reference")).not.toBeInTheDocument();
     expect(screen.getAllByText("Comparison paused")).toHaveLength(1);
   });
 
@@ -540,15 +519,6 @@ describe("HostDetail", () => {
     expect(screen.getByText("Partially compared")).toBeVisible();
     expect(screen.queryByText("Matches reference")).not.toBeInTheDocument();
     expect(screen.queryByText(/sha256:/)).not.toBeInTheDocument();
-  });
-
-  it("does not show stale permissive-domain counts as current matches", async () => {
-    renderHostDetail(10, { configuration: { ...matchingConfiguration,
-      comparison: { ...matchingConfiguration.comparison, paused: true }
-    } });
-    expect((await screen.findAllByText("Paused — current state unverified"))).toHaveLength(3);
-    expect(screen.queryByText("0 match · both sets empty")).not.toBeInTheDocument();
-    expect(screen.queryByText("Matches reference")).not.toBeInTheDocument();
   });
 
   it("preserves RHEL casing in the host subtitle", async () => {

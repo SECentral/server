@@ -47,6 +47,7 @@ RSpec.describe "Security headers", type: :request do
     expect(response.body).to include('<div id="root">')
     assert_restrictive_csp
     assert_restrictive_permissions_policy
+    expect(response.headers["Feature-Policy"]).to be_nil
   end
 
   it "sends restrictive headers on the SPA shell" do
@@ -72,12 +73,5 @@ RSpec.describe "Security headers", type: :request do
     get "/api/v1/system"
     expect(response).to have_http_status(:ok)
     assert_restrictive_csp
-  end
-
-  it "uses the current Permissions-Policy header, not the obsolete Feature-Policy" do
-    get "/login"
-
-    expect(response.headers["Permissions-Policy"]).to be_present
-    expect(response.headers["Feature-Policy"]).to be_nil
   end
 end

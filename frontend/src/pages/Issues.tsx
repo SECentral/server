@@ -270,7 +270,7 @@ export function Issues() {
                           <a className="issue-primary-link" href={`/issues/${issue.id}`}>
                             <span><code>{issue.source_type}</code><span aria-hidden="true"> → </span><code>{issue.target_type}</code></span>
                           </a>
-                          <div className="issue-secondary-line pf-v6-u-color-200"><code>{issue.target_class}</code> · {issue.permissions.join(", ")}</div>
+                          <div className="issue-secondary-line pf-v6-u-color-200"><code>{issue.target_class}</code> · {issue.permissions.join(", ")}{(issue.signatures_count ?? 0) > 1 && ` · ${issue.signatures_count} signatures`}</div>
                         </Td>
                          <Td width={10} dataLabel="Hosts" modifier="fitContent" className="pf-v6-u-text-align-right"><strong>{issue.hosts_count}</strong></Td>
                          <Td width={10} dataLabel="Occurrences" modifier="fitContent" className="pf-v6-u-text-align-right"><strong>{issue.occurrences_count}</strong></Td>

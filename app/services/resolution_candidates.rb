@@ -69,17 +69,20 @@ class ResolutionCandidates
   end
 
   def base(occurrence, finding, kind, resource)
-    id = Digest::SHA256.hexdigest([@issue.id, occurrence.host_id, kind, resource].to_json)
+    permissions = occurrence.normalized_denial.permissions.uniq.sort
+    id = Digest::SHA256.hexdigest([@issue.id, occurrence.host_id, kind, resource, permissions].to_json)
     { id: id, kind: kind, finding_kind: finding[:kind], host_id: occurrence.host_id,
+      issue_signature_id: occurrence.issue_signature_id, permissions: permissions,
       hostname: occurrence.host.hostname, mechanically_supported: true, intent_confirmation_required: true,
       status: "proposed", limitations: [] }
   end
 
   def finish(candidate, basis, semantic_basis, plan, semantics_version: PLAN_SEMANTICS_VERSION)
+    basis = basis.merge(issue_signature_id: candidate[:issue_signature_id], permissions: candidate[:permissions])
     candidate[:evidence_basis] = basis
     candidate[:plan_semantics_version] = semantics_version
     candidate[:semantic_plan_basis] = semantic_basis.merge(
-      kind: candidate[:kind], host_id: candidate[:host_id], scope_kind: candidate[:scope_kind],
+      kind: candidate[:kind], host_id: candidate[:host_id], scope_kind: candidate[:scope_kind], permissions: candidate[:permissions],
       plan_inputs: {
         preview_steps: plan[:preview_steps].map { |step| step.slice(:command, :persistence, :explanation) },
         apply_steps: plan[:apply_steps].map { |step| step.slice(:command, :persistence, :explanation) },

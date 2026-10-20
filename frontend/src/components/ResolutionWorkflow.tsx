@@ -231,10 +231,12 @@ function ResolutionCandidateCard({ candidate, selected, freshness, busy, onSelec
   const visibleLimitations = candidate.limitations.filter((text) => !historicalLimit(text));
   if (current) return <article className="resolution-candidate-card resolution-selected" aria-label={optionTitle(basis, candidate.title)}>
     <header><h3>Reviewed selection: {optionTitle(basis, candidate.title)}</h3><Label color="blue" isCompact>Selected · current</Label></header>
+    {candidate.permissions && <p>Supporting signature: <code>{candidate.permissions.join(", ")}</code></p>}
     <EvidenceLink target={`option-${candidate.id}`} occurrenceId={typeof basis.occurrence_id === "number" ? basis.occurrence_id : undefined}>Evidence supporting this option</EvidenceLink>
   </article>;
   return <article className={`resolution-candidate-card ${selected ? "resolution-selected" : ""} ${unavailable ? "candidate-muted" : ""}`} aria-label={optionTitle(basis, candidate.title)}>
     <header><ShieldAltIcon aria-hidden="true" /><h3>{path ?? (unavailable && valueText(basis.boolean) ? String(basis.boolean) : optionTitle(basis, candidate.title))}</h3>{selected && <Label color={current ? "blue" : "orange"} icon={<CheckCircleIcon />}>{current ? "Selected · current" : "Selected · review required"}</Label>}{unavailable && <Label color={presentation.state === "verify" ? "orange" : "grey"}>{presentation.label}</Label>}</header>
+    {candidate.permissions && <p>Supporting signature: <code>{candidate.permissions.join(", ")}</code></p>}
     {unavailable && <Alert variant="info" isInline isPlain title={presentation.state === "verify" ? "Verify prerequisites before review" : "No proposed change plan"}>{candidate.unavailable_reason}</Alert>}
     {path ? <p className="candidate-label-change">AVC label <code>{valueText(basis.observed_context)?.split(":")[2] ?? "Not recorded"}</code><span aria-label="to">→</span> Configured label <code>{valueText(basis.expected_context)?.split(":")[2] ?? "Not recorded"}</code></p>
       : (port || !unavailable) && <p className="candidate-relevance">{port ? candidate.explanation : "Matching independent policy path"}</p>}
@@ -258,7 +260,7 @@ function CandidateGroup({ candidates, workflow, busy, onSelect }: { candidates: 
   const others = candidates.filter((c) => c.kind !== "restore_configured_label" && c.kind !== "set_port_mapping");
   const card = (candidate: Candidate) => <ResolutionCandidateCard key={candidate.id} candidate={candidate} selected={workflow.intent?.candidate_id === candidate.id} freshness={workflow.freshness} busy={busy} onSelect={onSelect} />;
   if (labels.length === 1 && workflow.intent?.candidate_id === labels[0].id && !others.length) return card(labels[0]);
-  return <>{labels.length > 0 && <section className="candidate-group" aria-label="Restore configured SELinux labeling"><h3>Restore configured SELinux labeling <span aria-hidden="true">· </span><small>{labels.length} host/path candidate{labels.length === 1 ? "" : "s"}</small></h3><div className="candidate-grid candidate-paths">{labels.map(card)}</div></section>}
+  return <>{labels.length > 0 && <section className="candidate-group" aria-label="Restore configured SELinux labeling"><h3>Restore configured SELinux labeling <span aria-hidden="true">· </span><small>{labels.length} signature-scoped candidate{labels.length === 1 ? "" : "s"}</small></h3><div className="candidate-grid candidate-paths">{labels.map(card)}</div></section>}
     {others.length > 0 && <div className="candidate-grid">{others.map(card)}</div>}</>;
 }
 

@@ -33,41 +33,47 @@ class ProcessRawEvent
     occurrence.normalized_denial = denial
     occurrence.occurred_at = @raw_event.audit_timestamp
     if result[:status] == "ok"
-      fingerprint = FingerprintV3.call(result)
-      occurrence.issue = find_or_create_issue(fingerprint, result)
+      issue = find_or_create_issue(result)
+      issue.with_lock do
+        fingerprint = FingerprintV3.call(result)
+        previous = occurrence.issue_signature if occurrence.issue_id == issue.id
+        signature = if previous && (previous.fingerprint_version != 3 || previous.fingerprint_digest == fingerprint.fetch(:digest))
+          previous
+        else
+          issue.signatures.find_or_initialize_by(fingerprint_version: fingerprint.fetch(:version), fingerprint_digest: fingerprint.fetch(:digest))
+        end
+        signature.permissions = result.fetch(:permissions).uniq.sort if signature.fingerprint_version == 3
+        signature.first_seen_at = [signature.first_seen_at, occurrence.occurred_at].compact.min
+        signature.last_seen_at = [signature.last_seen_at, occurrence.occurred_at].compact.max
+        if occurrence.new_record? && signature.status == "resolved"
+          signature.status = "open"
+          signature.reopened_at = Time.current
+          signature.regressions_count += 1
+        end
+        signature.save!
+        occurrence.issue = issue
+        occurrence.issue_signature = signature
+        occurrence.save!
+        issue.refresh_from_signatures!
+      end
     else
       occurrence.issue = nil
+      occurrence.issue_signature = nil
+      occurrence.save!
     end
-    occurrence.save!
     occurrence
   end
 
-  def find_or_create_issue(fingerprint, denial)
-    attrs = {
-      fingerprint_version: fingerprint.fetch(:version),
-      fingerprint_digest: fingerprint.fetch(:digest),
+  def find_or_create_issue(denial)
+    identity = {
       source_type: denial.fetch(:source_type),
       target_type: denial.fetch(:target_type),
-      target_class: denial.fetch(:target_class),
-      permissions: denial.fetch(:permissions).uniq.sort,
-      first_seen_at: @raw_event.audit_timestamp,
-      last_seen_at: @raw_event.audit_timestamp
+      target_class: denial.fetch(:target_class)
     }
-    issue = @raw_event.organization.issues.find_or_initialize_by({ fingerprint_version: attrs[:fingerprint_version], fingerprint_digest: attrs[:fingerprint_digest] })
-    attrs[:permissions] = (Array(issue.permissions) + Array(denial[:permissions])).uniq.sort
-    if issue.persisted? && issue.status == "resolved"
-      issue.status = "open"
-      issue.reopened_at = Time.current
-      issue.regressions_count += 1
+    @raw_event.organization.issues.create_or_find_by!(identity) do |issue|
+      fingerprint = FingerprintV4.call(denial)
+      issue.assign_attributes(fingerprint_version: fingerprint.fetch(:version), fingerprint_digest: fingerprint.fetch(:digest),
+        permissions: denial.fetch(:permissions).uniq.sort, first_seen_at: @raw_event.audit_timestamp, last_seen_at: @raw_event.audit_timestamp)
     end
-    first_seen_at = issue.first_seen_at
-    last_seen_at = issue.last_seen_at
-    issue.assign_attributes(attrs)
-    issue.first_seen_at = [first_seen_at, @raw_event.audit_timestamp].compact.min
-    issue.last_seen_at = [last_seen_at, @raw_event.audit_timestamp].compact.max
-    issue.save!
-    issue
-  rescue ActiveRecord::RecordNotUnique
-    retry
   end
 end

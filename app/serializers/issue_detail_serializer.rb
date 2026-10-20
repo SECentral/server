@@ -20,8 +20,9 @@ class IssueDetailSerializer
       last_seen_at: issue.last_seen_at,
       occurrences_count: issue.occurrences_count,
       affected_hosts: issue.occurrences.distinct.count(:host_id),
+      signatures: issue.signatures.includes(:occurrences).order(:id).map { |signature| IssueSignatureSerializer.call(signature) },
       disposition_history: issue.disposition_changes.order(created_at: :desc).limit(20).map do |change|
-        { disposition: change.disposition, previous_disposition: change.previous_disposition, note: change.note, changed_at: change.created_at }
+        { disposition: change.disposition, previous_disposition: change.previous_disposition, note: change.note, changed_at: change.created_at, issue_signature_id: change.issue_signature_id }
       end
     }
   end

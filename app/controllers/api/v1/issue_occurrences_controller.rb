@@ -1,11 +1,12 @@
 class Api::V1::IssueOccurrencesController < Api::V1::BaseController
   def index
     issue = current_organization.issues.find(params[:id])
-    return render_summary_page(issue) if params[:view] == "summary"
+    scope = params[:signature_id].present? ? issue.signatures.find(params[:signature_id]).occurrences : issue.occurrences
+    return render_summary_page(scope) if params[:view] == "summary"
     limit = params.fetch(:limit, 50).to_i
     limit = 50 if limit > 50 || limit < 1
 
-    relation = issue.occurrences
+    relation = scope
       .includes(host: {}, host_snapshot: {}, normalized_denial: {}, raw_event: { raw_audit_records: {} })
       .order(occurred_at: :desc, id: :desc)
     if params[:before].present?
@@ -41,13 +42,13 @@ class Api::V1::IssueOccurrencesController < Api::V1::BaseController
 
   private
 
-  def render_summary_page(issue)
+  def render_summary_page(scope)
     # ponytail: offset pages can shift during ingestion; use snapshot cursors if stable browsing under sustained writes is needed.
     page_size = PageSize.parse(params[:limit], default: 10, max: 50)
-    total = issue.occurrences.count
+    total = scope.count
     pages = [ (total / page_size.to_f).ceil, 1 ].max
     page = params.fetch(:page, 1).to_i.clamp(1, pages)
-    occurrences = issue.occurrences.includes(:host, :normalized_denial)
+    occurrences = scope.includes(:host, :normalized_denial)
       .order(occurred_at: :desc, id: :desc).offset((page - 1) * page_size).limit(page_size)
     render json: {
       occurrences: occurrences.map do |occurrence|
@@ -64,7 +65,16 @@ class Api::V1::IssueOccurrencesController < Api::V1::BaseController
           []
         end
         resource = ports.one? ? "#{protocol}/#{ports.first}" : ports.any? ? "Multiple #{protocol} ports" : paths.first || names.first
-        { id: occurrence.id, occurred_at: occurrence.occurred_at,
+        syscalls = Array(denial.details["syscall_evidence"])
+        outcome = if syscalls.any? { |syscall| %w[no false 0].include?(syscall["success"].to_s) }
+          "failed"
+        elsif syscalls.any? && syscalls.all? { |syscall| %w[yes true 1].include?(syscall["success"].to_s) }
+          "succeeded"
+        else
+          "unknown"
+        end
+        { id: occurrence.id, occurred_at: occurrence.occurred_at, issue_signature_id: occurrence.issue_signature_id,
+          enforcement_mode: denial.details.fetch("enforcement_mode", "unknown"), syscall_outcome: outcome,
           host: { id: occurrence.host_id, hostname: occurrence.host.hostname },
           resource: resource, absolute_path: paths.present?,
           target_type: denial.target_type, permissions: denial.permissions }

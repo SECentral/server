@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_15_000001) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_20_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -179,8 +179,29 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_000001) do
     t.bigint "issue_id", null: false
     t.text "note"
     t.string "previous_disposition", null: false
+    t.bigint "issue_signature_id"
     t.index ["issue_id", "created_at"], name: "index_issue_disposition_changes_on_issue_id_and_created_at"
     t.index ["issue_id"], name: "index_issue_disposition_changes_on_issue_id"
+    t.index ["issue_signature_id"], name: "index_issue_disposition_changes_on_issue_signature_id"
+  end
+
+  create_table "issue_signatures", force: :cascade do |t|
+    t.bigint "issue_id", null: false
+    t.integer "fingerprint_version", null: false
+    t.string "fingerprint_digest", null: false
+    t.jsonb "permissions", default: [], null: false
+    t.string "status", default: "open", null: false
+    t.string "disposition", default: "unclassified", null: false
+    t.datetime "first_seen_at", null: false
+    t.datetime "last_seen_at", null: false
+    t.datetime "resolved_at"
+    t.datetime "ignored_at"
+    t.datetime "reopened_at"
+    t.integer "regressions_count", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["issue_id", "fingerprint_version", "fingerprint_digest"], name: "index_issue_signatures_on_fingerprint", unique: true
+    t.index ["issue_id"], name: "index_issue_signatures_on_issue_id"
   end
 
   create_table "issues", force: :cascade do |t|
@@ -204,6 +225,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_000001) do
     t.datetime "updated_at", null: false
     t.index ["disposition"], name: "index_issues_on_disposition"
     t.index ["organization_id", "fingerprint_version", "fingerprint_digest"], name: "index_issues_on_fingerprint", unique: true
+    t.index ["organization_id", "source_type", "target_type", "target_class"], name: "index_issues_on_relationship", unique: true
     t.index ["organization_id"], name: "index_issues_on_organization_id"
     t.index ["status"], name: "index_issues_on_status"
   end
@@ -239,9 +261,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_000001) do
     t.bigint "organization_id", null: false
     t.bigint "raw_event_id", null: false
     t.datetime "updated_at", null: false
+    t.bigint "issue_signature_id"
     t.index ["host_id"], name: "index_occurrences_on_host_id"
     t.index ["host_snapshot_id"], name: "index_occurrences_on_host_snapshot_id"
     t.index ["issue_id"], name: "index_occurrences_on_issue_id"
+    t.index ["issue_signature_id"], name: "index_occurrences_on_issue_signature_id"
     t.index ["normalized_denial_id"], name: "index_occurrences_on_normalized_denial_id", unique: true
     t.index ["organization_id"], name: "index_occurrences_on_organization_id"
     t.index ["raw_event_id"], name: "index_occurrences_on_raw_event_id"
@@ -365,7 +389,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_000001) do
     t.jsonb "details", default: {}, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "issue_signature_id"
     t.index ["issue_id"], name: "index_resolution_intent_changes_on_issue_id"
+    t.index ["issue_signature_id"], name: "index_resolution_intent_changes_on_issue_signature_id"
   end
 
   create_table "resolution_intents", force: :cascade do |t|
@@ -383,7 +409,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_000001) do
     t.datetime "updated_at", null: false
     t.jsonb "semantic_plan_basis"
     t.integer "plan_semantics_version"
-    t.index ["issue_id"], name: "index_resolution_intents_on_issue_id", unique: true
+    t.bigint "issue_signature_id"
+    t.index ["issue_id"], name: "index_resolution_intents_on_issue_id", unique: true, where: "(issue_signature_id IS NULL)"
+    t.index ["issue_signature_id"], name: "index_resolution_intents_on_issue_signature_id", unique: true
   end
 
   add_foreign_key "agent_installations", "hosts", column: "bound_host_id"
@@ -401,11 +429,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_000001) do
   add_foreign_key "host_snapshot_observations", "hosts"
   add_foreign_key "host_snapshots", "hosts"
   add_foreign_key "hosts", "organizations"
+  add_foreign_key "issue_disposition_changes", "issue_signatures"
   add_foreign_key "issue_disposition_changes", "issues"
+  add_foreign_key "issue_signatures", "issues", on_delete: :cascade
   add_foreign_key "issues", "organizations"
   add_foreign_key "normalized_denials", "raw_events"
   add_foreign_key "occurrences", "host_snapshots"
   add_foreign_key "occurrences", "hosts"
+  add_foreign_key "occurrences", "issue_signatures"
   add_foreign_key "occurrences", "issues"
   add_foreign_key "occurrences", "normalized_denials"
   add_foreign_key "occurrences", "organizations"
@@ -417,6 +448,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_000001) do
   add_foreign_key "raw_events", "host_snapshots"
   add_foreign_key "raw_events", "hosts"
   add_foreign_key "raw_events", "organizations"
+  add_foreign_key "resolution_intent_changes", "issue_signatures"
   add_foreign_key "resolution_intent_changes", "issues"
+  add_foreign_key "resolution_intents", "issue_signatures"
   add_foreign_key "resolution_intents", "issues"
 end

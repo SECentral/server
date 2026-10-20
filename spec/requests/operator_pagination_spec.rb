@@ -17,7 +17,7 @@ RSpec.describe "Operator numbered pagination", type: :request do
 
   def create_issue(index)
     Issue.create!(organization: @organization, fingerprint_version: 3, fingerprint_digest: "pagination-#{index}",
-      source_type: "httpd_t", target_type: "default_t", target_class: "file", permissions: ["read"],
+      source_type: "httpd_t", target_type: "pagination_#{index}_t", target_class: "file", permissions: ["read"],
       first_seen_at: Time.utc(2026, 1, 1), last_seen_at: Time.utc(2026, 1, 1))
   end
 

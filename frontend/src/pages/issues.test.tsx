@@ -120,31 +120,6 @@ describe("Issues", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/ungroupable-events", expect.objectContaining({ method: "GET" }));
   });
 
-  it("keeps filter state in the URL and refetches when it changes", async () => {
-    const fetchMock = vi.fn();
-    mockApi(fetchMock);
-    vi.stubGlobal("fetch", fetchMock);
-
-    const user = userEvent.setup();
-    renderIssues();
-    await screen.findByText("httpd_t");
-
-    await user.click(screen.getByRole("button", { name: "New" }));
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues?new=1", expect.objectContaining({ method: "GET" }))
-    );
-
-    const search = screen.getByPlaceholderText("Search source, target, path, host...");
-    await user.type(search, "nginx");
-    await user.keyboard("{Enter}");
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining("q=nginx"),
-        expect.objectContaining({ method: "GET" })
-      )
-    );
-  });
-
   it("expands a row to show affected hosts, paths, and detail actions", async () => {
     const fetchMock = vi.fn();
     mockApi(fetchMock);

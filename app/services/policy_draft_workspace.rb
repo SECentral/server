@@ -5,9 +5,11 @@ class PolicyDraftWorkspace
     denial = occurrence.normalized_denial
     intelligence = IssueIntelligence.call(issue)
     analyzer = IssueDiagnosis.new(issue, intelligence)
-    alternatives = ResolutionCandidates.new(issue, intelligence: intelligence, analyzer: analyzer).call[:candidates].map { |c| c.slice(:kind, :title, :status) }
+    alternatives = ResolutionCandidates.new(issue, intelligence: intelligence, analyzer: analyzer).call[:candidates]
+      .select { |candidate| candidate.dig(:evidence_basis, :occurrence_id) == occurrence.id }
+      .map { |candidate| candidate.slice(:kind, :title, :status) }
     findings = analyzer.per_host.flat_map { |h| h[:occurrence_diagnoses] }.find { |o| o[:occurrence_id] == occurrence.id }
-    provenance = { issue_id: issue.id, occurrence_id: occurrence.id, host_id: occurrence.host_id,
+    provenance = { issue_id: issue.id, issue_signature_id: occurrence.issue_signature_id, occurrence_id: occurrence.id, host_id: occurrence.host_id,
       occurred_at: occurrence.occurred_at.iso8601(6), policy_identity: occurrence.policy_identity,
       resources: Array(denial.details.dig("target_evidence", "filesystem_paths")),
       destination_ports: IssueIntelligence.destination_ports(denial.details), known_alternatives: alternatives,

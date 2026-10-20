@@ -122,8 +122,8 @@ export function ContextSidebar({ detail, workflow, focusedAccess, onShowTechnica
         {diagnosis && <small>Displayed finding: {detail.findings?.[0]?.occurrence_count ?? "Not counted"} · <EvidenceLink target="policy-evaluation-evidence" occurrenceId={diagnosis.occurrence_id}>Policy evidence</EvidenceLink></small>}</section>
      <Button component="a" variant="link" href="#issue-technical-evidence" onClick={onShowTechnicalEvidence}>View technical evidence</Button>
    {(workflow.history.length > 0 || detail.issue.disposition_history.length > 0) && <section aria-label="Operator history"><h3>Operator history</h3>
-     {workflow.history.length > 0 && <Disclosure toggleText="Intent history"><ul>{workflow.history.map((change, i) => <li key={i}>{change.created_at} · {change.operator} · {change.action}</li>)}</ul></Disclosure>}
-     {detail.issue.disposition_history.length > 0 && <Disclosure toggleText="Disposition history"><ul>{detail.issue.disposition_history.map((change) => <li key={change.changed_at}><time dateTime={change.changed_at}>{change.changed_at}</time> · {change.previous_disposition} → {change.disposition}{change.note ? ` · ${change.note}` : ""}</li>)}</ul></Disclosure>}
+      {workflow.history.length > 0 && <Disclosure toggleText="Intent history"><ul>{workflow.history.map((change, i) => <li key={i}>{change.created_at} · {change.operator} · {change.action}{change.issue_signature_id ? ` · Historical signature #${change.issue_signature_id}; review required in this workspace` : ""}</li>)}</ul></Disclosure>}
+      {detail.issue.disposition_history.length > 0 && <Disclosure toggleText="Disposition history"><ul>{detail.issue.disposition_history.map((change, index) => <li key={`${change.changed_at}-${index}`}><time dateTime={change.changed_at}>{change.changed_at}</time> · {change.previous_disposition} → {change.disposition}{change.issue_signature_id ? ` · Signature #${change.issue_signature_id}` : ""}{change.note ? ` · ${change.note}` : ""}</li>)}</ul></Disclosure>}
    </section>}
    </aside>
    </div>;

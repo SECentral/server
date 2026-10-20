@@ -69,18 +69,18 @@ class Api::V1::IssuesController < Api::V1::BaseController
 
   def update_status
     issue = current_organization.issues.find(params[:id])
-    issue.transition_to!(params.require(:status))
+    issue.transition_to!(params.require(:status), signature_ids: params.require(:signature_ids))
     render json: IssueDetailSerializer.call(issue.reload)
   rescue ArgumentError
-    render json: { error: { code: "invalid_value", message: "Unknown status" } }, status: :unprocessable_content
+    render json: { error: { code: "invalid_value", message: "Unknown status or invalid reviewed signatures" } }, status: :unprocessable_content
   end
 
   def update_disposition
     issue = current_organization.issues.find(params[:id])
-    issue.set_disposition!(params.require(:disposition), note: params[:note])
+    issue.set_disposition!(params.require(:disposition), note: params[:note], signature_ids: params.require(:signature_ids))
     render json: IssueDetailSerializer.call(issue.reload)
   rescue ArgumentError
-    render json: { error: { code: "invalid_value", message: "Unknown disposition" } }, status: :unprocessable_content
+    render json: { error: { code: "invalid_value", message: "Unknown disposition or invalid reviewed signatures" } }, status: :unprocessable_content
   end
 
   private

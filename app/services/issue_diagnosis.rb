@@ -76,6 +76,7 @@ class IssueDiagnosis
   end
 
   def file_context_diagnosis(candidate)
+    permissions = Array(candidate[:permissions])
     {
        kind: "file_context_mismatch",
       occurrence_id: candidate[:occurrence_id],
@@ -95,12 +96,12 @@ class IssueDiagnosis
       expected_context_resolver: candidate[:resolver],
       observation_event_id: candidate[:raw_event_id],
       source_domain: @issue.source_type,
-      permissions: @issue.permissions,
+      permissions: permissions,
       target_class: candidate[:object_class],
       evidence: [
         { fact: "At AVC time, SELinux recorded the denied object label as #{candidate[:observed_context]} (#{candidate[:observed_type]}).", basis: "avc_record", certainty: "observed" },
         { fact: "At #{candidate[:observed_at]}, matchpathcon resolved #{candidate[:path]} as #{candidate[:expected_context]} for a #{candidate[:file_type]}.", basis: "expected_context_observation", certainty: "observed" },
-        { fact: "#{@issue.source_type} was denied #{@issue.permissions.join(', ')} access to #{candidate[:path]}.", basis: "avc_record", certainty: "observed" }
+        { fact: "#{@issue.source_type} was denied #{permissions.join(', ')} access to #{candidate[:path]}.", basis: "avc_record", certainty: "observed" }
       ],
       interpretation: "The label recorded in the AVC differs by type from what the host's SELinux file-context configuration resolved when SECentral inspected the path. This difference may help explain the denial.",
       limitation: "Expected context was inspected after the AVC and does not prove the same configuration applied at AVC time or that this path and label are appropriate for the workload.",
@@ -399,7 +400,8 @@ class IssueDiagnosis
         "target_class" => denial.target_class,
         "filesystem_paths" => paths,
         "process_command" => (denial.command if denial.respond_to?(:command)),
-        "executable" => (denial.executable if denial.respond_to?(:executable)),
+         "executable" => (denial.executable if denial.respond_to?(:executable)),
+         "permissions" => denial.permissions,
         occurrence_id: occurrence.id,
         avc_occurred_at: occurrence.occurred_at
       )
@@ -419,7 +421,7 @@ class IssueDiagnosis
       raw_event_id: item[:raw_event_id], object_class: item["object_class"], file_type: item["file_type"],
       observed_context: item["target_context"], expected_context: item["expected_context"],
       observed_type: observed_type, expected_type: expected_type,
-      observed_at: item["observed_at"], resolver: item["resolver"]
+      observed_at: item["observed_at"], resolver: item["resolver"], permissions: item["permissions"]
     }
   end
 

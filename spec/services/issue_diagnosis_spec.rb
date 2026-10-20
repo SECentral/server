@@ -12,7 +12,7 @@ RSpec.describe IssueDiagnosis do
       "path" => path, "object_class" => "file", "file_type" => "file", "status" => status,
       "expected_context" => expected_context, "observed_at" => "2026-09-25T10:05:01Z",
       "resolver" => "matchpathcon", "reason" => ("resolver_timeout" if status == "error"),
-      "target_context" => observed_context, "target_class" => "file", "filesystem_paths" => [path],
+      "target_context" => observed_context, "target_class" => "file", "filesystem_paths" => [path], "permissions" => ["read"],
       host_id: host_id, occurrence_id: occurrence_id, raw_event_id: 500,
       avc_occurred_at: Time.iso8601("2026-09-25T10:05:00Z")
     }.compact
@@ -26,6 +26,8 @@ RSpec.describe IssueDiagnosis do
     expect(result[:interpretation]).to include("may help explain")
     expect(result[:limitation]).to include("does not prove the same configuration applied at AVC time")
     expect(result[:next_step]).to include("appropriate for the workload")
+    expect(result[:permissions]).to eq(["read"])
+    expect(result[:evidence].last[:fact]).not_to include("open")
   end
 
   it "provides safely escaped label checks for a qualifying absolute path" do

@@ -87,10 +87,13 @@ RSpec.describe PortMappingGuidance do
       [[port_range("unreserved_port_t", 1024, 32767, provenance: "unknown")], "provenance is unknown"]
     ]
     cases.each do |mappings, reason|
-      issue, = port_fixture(mappings: mappings)
-      data = result(issue)
-      expect(data[:proposals]).to be_empty
-      expect(data[:investigations].sole[:reason]).to include(reason)
+      ActiveRecord::Base.transaction(requires_new: true) do
+        issue, = port_fixture(mappings: mappings)
+        data = result(issue)
+        expect(data[:proposals]).to be_empty
+        expect(data[:investigations].sole[:reason]).to include(reason)
+        raise ActiveRecord::Rollback
+      end
     end
   end
 

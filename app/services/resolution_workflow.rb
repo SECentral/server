@@ -8,14 +8,14 @@ class ResolutionWorkflow
 
   def call
     result = current_result
-    intent = ResolutionIntent.find_by(issue: @issue)
+    intent = ResolutionIntent.find_by(issue: @issue, issue_signature_id: nil)
     active = intent && intent.status == "selected"
     candidate = active && result[:candidates].find { |c| c[:id] == intent.candidate_id }
     freshness, reasons = reviewed_freshness(active ? intent : nil, candidate)
     result.merge(candidates: result[:candidates].map { |item| item.except(:semantic_plan_basis) },
       intent: active ? intent.attributes.slice("candidate_id", "candidate_kind", "selected_intent", "operator", "selected_at", "evidence_version", "status") : nil,
       freshness: freshness, freshness_reasons: reasons, change_plan: freshness == "current" ? intent.plan_snapshot : nil,
-      history: ResolutionIntentChange.where(issue: @issue).order(id: :desc).limit(25).map { |change| change.attributes.slice("action", "operator", "created_at", "details") })
+      history: ResolutionIntentChange.where(issue: @issue).order(id: :desc).limit(25).map { |change| change.attributes.slice("action", "operator", "created_at", "details").merge("issue_signature_id" => change.issue_signature_id) })
   end
 
   def select!(id, version)
@@ -24,7 +24,7 @@ class ResolutionWorkflow
     raise EvidenceChanged, "Evidence changed; reload and review the candidate before selecting intent" unless candidate[:evidence_version] == version
 
     @issue.with_lock do
-      intent = ResolutionIntent.find_or_initialize_by(issue: @issue)
+      intent = ResolutionIntent.find_or_initialize_by(issue: @issue, issue_signature_id: nil)
       previous = intent.persisted? && intent.status == "selected" ? intent.candidate_id : nil
       intent.assign_attributes(candidate_id: id, candidate_kind: candidate[:kind], selected_intent: candidate[:intent_prompt],
         operator: @operator, selected_at: Time.current, status: "selected", evidence_basis: candidate[:evidence_basis],
@@ -42,7 +42,7 @@ class ResolutionWorkflow
 
   def clear!
     @issue.with_lock do
-      intent = ResolutionIntent.find_by(issue: @issue, status: "selected")
+      intent = ResolutionIntent.find_by(issue: @issue, issue_signature_id: nil, status: "selected")
       if intent
         intent.update!(status: "cleared")
         ResolutionIntentChange.create!(issue: @issue, operator: @operator, action: "cleared",

@@ -23,7 +23,7 @@ class IssueQuery
   private
 
   def scoped
-    issues = Issue.includes(occurrences: [:host, :normalized_denial]).order(last_seen_at: :desc, id: :desc)
+    issues = Issue.includes(:signatures, occurrences: [:host, :normalized_denial]).order(last_seen_at: :desc, id: :desc)
     issues = issues.joins(:occurrences).where(occurrences: { host_id: @host_id }).distinct if @host_id
     apply_filters(issues)
   end

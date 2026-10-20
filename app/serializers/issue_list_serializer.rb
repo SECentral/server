@@ -12,6 +12,7 @@ class IssueListSerializer
       target_type: issue.target_type,
       target_class: issue.target_class,
       permissions: issue.permissions,
+      signatures_count: issue.signatures.size,
       fingerprint_version: issue.fingerprint_version,
       fingerprint_digest: issue.fingerprint_digest,
       first_seen_at: issue.first_seen_at,

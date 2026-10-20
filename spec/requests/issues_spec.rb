@@ -56,7 +56,7 @@ RSpec.describe "Issues API", type: :request do
     expect(item).to include(
       "id" => issue.id, "status" => "open", "display_status" => "open", "disposition" => "unclassified",
       "source_type" => "httpd_t", "target_type" => "default_t", "target_class" => "file", "permissions" => ["read"],
-      "fingerprint_version" => 3, "fingerprint_digest" => issue.fingerprint_digest,
+      "fingerprint_version" => 4, "fingerprint_digest" => issue.fingerprint_digest,
       "occurrences_count" => 1, "hosts_count" => 1,
       "hosts" => [{ "id" => issue.occurrences.first.host_id, "hostname" => "web-1" }],
       "observed_paths" => []
@@ -173,8 +173,8 @@ RSpec.describe "Issues API", type: :request do
     expect(response).to have_http_status(:ok)
     expect(body.fetch("issue")).to include(
       "id" => issue.id, "occurrences_count" => 2, "affected_hosts" => 2,
-      "status" => "open", "display_status" => "open", "disposition" => "under_investigation",
-      "fingerprint_version" => 3, "fingerprint_digest" => issue.fingerprint_digest
+        "status" => "open", "display_status" => "open", "disposition" => "under_investigation",
+        "fingerprint_version" => 4, "fingerprint_digest" => issue.fingerprint_digest
     )
     expect(body.dig("issue", "disposition_history", 0)).to include("note" => "Reviewing the host change", "previous_disposition" => "unclassified", "disposition" => "under_investigation")
     expect(body.fetch("intelligence")).to include("affected_hosts" => 2)
@@ -614,7 +614,7 @@ RSpec.describe "Issues API", type: :request do
     configure_policy_occurrence(different_boolean, result: "matched", identity: "sha256:policy", boolean: true)
     expect(host_explanation(issue)).to include("status" => "insufficient_evidence")
 
-    equivalent = create_issue(target_type: "unreserved_port_t", target_class: "tcp_socket", permissions: ["name_connect"])
+    equivalent = issue
     first = create_occurrence(equivalent, "host-b", 1)
     second = create_occurrence(equivalent, "host-b", 2, host: first.host)
     configure_policy_occurrence(first, result: "matched", identity: "sha256:policy", boolean: false, fact_extra: { "captured_at" => "old" })
@@ -664,7 +664,7 @@ RSpec.describe "Issues API", type: :request do
     expect(group.fetch("policy_provenance").map { |item| item.fetch("policy_identity") }.uniq.size).to eq(2)
     expect(JSON.parse(response.body).dig("fleet_explanation", "state")).to eq("consistent")
 
-    equivalent = create_issue(target_type: "unreserved_port_t", target_class: "tcp_socket", permissions: ["name_connect"])
+    equivalent = issue
     first = create_occurrence(equivalent, "host-b", 1)
     second = create_occurrence(equivalent, "host-b", 2, host: first.host)
     configure_policy_occurrence(first, result: "no_match", identity: "sha256:policy", fact_extra: { "captured_at" => "old" })
@@ -680,7 +680,7 @@ RSpec.describe "Issues API", type: :request do
     configure_file_context_occurrence(second, context: "system_u:object_r:var_t:s0:c0", expected_context: "system_u:object_r:custom_t:s0")
     expect(host_explanation(issue)).to include("status" => "agreement")
 
-    equivalent = create_issue(target_type: "var_t")
+    equivalent = issue
     first = create_occurrence(equivalent, "host-b", 1)
     second = create_occurrence(equivalent, "host-b", 2, host: first.host)
     configure_file_context_occurrence(first, context: "system_u:object_r:var_t:s0", expected_context: "system_u:object_r:custom_t:s0", enforcement: "enforcing")
@@ -730,7 +730,7 @@ RSpec.describe "Issues API", type: :request do
     issue = create_issue
 
     token = csrf_token
-    patch "/api/v1/issues/#{issue.id}/status", params: { status: "resolved" }.to_json, headers: json_headers(token)
+    patch "/api/v1/issues/#{issue.id}/status", params: { status: "resolved", signature_ids: issue.signatures.ids }.to_json, headers: json_headers(token)
 
     expect(response).to have_http_status(:ok)
     body = JSON.parse(response.body)
@@ -743,7 +743,7 @@ RSpec.describe "Issues API", type: :request do
     expect(JSON.parse(response.body).dig("issue", "status")).to eq("resolved")
 
     token = csrf_token
-    patch "/api/v1/issues/#{issue.id}/status", params: { status: "bogus" }.to_json, headers: json_headers(token)
+    patch "/api/v1/issues/#{issue.id}/status", params: { status: "bogus", signature_ids: issue.signatures.ids }.to_json, headers: json_headers(token)
     expect(response).to have_http_status(:unprocessable_content)
     expect(JSON.parse(response.body)).to include("error" => hash_including("code" => "invalid_value"))
   end
@@ -752,7 +752,7 @@ RSpec.describe "Issues API", type: :request do
     issue = create_issue
 
     token = csrf_token
-    patch "/api/v1/issues/#{issue.id}/disposition", params: { disposition: "expected_harmless", note: "Known baseline behavior" }.to_json, headers: json_headers(token)
+    patch "/api/v1/issues/#{issue.id}/disposition", params: { disposition: "expected_harmless", note: "Known baseline behavior", signature_ids: issue.signatures.ids }.to_json, headers: json_headers(token)
 
     expect(response).to have_http_status(:ok)
     body = JSON.parse(response.body)
@@ -760,23 +760,74 @@ RSpec.describe "Issues API", type: :request do
     expect(body.dig("disposition_history", 0)).to include("disposition" => "expected_harmless", "previous_disposition" => "unclassified", "note" => "Known baseline behavior")
 
     token = csrf_token
-    patch "/api/v1/issues/#{issue.id}/disposition", params: { disposition: "automatically_fixed" }.to_json, headers: json_headers(token)
+    patch "/api/v1/issues/#{issue.id}/disposition", params: { disposition: "automatically_fixed", signature_ids: issue.signatures.ids }.to_json, headers: json_headers(token)
     expect(response).to have_http_status(:unprocessable_content)
     expect(issue.reload.disposition).to eq("expected_harmless")
   end
 
+  it "rejects implicit review scope and signatures outside the issue without partial updates" do
+    issue = create_issue
+    other = create_issue
+    token = csrf_token
+    patch "/api/v1/issues/#{issue.id}/status", params: { status: "ignored" }.to_json, headers: json_headers(token)
+    expect(response).to have_http_status(:bad_request)
+    patch "/api/v1/issues/#{issue.id}/status", params: { status: "ignored", signature_ids: issue.signatures.ids + other.signatures.ids }.to_json, headers: json_headers(token)
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(issue.signatures.reload.map(&:status)).to eq(["open"])
+    patch "/api/v1/issues/#{issue.id}/disposition", params: { disposition: "expected_harmless", signature_ids: other.signatures.ids }.to_json, headers: json_headers(token)
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(issue.reload.disposition).to eq("unclassified")
+    expect(IssueDispositionChange.count).to eq(0)
+  end
+
+  it "applies the submitted review snapshot without hiding signatures received since the page was read" do
+    issue = create_issue
+    reviewed = issue.signatures.ids
+    issue.signatures.create!(fingerprint_version: 3, fingerprint_digest: "new-execute", permissions: ["execute"],
+      first_seen_at: Time.current, last_seen_at: Time.current)
+    token = csrf_token
+    patch "/api/v1/issues/#{issue.id}/status", params: { status: "ignored", signature_ids: reviewed }.to_json, headers: json_headers(token)
+    expect(response).to have_http_status(:ok)
+    expect(issue.reload.status).to eq("open")
+    expect(issue.signatures.find(reviewed.sole).status).to eq("ignored")
+    expect(issue.signatures.order(:id).last.status).to eq("open")
+  end
+
+  it "filters signature occurrences and retains exact permissions, mode and syscall outcome" do
+    issue = create_issue
+    occurrence = create_occurrence(issue)
+    occurrence.normalized_denial.update!(details: { "enforcement_mode" => "permissive", "syscall_evidence" => [{ "success" => "yes" }] })
+    signature = issue.signatures.create!(fingerprint_version: 3, fingerprint_digest: "map", permissions: ["map"],
+      first_seen_at: Time.current, last_seen_at: Time.current)
+    another = create_occurrence(issue, "host-2", 2)
+    another.update!(issue_signature: signature)
+    another.normalized_denial.update!(permissions: ["map"])
+    get "/api/v1/issues/#{issue.id}/occurrences", params: { view: "summary", signature_id: occurrence.issue_signature_id }
+    body = JSON.parse(response.body)
+    expect(body.dig("meta", "total")).to eq(1)
+    expect(body.fetch("occurrences").sole).to include("id" => occurrence.id, "permissions" => ["read"], "enforcement_mode" => "permissive", "syscall_outcome" => "succeeded")
+    foreign = create_issue
+    get "/api/v1/issues/#{issue.id}/occurrences", params: { view: "summary", signature_id: foreign.signatures.first.id }
+    expect(response).to have_http_status(:not_found)
+  end
+
   def create_issue(digest = "digest-#{SecureRandom.hex(4)}", source_type = "httpd_t", **attributes)
-    Issue.create!({
+    attrs = {
       organization: Organization.sole,
-      fingerprint_version: 3,
+      fingerprint_version: 4,
       fingerprint_digest: digest,
       source_type: source_type,
-      target_type: "default_t",
+      target_type: Issue.exists?(organization: Organization.sole, source_type: source_type, target_type: "default_t", target_class: "file") ? "test_#{Issue.count}_t" : "default_t",
       target_class: "file",
       permissions: ["read"],
       first_seen_at: Time.current,
       last_seen_at: Time.current
-    }.merge(attributes))
+    }.merge(attributes)
+    issue = Issue.create!(attrs)
+    fingerprint = FingerprintV3.call(attrs)
+    issue.signatures.create!(fingerprint_version: 3, fingerprint_digest: fingerprint.fetch(:digest), permissions: issue.permissions,
+      first_seen_at: issue.first_seen_at, last_seen_at: issue.last_seen_at)
+    issue
   end
 
   def create_occurrence(issue, external_id = "host-1", sequence = 1, host: nil, occurred_at: nil)
@@ -795,7 +846,7 @@ RSpec.describe "Issues API", type: :request do
       raw_event: raw_event, ordinal: 0, normalization_version: 1, status: "ok",
       source_type: "httpd_t", target_type: "default_t", target_class: "file", permissions: ["read"]
     })
-    occurrence = Occurrence.create!({ organization: organization, host: host, host_snapshot: snapshot, raw_event: raw_event, normalized_denial: denial, issue: issue, occurred_at: audit })
+    occurrence = Occurrence.create!({ organization: organization, host: host, host_snapshot: snapshot, raw_event: raw_event, normalized_denial: denial, issue: issue, issue_signature: issue.signatures.first, occurred_at: audit })
     occurrence
   end
 

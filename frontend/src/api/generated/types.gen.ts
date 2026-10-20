@@ -157,6 +157,11 @@ export type EvidenceBasis = {
 };
 
 export type ResolutionCandidate = {
+    issue_signature_id?: number | null;
+    /**
+     * Exact denied permission set supporting this candidate
+     */
+    permissions?: Array<string>;
     /**
      * Conservative display priority; direct workload-source conditional rules or path-evidenced restoration are primary
      */
@@ -315,6 +320,7 @@ export type ResolutionWorkflow = {
         operator: string;
         created_at: string;
         details: EvidenceBasis;
+        issue_signature_id?: number | null;
     }>;
 };
 
@@ -1386,6 +1392,7 @@ export type IssueHost = {
 };
 
 export type IssueListItem = {
+    signatures_count?: number;
     id: number;
     status: 'open' | 'resolved' | 'ignored';
     /**
@@ -1458,16 +1465,35 @@ export type UngroupableEventsResponse = {
 };
 
 export type DispositionChange = {
+    issue_signature_id?: number | null;
     disposition: string;
     previous_disposition: string;
     note?: string | null;
     changed_at: string;
 };
 
+export type IssueSignature = {
+    id: number;
+    fingerprint_version: number;
+    fingerprint_digest: string;
+    permissions: Array<string>;
+    status: 'open' | 'resolved' | 'ignored';
+    disposition: string;
+    /**
+     * Historical fingerprint whose permission summary is not claimed to be one exact observed set.
+     */
+    legacy: boolean;
+    occurrences_count: number;
+    affected_hosts: number;
+    first_seen_at: string;
+    last_seen_at: string;
+};
+
 /**
- * Issue identity, lifecycle, and list-level counters.
+ * Policy relationship investigation with independently reviewed permission signatures. A shared relationship is not a proven shared root cause.
  */
 export type Issue = {
+    signatures: Array<IssueSignature>;
     id: number;
     organization_id: number;
     status: 'open' | 'resolved' | 'ignored';
@@ -1882,6 +1908,7 @@ export type OccurrenceGuidance = {
 };
 
 export type OccurrenceDetail = {
+    issue_signature_id?: number | null;
     id: number;
     host: IssueHost;
     occurred_at: string;
@@ -1901,6 +1928,9 @@ export type OccurrenceDetail = {
 
 export type OccurrenceSummaryPage = {
     occurrences: Array<{
+        issue_signature_id?: number | null;
+        enforcement_mode?: 'enforcing' | 'permissive' | 'unknown';
+        syscall_outcome?: 'failed' | 'succeeded' | 'unknown';
         id: number;
         occurred_at: string;
         host: {
@@ -2723,6 +2753,10 @@ export type GetIssueResponse = GetIssueResponses[keyof GetIssueResponses];
 
 export type UpdateIssueStatusData = {
     body: {
+        /**
+         * Snapshot of reviewed signatures belonging to this issue; future signatures are excluded.
+         */
+        signature_ids: Array<number>;
         status: 'open' | 'resolved' | 'ignored';
     };
     path: {
@@ -2760,6 +2794,7 @@ export type UpdateIssueStatusResponse = UpdateIssueStatusResponses[keyof UpdateI
 
 export type UpdateIssueDispositionData = {
     body: {
+        signature_ids: Array<number>;
         disposition: 'unclassified' | 'under_investigation' | 'expected_harmless' | 'application_configuration' | 'labeling_configuration' | 'policy_required' | 'possible_policy_package_defect' | 'suspicious_behavior';
         note?: string;
     };
@@ -2802,6 +2837,10 @@ export type ListIssueOccurrencesData = {
         id: number;
     };
     query?: {
+        /**
+         * Limit to one signature belonging to the issue.
+         */
+        signature_id?: number;
         /**
          * Page size capped at 50; defaults to 10 for summary pages and 50 for the legacy cursor response.
          */

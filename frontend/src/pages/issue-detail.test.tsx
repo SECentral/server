@@ -147,8 +147,11 @@ function detailPayload(scenario: Scenario, status: "open" | "resolved" | "ignore
     permissions: [fleetLive ? "entrypoint" : scenario === "002" ? "name_connect" : scenario === "003" ? "name_bind" : scenario === "004" ? "getattr" : scenario === "005" ? "execute" : "read"],
     first_seen_at: fleetLive ? "2026-09-30T09:46:04.740Z" : "2026-09-25T09:00:00Z",
     last_seen_at: fleetLive ? "2026-09-30T11:52:17.234Z" : "2026-09-30T16:26:25Z",
-    occurrences_count: fleetLive ? 16 : scenario === "repeated" ? 5 : 2, affected_hosts: fleetLive ? 3 : 1, disposition_history: []
+    occurrences_count: fleetLive ? 16 : scenario === "repeated" ? 5 : 2, affected_hosts: fleetLive ? 3 : 1, disposition_history: [], signatures: []
   } as IssueDetailResponse["issue"];
+  issue.signatures = [{ id: 11, fingerprint_version: 3, fingerprint_digest: "signature-digest", permissions: issue.permissions,
+    status, disposition: "unclassified", legacy: false, occurrences_count: issue.occurrences_count, affected_hosts: issue.affected_hosts,
+    first_seen_at: issue.first_seen_at, last_seen_at: issue.last_seen_at }];
   return {
     issue,
     intelligence: {
@@ -301,6 +304,27 @@ function renderDetail(initialEntry = "/issues/7") {
 }
 
 describe("issue investigation", () => {
+  it("consolidates signatures while keeping individual actions and occurrence browsing explicitly scoped", async () => {
+    const payload = detailPayload("001");
+    const first = payload.issue.signatures[0];
+    payload.issue.signatures = [first, { ...first, id: 12, permissions: ["open", "read"] }, { ...first, id: 13, permissions: ["execute"] }];
+    payload.issue.permissions = ["execute", "open", "read"];
+    const fetchMock = vi.fn(async (url: string) => response(200, url.includes("view=summary") ? { occurrences: [], meta: { page: 1, page_size: 10, total: 0, total_pages: 1 } } : url.endsWith("/status") ? payload.issue : payload));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderDetail();
+    const table = await screen.findByRole("table", { name: "Permission signatures" });
+    expect(within(table).getAllByRole("row")).toHaveLength(4);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("httpd_t access to file objects labeled user_home_t");
+    await user.selectOptions(within(table).getByLabelText("Status for read signature 11"), "ignored");
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/status", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ status: "ignored", signature_ids: [11] }) })));
+    expect(within(table).getByLabelText("Status for execute signature 13")).toHaveValue("open");
+    await user.click(within(table).getByRole("button", { name: "View open, read signature 12 occurrences" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/occurrences?view=summary&page=1&limit=10&signature_id=12", expect.anything()));
+    await user.click(screen.getByRole("button", { name: "Show all signatures" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/occurrences?view=summary&page=1&limit=10", expect.anything()));
+  });
+
   it("does not infer a blocked syscall or an active-policy conclusion from an inactive conditional path", async () => {
     const payload = detailPayload("003");
     payload.diagnosis = { ...payload.diagnosis!, syscall_failed: false, enforcement_mode: "permissive" };
@@ -443,26 +467,6 @@ describe("issue investigation", () => {
     renderDetail();
     expect(await screen.findByText("Cause not confirmed; start with the checks below.")).toBeVisible();
     expect(screen.queryByRole("button", { name: /Copy command: matchpathcon/ })).not.toBeInTheDocument();
-  });
-
-  it("keeps the context sidebar on the deterministic investigation example when the latest occurrence differs", async () => {
-    const payload = labelingPayload();
-    payload.resolutions = { candidates: [], rejected_candidates: [], intent: null, freshness: null, change_plan: null, history: [],
-      observed_access: { occurrence_id: 202, host_id: 20, hostname: "latest-host", actor: "httpd", source_type: "httpd_t",
-        resource: "/var/www/z-latest", target_type: "user_home_t", object_class: "file", permissions: ["read"], operation_label: "read",
-        outcome: "DENIED", observed_at: "2026-10-02T10:00:00Z" } };
-    const occurrence = occurrencePage("001").occurrences[0];
-    occurrence.host = { id: 10, hostname: "web-1" };
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => response(200, url.endsWith("/occurrences/101") ? occurrence : payload)));
-    renderDetail();
-    const context = await screen.findByRole("complementary", { name: "Investigation context" });
-    expect(context).toHaveTextContent("/var/www/html/a file.txt");
-    expect(context).not.toHaveTextContent("/var/www/z-latest");
-    expect(within(context).getByRole("link", { name: "web-1" })).toHaveAttribute("href", "/hosts/10");
-    expect(within(context).getByRole("link", { name: "#101" })).toHaveAttribute("href", "/hosts/10/occurrences/101");
-    expect(within(context).getByRole("link", { name: "#202" })).toHaveAttribute("href", "/hosts/20/occurrences/202");
-    expect(within(context).getByText("Latest access")).toBeVisible();
-    expect(within(context).getByText("Observed access & finding example")).toBeVisible();
   });
 
   it("shows targeted restoration without a recursive alternative for a broad system root", async () => {
@@ -838,7 +842,7 @@ describe("issue investigation", () => {
     expect(screen.getByText("Actions · Unclassified")).toBeInTheDocument();
     await user.click(screen.getByText("Actions · Unclassified"));
     await user.selectOptions(screen.getByLabelText("Issue status"), "resolved");
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/status", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ status: "resolved" }) })));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/status", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ status: "resolved", signature_ids: [11] }) })));
   });
 
   it("distinguishes the latest diagram from a different investigation host and links both sources", async () => {
@@ -853,6 +857,10 @@ describe("issue investigation", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => response(200, url.endsWith("/occurrences/101") ? occurrence : payload)));
     renderDetail();
     const context = await screen.findByRole("complementary", { name: "Investigation context" });
+    expect(context).toHaveTextContent("/var/www/html/a file.txt");
+    expect(context).not.toHaveTextContent("/var/www/html/z.txt");
+    expect(within(context).getByRole("link", { name: "web-1" })).toHaveAttribute("href", "/hosts/10");
+    expect(within(context).getByText("Latest access")).toBeVisible();
     expect(within(context).getByText("Observed access & finding example")).toBeVisible();
     expect(within(context).getByRole("link", { name: "#101" })).toHaveAttribute("href", "/hosts/10/occurrences/101");
     expect(within(context).getByRole("link", { name: "#202" })).toHaveAttribute("href", "/hosts/20/occurrences/202");
@@ -877,7 +885,7 @@ describe("issue investigation", () => {
     await user.click(screen.getByRole("button", { name: "Save acknowledgement" }));
     await screen.findByText(/Acknowledgement saved/);
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/disposition", expect.objectContaining({
-      method: "PATCH", body: JSON.stringify({ disposition: "unclassified", note: "Intentional boundary: no web access to private files" })
+      method: "PATCH", body: JSON.stringify({ disposition: "unclassified", signature_ids: [11], note: "Intentional boundary: no web access to private files" })
     }));
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/status"))).toBe(false);
   });

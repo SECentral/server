@@ -9,9 +9,9 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
   end
   before { sign_in_operator }
 
-  def fixture(network: true, path: "/var/www/html/test file;$(id)", organization: nil)
+  def fixture(network: true, path: "/var/www/html/test file;$(id)", organization: nil, issue: nil)
     org = organization || Organization.find_or_create_by!(name: "resolution")
-    issue = Issue.create!(organization: org, fingerprint_version: 3, fingerprint_digest: SecureRandom.hex,
+    issue ||= Issue.create!(organization: org, fingerprint_version: 4, fingerprint_digest: SecureRandom.hex,
       source_type: "httpd_t", target_type: network ? "unreserved_port_t" : "user_home_t", target_class: network ? "tcp_socket" : "file",
       permissions: [network ? "name_connect" : "entrypoint"], first_seen_at: Time.current, last_seen_at: Time.current)
     host = Host.create!(organization: org, external_id: SecureRandom.hex, hostname: "web-1", last_seen_at: Time.current)
@@ -63,7 +63,7 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
 
   # Real ingestion/normalization and, for files, the authoritative observation boundary.
   def ingest_equivalent(issue, reference, path: nil, expected_context: "system_u:object_r:httpd_sys_content_t:s0")
-    issue.update!(fingerprint_digest: FingerprintV3.call(issue.attributes.symbolize_keys).fetch(:digest))
+    issue.update!(fingerprint_digest: FingerprintV4.call(issue.attributes.symbolize_keys).fetch(:digest))
     host = reference.host
     observed = reference.raw_event.host_observed_at
     host.host_snapshot_observations.first.update!(first_observed_at: observed, last_observed_at: Time.current)
@@ -386,7 +386,7 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
 
   it "keeps entrypoint guidance and restoration examples attached to their own host, occurrence and path" do
     issue, first, = fixture(network: false, path: "/var/www/earlier-launch")
-    other_issue, later, = fixture(network: false, path: "/srv/other-launch")
+    _, later, = fixture(network: false, path: "/srv/other-launch", issue: issue)
     later.update!(issue: issue, occurred_at: first.occurred_at + 1.second)
     get "/api/v1/issues/#{issue.id}"
     body = JSON.parse(response.body)
@@ -395,7 +395,7 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
     expect(body["resolutions"]["candidates"].map { |c| [c["host_id"], c.dig("evidence_basis", "occurrence_id"), c.dig("evidence_basis", "path")] }).to contain_exactly(
       [first.host_id, first.id, "/var/www/earlier-launch"], [later.host_id, later.id, "/srv/other-launch"])
     expect(body["triage_guidance"]).to be_nil
-    expect(other_issue.reload.occurrences).to be_empty
+    expect(issue.reload.occurrences.count).to eq(2)
   end
 
   it "generates a single-object labeling plan with shell-safe arguments and no invented rollback" do
@@ -410,6 +410,38 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
     expect(command).not_to include("-R", "chcon", "semanage fcontext")
     expect(plan["rollback_steps"]).to be_empty
     expect(plan["expected_effect"]).to include("does not prove")
+  end
+
+  it "retains historical signature intent without selecting it as the relationship's active plan" do
+    issue, = fixture(network: false)
+    intent = select_candidate(issue)
+    signature = issue.signatures.create!(fingerprint_version: 3, fingerprint_digest: "historical", permissions: ["entrypoint"],
+      first_seen_at: issue.first_seen_at, last_seen_at: issue.last_seen_at)
+    snapshot = intent.plan_snapshot
+    intent.update!(issue_signature_id: signature.id)
+    ResolutionIntentChange.where(issue: issue).update_all(issue_signature_id: signature.id)
+    body = workflow(issue)
+    expect(body).to include("intent" => nil, "change_plan" => nil)
+    expect(body["history"].sole).to include("issue_signature_id" => signature.id)
+    expect(intent.reload.plan_snapshot).to eq(snapshot)
+    select_candidate(issue)
+    expect(ResolutionIntent.where(issue: issue).count).to eq(2)
+  end
+
+  it "keeps remediation evidence permission-specific even for the same host and path" do
+    issue, first, = fixture(network: false)
+    denial = first.normalized_denial.dup
+    denial.assign_attributes(ordinal: 1, permissions: ["read"])
+    denial.save!
+    second = first.dup
+    second.assign_attributes(normalized_denial: denial, occurred_at: first.occurred_at + 1.second)
+    second.save!
+    issue.update!(permissions: %w[entrypoint read])
+    candidates = workflow(issue).fetch("candidates")
+    expect(candidates.size).to eq(2)
+    expect(candidates.map { |candidate| candidate["id"] }.uniq.size).to eq(2)
+    expect(candidates.map { |candidate| candidate["permissions"] }).to contain_exactly(["entrypoint"], ["read"])
+    expect(candidates.map { |candidate| candidate.dig("evidence_basis", "permissions") }).to contain_exactly(["entrypoint"], ["read"])
   end
 
   it "rejects basename-only labeling and complex boolean expressions" do
@@ -449,7 +481,7 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
     expect(PolicyFact.find_by!(policy_identity: current_identity)).to have_attributes(status: "pending", permission: "name_connect")
   end
 
-  it "stages durable deduplicated permissions from multiple issues and rejects cross-organization sources" do
+  it "stages durable deduplicated permissions from multiple occurrences and rejects cross-organization sources" do
     issue, occurrence, = fixture
     workflow(issue)
     mutate("/api/v1/policy-drafts", method: :post, issue_id: issue.id, name: "Web review")
@@ -458,9 +490,7 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
     2.times { mutate("/api/v1/policy-drafts/#{id}/entries", method: :post, issue_id: issue.id, occurrence_id: occurrence.id) }
     expect(response).to have_http_status(:ok)
     expect(JSON.parse(response.body)["entries"].sole["provenance"].size).to eq(1)
-    other = issue.dup
-    other.fingerprint_digest = "second"
-    other.save!
+    other = issue
     another = occurrence.dup
     another.issue = other
     denial = occurrence.normalized_denial.dup

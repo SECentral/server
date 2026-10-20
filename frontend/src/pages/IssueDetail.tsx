@@ -124,6 +124,7 @@ function primaryFindingLead(diagnosis: Diagnosis): string | null {
 
 function issueHeadline(detail: IssueDetailResponse): string {
   const { issue, intelligence } = detail;
+  if ((issue.signatures?.length ?? 0) > 1) return `${issue.source_type} access to ${issue.target_class} objects labeled ${issue.target_type}`;
   const summary = intelligence.resource_summary;
   if (["tcp_socket", "udp_socket"].includes(issue.target_class) && issue.permissions.includes("name_bind") && (summary?.bind_port_count ?? 0) > 0) {
     const protocol = issue.target_class === "udp_socket" ? "UDP" : "TCP";
@@ -355,7 +356,14 @@ export function IssueDetail() {
   const requestedPage = Number(searchParams.get("occurrence_page") ?? 1);
   const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   const perPage = pageSize(searchParams.get("occurrence_limit"), EMBEDDED_PAGE_SIZES, 10);
-  const occurrencesQuery = useQuery({ queryKey: ["issue-occurrence-page", issueId, page, perPage], queryFn: () => fetchIssueOccurrencePage(issueId, page, perPage), enabled: validId && showOccurrences });
+  const signatureFilter = searchParams.get("signature_id");
+  const occurrencesQuery = useQuery({ queryKey: ["issue-occurrence-page", issueId, page, perPage, signatureFilter], queryFn: () => fetchIssueOccurrencePage(issueId, page, perPage, signatureFilter), enabled: validId && showOccurrences });
+  const showSignatureOccurrences = (signatureId: number | null) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", "occurrences"); next.set("occurrence_page", "1");
+    if (signatureId === null) next.delete("signature_id"); else next.set("signature_id", String(signatureId));
+    setSearchParams(next);
+  };
   const setOccurrencePage = (nextPage: number, size = perPage) => {
     const next = new URLSearchParams(searchParams);
     next.set("tab", "occurrences");
@@ -375,11 +383,11 @@ export function IssueDetail() {
   const [showKeepRestriction, setShowKeepRestriction] = useState(false);
   const [acknowledgementSaved, setAcknowledgementSaved] = useState(false);
 
-  const changeStatus = async (status: typeof STATUS_OPTIONS[number]) => {
+  const changeStatus = async (status: typeof STATUS_OPTIONS[number], signatureIds = detailQuery.data?.issue.signatures?.map((signature) => signature.id) ?? []) => {
     setSavingStatus(true);
     setWorkflowError(null);
     try {
-      await updateIssueStatus(issueId, status);
+      await updateIssueStatus(issueId, status, signatureIds);
       await queryClient.invalidateQueries({ queryKey: ["issue", issueId] });
     } catch (error) {
       setWorkflowError(error instanceof Error ? error.message : "Could not update status");
@@ -394,13 +402,31 @@ export function IssueDetail() {
     setSavingDisposition(true);
     setWorkflowError(null);
     try {
-      await updateIssueDisposition(issueId, keepRestriction ? issue.disposition : pendingDisposition ?? issue.disposition, dispositionNote.trim() || undefined);
+      const signatures = issue.signatures ?? [];
+      if (keepRestriction) {
+        await Promise.all(signatures.map((signature) => updateIssueDisposition(issueId, signature.disposition, [signature.id], dispositionNote.trim() || undefined)));
+      } else {
+        await updateIssueDisposition(issueId, pendingDisposition ?? issue.disposition, signatures.map((signature) => signature.id), dispositionNote.trim() || undefined);
+      }
       await queryClient.invalidateQueries({ queryKey: ["issue", issueId] });
       setPendingDisposition(null);
       setDispositionNote("");
       if (keepRestriction) setAcknowledgementSaved(true);
     } catch (error) {
       setWorkflowError(error instanceof Error ? error.message : "Could not update disposition");
+    } finally {
+      setSavingDisposition(false);
+    }
+  };
+
+  const changeSignatureDisposition = async (signatureId: number, value: string) => {
+    setSavingDisposition(true);
+    setWorkflowError(null);
+    try {
+      await updateIssueDisposition(issueId, value, [signatureId]);
+      await queryClient.invalidateQueries({ queryKey: ["issue", issueId] });
+    } catch (error) {
+      setWorkflowError(error instanceof Error ? error.message : "Could not update signature disposition");
     } finally {
       setSavingDisposition(false);
     }
@@ -432,10 +458,11 @@ export function IssueDetail() {
           <ExpandableSection toggleText={`Actions · ${displayState(issue.disposition)}`}>
             <div className="issue-workflow-panel">
               {workflowError && <Alert variant="danger" isInline title="Workflow update failed">{workflowError}</Alert>}
+              <p>Applies to all signatures currently shown. Future signatures require a new review.</p>
               <label>Lifecycle status<select aria-label="Issue status" value={issue.status} disabled={savingStatus} onChange={(event) => void changeStatus(event.target.value as typeof STATUS_OPTIONS[number])}>{STATUS_OPTIONS.map((status) => <option key={status} value={status}>{displayState(status)}</option>)}</select></label>
-              <label>Operator disposition<select aria-label="Operator disposition" value={disposition} onChange={(event) => setPendingDisposition(event.target.value)}>{DISPOSITIONS.map((item) => <option key={item} value={item}>{displayState(item)}</option>)}</select></label>
+              <label>Operator disposition<select aria-label="Operator disposition" value={disposition} onChange={(event) => setPendingDisposition(event.target.value)}>{issue.disposition === "mixed" && <option value="mixed" disabled>Mixed — review signatures</option>}{DISPOSITIONS.map((item) => <option key={item} value={item}>{displayState(item)}</option>)}</select></label>
               <TextInput value={dispositionNote} onChange={(_event, value) => setDispositionNote(value)} aria-label="Disposition note" placeholder="Note (optional)" />
-              <Button variant="primary" isDisabled={savingDisposition || (disposition === issue.disposition && !dispositionNote.trim())} onClick={() => void applyDisposition()}>{savingDisposition ? "Applying…" : "Save disposition"}</Button>
+              <Button variant="primary" isDisabled={savingDisposition || disposition === "mixed" || (disposition === issue.disposition && !dispositionNote.trim())} onClick={() => void applyDisposition()}>{savingDisposition ? "Applying…" : "Save disposition"}</Button>
             </div>
           </ExpandableSection>
           <Button variant="secondary" onClick={() => setShowKeepRestriction(!showKeepRestriction)} isExpanded={showKeepRestriction} aria-controls="restriction-note">Keep restriction</Button>
@@ -449,6 +476,20 @@ export function IssueDetail() {
           </section>}
         </div>
       </header>
+
+      {(issue.signatures?.length ?? 0) > 0 && <Card isCompact><CardBody>
+        <Title headingLevel="h2" size="lg">Permission signatures</Title>
+        <p>This relationship groups related evidence, not a confirmed shared cause. Review operations independently; permissions below are exact observed sets unless marked historical.</p>
+        {workflowError && <Alert variant="danger" isInline title="Signature update failed">{workflowError}</Alert>}
+        <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Permission signatures"><Thead><Tr><Th>Permissions</Th><Th>Occurrences</Th><Th>Hosts</Th><Th>Status</Th><Th>Disposition</Th></Tr></Thead><Tbody>
+          {issue.signatures.map((signature) => <Tr key={signature.id}>
+            <Td dataLabel="Permissions"><code>{signature.permissions.join(", ")}</code>{signature.legacy && <Label isCompact>Historical fingerprint</Label>}</Td>
+            <Td dataLabel="Occurrences"><Button variant="link" onClick={() => showSignatureOccurrences(signature.id)} aria-label={`View ${signature.permissions.join(", ")} signature ${signature.id} occurrences`}>{signature.occurrences_count}</Button></Td><Td dataLabel="Hosts">{signature.affected_hosts}</Td>
+            <Td dataLabel="Status"><select aria-label={`Status for ${signature.permissions.join(", ")} signature ${signature.id}`} value={signature.status} disabled={savingStatus} onChange={(event) => void changeStatus(event.target.value as typeof STATUS_OPTIONS[number], [signature.id])}>{STATUS_OPTIONS.map((status) => <option key={status} value={status}>{displayState(status)}</option>)}</select></Td>
+            <Td dataLabel="Disposition"><select aria-label={`Disposition for ${signature.permissions.join(", ")} signature ${signature.id}`} value={signature.disposition} disabled={savingDisposition} onChange={(event) => void changeSignatureDisposition(signature.id, event.target.value)}>{DISPOSITIONS.map((value) => <option key={value} value={value}>{displayState(value)}</option>)}</select></Td>
+          </Tr>)}
+        </Tbody></Table>
+      </CardBody></Card>}
 
       <ResolutionWorkflow issueId={issueId} stage="draft" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} />
 
@@ -487,12 +528,13 @@ export function IssueDetail() {
       {triage.signals.length > 0 && <ExpandableSection className="issue-activity-context" toggleText="Occurrence pattern"><ul>{triage.signals.map((signal) => <li key={signal.code}><strong>{signal.label}:</strong> {signal.explanation}</li>)}</ul></ExpandableSection>}
 
       <section id="issue-occurrences" tabIndex={-1} aria-labelledby="occurrences-title" className="issue-section issue-occurrences-section">
+        {signatureFilter && <p>Showing signature #{signatureFilter}. <Button variant="link" onClick={() => showSignatureOccurrences(null)}>Show all signatures</Button></p>}
         <header><div><h3 id="occurrences-title">Retained occurrences</h3><p>{issue.occurrences_count} retained denial{issue.occurrences_count === 1 ? "" : "s"}{occurrencesQuery.data && ` · ${(occurrencesQuery.data.meta.page - 1) * occurrencesQuery.data.meta.page_size + (occurrencesQuery.data.meta.total ? 1 : 0)}–${Math.min(occurrencesQuery.data.meta.page * occurrencesQuery.data.meta.page_size, occurrencesQuery.data.meta.total)} of ${occurrencesQuery.data.meta.total}`}</p></div></header>
         {!showOccurrences ? <Button variant="secondary" onClick={() => setShowOccurrences(true)}>Show recent occurrences</Button>
           : occurrencesQuery.isPending ? <div aria-label="Loading occurrences"><Spinner /></div>
           : occurrencesQuery.isError ? <Alert variant="warning" isInline title="Could not load occurrences">{occurrencesQuery.error instanceof Error ? occurrencesQuery.error.message : "Unknown error"}</Alert>
             : occurrencesQuery.data.occurrences.length ? <>
-              <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Occurrence summary"><Thead><Tr><Th>Time (UTC)</Th><Th>Host</Th><Th>Resource</Th>{!issue.target_class.endsWith("_socket") && <Th>Path evidence</Th>}<Th>Inspect</Th></Tr></Thead><Tbody>{occurrencesQuery.data.occurrences.map((item) => <Tr key={item.id}><Td dataLabel="Time (UTC)">{formatUtc(item.occurred_at)}</Td><Td dataLabel="Host"><Link to={`/hosts/${item.host.id}`}>{item.host.hostname}</Link></Td><Td dataLabel="Resource"><code>{item.resource ?? "Not recorded"}</code></Td>{!issue.target_class.endsWith("_socket") && <Td dataLabel="Path evidence">{item.absolute_path ? "Absolute path" : item.resource ? "Basename only" : "Not recorded"}</Td>}<Td dataLabel="Inspect"><Button variant="link" onClick={() => inspectOccurrence(item.id)} aria-label={`Inspect occurrence ${item.id}`}>View evidence</Button></Td></Tr>)}</Tbody></Table>
+              <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Occurrence summary"><Thead><Tr><Th>Time (UTC)</Th><Th>Host</Th><Th>Resource</Th><Th>Permissions</Th><Th>SELinux mode</Th><Th>Syscall outcome</Th>{!issue.target_class.endsWith("_socket") && <Th>Path evidence</Th>}<Th>Inspect</Th></Tr></Thead><Tbody>{occurrencesQuery.data.occurrences.map((item) => <Tr key={item.id}><Td dataLabel="Time (UTC)">{formatUtc(item.occurred_at)}</Td><Td dataLabel="Host"><Link to={`/hosts/${item.host.id}`}>{item.host.hostname}</Link></Td><Td dataLabel="Resource"><code>{item.resource ?? "Not recorded"}</code></Td><Td dataLabel="Permissions">{item.permissions.join(", ")}</Td><Td dataLabel="SELinux mode">{displayState(item.enforcement_mode ?? "unknown")}</Td><Td dataLabel="Syscall outcome">{displayState(item.syscall_outcome ?? "unknown")}</Td>{!issue.target_class.endsWith("_socket") && <Td dataLabel="Path evidence">{item.absolute_path ? "Absolute path" : item.resource ? "Basename only" : "Not recorded"}</Td>}<Td dataLabel="Inspect"><Button variant="link" onClick={() => inspectOccurrence(item.id)} aria-label={`Inspect occurrence ${item.id}`}>View evidence</Button></Td></Tr>)}</Tbody></Table>
               <div className="table-pagination"><Pagination itemCount={occurrencesQuery.data.meta.total} page={occurrencesQuery.data.meta.page} perPage={occurrencesQuery.data.meta.page_size}
                 perPageOptions={EMBEDDED_PAGE_SIZES.map((value) => ({ title: String(value), value }))} titles={{ paginationAriaLabel: "Issue occurrence pagination" }}
                 isDisabled={occurrencesQuery.isFetching} onSetPage={(_event, value) => setOccurrencePage(value)} onPerPageSelect={(_event, size) => setOccurrencePage(1, size)} /></div>

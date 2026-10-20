@@ -9,8 +9,8 @@ export type IssueOccurrencesResponse = Types.IssueOccurrencesResponse;
 export type IssueAnalysisResponse = Types.IssueAnalysisResponse;
 export type OccurrencePage = Types.OccurrenceSummaryPage;
 
-export function fetchIssueOccurrencePage(id: number, page: number, limit = 10): Promise<OccurrencePage> {
-  return apiFetch<OccurrencePage>(`/api/v1/issues/${id}/occurrences?view=summary&page=${page}&limit=${limit}`);
+export function fetchIssueOccurrencePage(id: number, page: number, limit = 10, signatureId?: string | null): Promise<OccurrencePage> {
+  return apiFetch<OccurrencePage>(`/api/v1/issues/${id}/occurrences?view=summary&page=${page}&limit=${limit}${signatureId ? `&signature_id=${encodeURIComponent(signatureId)}` : ""}`);
 }
 
 export function fetchIssueOccurrence(id: number, occurrenceId: number): Promise<OccurrenceDetail> {
@@ -40,13 +40,13 @@ export function fetchIssueAnalysis(id: number): Promise<IssueAnalysisResponse> {
   return apiFetch<IssueAnalysisResponse>(`/api/v1/issues/${id}/analysis`);
 }
 
-export function updateIssueStatus(id: number, status: "open" | "resolved" | "ignored"): Promise<Issue> {
-  return apiFetch<Issue>(`/api/v1/issues/${id}/status`, { method: "PATCH", body: { status } });
+export function updateIssueStatus(id: number, status: "open" | "resolved" | "ignored", signatureIds: number[]): Promise<Issue> {
+  return apiFetch<Issue>(`/api/v1/issues/${id}/status`, { method: "PATCH", body: { status, signature_ids: signatureIds } });
 }
 
-export function updateIssueDisposition(id: number, disposition: string, note?: string): Promise<Issue> {
+export function updateIssueDisposition(id: number, disposition: string, signatureIds: number[], note?: string): Promise<Issue> {
   return apiFetch<Issue>(`/api/v1/issues/${id}/disposition`, {
     method: "PATCH",
-    body: note ? { disposition, note } : { disposition }
+    body: { disposition, signature_ids: signatureIds, ...(note ? { note } : {}) }
   });
 }

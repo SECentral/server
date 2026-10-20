@@ -86,9 +86,11 @@ describe("Overview", () => {
     for (const heading of ["Issue activity", "Fleet health", "Activity trends", "Needs attention"]) {
       expect(screen.getByRole("heading", { name: heading, level: 2 })).toBeInTheDocument();
     }
-    for (const linkName of ["Active issues 2", "New issues — 24h 1", "Affected hosts 2", "AVCs — 24h 5"]) {
+    for (const linkName of ["Affected hosts 2", "AVCs — 24h 5"]) {
       expect(screen.getByRole("link", { name: linkName })).toBeInTheDocument();
     }
+    expect(screen.getByRole("link", { name: "Active issues 2" })).toHaveAttribute("href", "/issues?status=open");
+    expect(screen.getByRole("link", { name: "New issues — 24h 1" })).toHaveAttribute("href", "/issues?status=open&new=1");
     expect(screen.getByRole("link", { name: "3 monitored hosts" })).toHaveAttribute("href", "/hosts");
     expect(screen.getByRole("link", { name: "Reporting 1" })).toHaveAttribute("href", "/hosts?status=reporting");
     expect(screen.getByRole("link", { name: "Offline 1" })).toHaveAttribute("href", "/hosts?status=offline");
@@ -110,17 +112,6 @@ describe("Overview", () => {
     expect(screen.getByText("1 host currently running SELinux permissive")).toBeInTheDocument();
     expect(screen.getByText("1 new issue in the last 24 hours")).toBeInTheDocument();
     expect(screen.getByText("httpd_t → default_t")).toBeInTheDocument();
-  });
-
-  it("links metrics and attention items into the resource routes", async () => {
-    renderOverview();
-
-    const activeIssuesCard = await screen.findByRole("link", { name: "Active issues 2" });
-    expect(activeIssuesCard).toHaveAttribute("href", "/issues?status=open");
-    expect(screen.getByRole("link", { name: "New issues — 24h 1" })).toHaveAttribute("href", "/issues?status=open&new=1");
-    expect(screen.getByRole("link", { name: "3 monitored hosts" })).toHaveAttribute("href", "/hosts");
-    expect(screen.getByRole("link", { name: "Stale 1" })).toHaveAttribute("href", "/hosts?status=stale");
-
     const affectedLinks = screen.getAllByRole("link", { name: "View affected hosts →" });
     expect(affectedLinks.map((link) => link.getAttribute("href")).sort()).toEqual([
       "/hosts?enforcement=permissive",

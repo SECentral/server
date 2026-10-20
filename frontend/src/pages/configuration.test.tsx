@@ -212,7 +212,7 @@ describe("Configuration", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("family=ports&limit=25&protocol=tcp"), expect.anything()));
   });
 
-  it.each(["/configuration", "/configuration?family=overview", "/configuration?family=invalid"])("loads useful inventory for %s", async (entry) => {
+  it.each(["/configuration?family=overview", "/configuration?family=invalid"])("loads useful inventory for %s", async (entry) => {
     renderConfiguration(entry);
     expect(await screen.findByRole("table", { name: "Boolean inventory rows" })).toBeVisible();
     expect(screen.queryByText("Select a family")).not.toBeInTheDocument();

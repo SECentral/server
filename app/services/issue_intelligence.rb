@@ -24,18 +24,18 @@ class IssueIntelligence
       "normalized_denials.source_context", "normalized_denials.target_context",
       "normalized_denials.command", "normalized_denials.executable", "occurrences.id",
       "occurrences.raw_event_id", "raw_events.file_context_observations", "occurrences.occurred_at",
-      "raw_events.host_observed_at", "raw_events.boot_id", "raw_events.checkpoint_invalidated_fields"
+      "raw_events.host_observed_at", "raw_events.boot_id", "raw_events.checkpoint_invalidated_fields", "normalized_denials.permissions"
     )
     activity_hosts = Host.where(organization: @issue.organization).where("last_seen_at >= ?", Host::STALE_AFTER.ago).includes(current_state_observation: :host_snapshot).to_a
     configuration_hosts = activity_hosts.select(&:current_configuration?)
     affected_ids = rows.map(&:first).uniq
     destination_ports = if @issue.target_class == "tcp_socket" && @issue.permissions.include?("name_connect")
-      rows.flat_map { |row| self.class.destination_ports(row[2]) }.tally
+      rows.select { |row| row[14].include?("name_connect") }.flat_map { |row| self.class.destination_ports(row[2]) }.tally
     else
       {}
     end
     bind_ports = if %w[tcp_socket udp_socket].include?(@issue.target_class) && @issue.permissions.include?("name_bind")
-      rows.flat_map { |row| self.class.bind_ports(row[2]) }.tally
+      rows.select { |row| row[14].include?("name_bind") }.flat_map { |row| self.class.bind_ports(row[2]) }.tally
     else
       {}
     end
@@ -237,7 +237,8 @@ class IssueIntelligence
           avc_occurred_at: row[10],
           "process_command" => row[5],
           "executable" => row[6],
-          "target_context" => row[4],
+           "target_context" => row[4],
+           "permissions" => row[14],
           "target_class" => @issue.target_class,
           "filesystem_paths" => target["filesystem_paths"]
         }

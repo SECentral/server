@@ -1048,7 +1048,7 @@ RSpec.describe "Events API", type: :request do
     expect(RawEvent.count).to eq(1)
   end
 
-  it "groups equivalent v3 denials across hosts without merging distinct permission sets" do
+  it "groups relationships across hosts while preserving distinct exact permission signatures" do
     post "/api/v1/events", params: ingest_request(host_id: "host-a", raw_payload: avc_payload("/srv/a", %w[read open])).to_json, headers: headers
     expect(response).to have_http_status(:accepted)
     post "/api/v1/events", params: ingest_request(host_id: "host-b", raw_payload: avc_payload("/srv/b", %w[open read])).to_json, headers: headers
@@ -1057,15 +1057,16 @@ RSpec.describe "Events API", type: :request do
     expect(RawEvent.count).to eq(2)
     expect(Occurrence.count).to eq(2)
     expect(Issue.count).to eq(1)
-    expect(Issue.pluck(:fingerprint_version).uniq).to eq([3])
+    expect(Issue.pluck(:fingerprint_version).uniq).to eq([4])
     grouped_issue = Issue.all.find { |issue| issue.permissions == %w[open read] }
     expect(grouped_issue).to be_present
     expect(grouped_issue.occurrences_count).to eq(2)
 
     post "/api/v1/events", params: ingest_request(host_id: "host-b", sequence: 8125, raw_payload: avc_payload("/srv/b", ["read"])).to_json, headers: headers
     expect(response).to have_http_status(:accepted)
-    expect(Issue.count).to eq(2)
-    expect(Issue.where(fingerprint_version: 3).pluck(:permissions)).to contain_exactly(["open", "read"], ["read"])
+    expect(Issue.count).to eq(1)
+    expect(IssueSignature.pluck(:permissions)).to contain_exactly(["open", "read"], ["read"])
+    expect(Occurrence.pluck(:issue_signature_id).uniq.size).to eq(2)
   end
 
   it "keeps one occurrence and one issue for a multi-permission AVC" do
@@ -1077,7 +1078,79 @@ RSpec.describe "Events API", type: :request do
     expect(Issue.first.permissions).to eq(%w[open read])
   end
 
-  it "creates separate v3 issues for equivalent tuple bind and connect events" do
+  it "consolidates enforcing read and permissive open/read and map without losing evidence" do
+    read = avc_payload("/var/www/html/a.txt", ["read"]).sub("default_t", "user_home_t") + " permissive=0"
+    post "/api/v1/events", params: ingest_request(host_id: "host-a", raw_payload: read).to_json, headers: headers
+    request = ingest_request(host_id: "host-b", raw_payload: read.sub("a.txt", "b.txt").sub("permissive=0", "permissive=1"))
+    first = request.fetch("events").first.fetch("records").first
+    open_record = first.merge("payload" => Base64.strict_encode64(Base64.strict_decode64(first.fetch("payload")).sub("{ read }", "{ open }")))
+    request.fetch("events").first.fetch("records").insert(1, open_record)
+    request.fetch("events").first.fetch("records").each_with_index { |record, index| record["position"] = index }
+    post "/api/v1/events", params: request.to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+    post "/api/v1/events", params: ingest_request(host_id: "host-b", sequence: 8125,
+      raw_payload: read.sub("a.txt", "b.txt").sub("{ read }", "{ map }").sub("permissive=0", "permissive=1")).to_json, headers: headers
+
+    expect(response).to have_http_status(:accepted)
+    issue = Issue.sole
+    expect(issue).to have_attributes(permissions: %w[map open read], occurrences_count: 3)
+    expect(issue.occurrences.distinct.count(:host_id)).to eq(2)
+    expect(issue.signatures.pluck(:permissions)).to contain_exactly(["read"], %w[open read], ["map"])
+    expect(NormalizedDenial.pluck(:permissions)).to contain_exactly(["read"], %w[read open], ["map"])
+    expect(NormalizedDenial.pluck(:details).map { |details| details["enforcement_mode"] }).to contain_exactly("enforcing", "permissive", "permissive")
+    expect(RawAuditRecord.where(record_type: 1400).count).to eq(4)
+  end
+
+  it "requires review for new sensitive signatures after Ignore and does not reopen on reprocessing" do
+    post "/api/v1/events", params: ingest_request(raw_payload: avc_payload("/srv/test", ["read"])).to_json, headers: headers
+    issue = Issue.sole
+    reviewed = issue.signatures.ids
+    issue.set_disposition!("expected_harmless", signature_ids: reviewed)
+    issue.transition_to!("ignored", signature_ids: reviewed)
+    post "/api/v1/events", params: ingest_request(sequence: 8125, raw_payload: avc_payload("/srv/test", ["execute"])).to_json, headers: headers
+    expect(issue.reload).to have_attributes(status: "open", disposition: "mixed")
+    expect(issue.signatures.find { |signature| signature.permissions == ["read"] }).to have_attributes(status: "ignored", disposition: "expected_harmless")
+    execute = issue.signatures.find { |signature| signature.permissions == ["execute"] }
+    expect(execute).to have_attributes(status: "open", disposition: "unclassified")
+    issue.transition_to!("resolved", signature_ids: [execute.id])
+    ProcessRawEvent.call(execute.occurrences.sole.raw_event)
+    expect(execute.reload.status).to eq("resolved")
+    expect(issue.reload.status).to eq("resolved")
+    expect(Occurrence.count).to eq(2)
+    expect(issue.disposition_changes.sole.issue_signature_id).to eq(reviewed.sole)
+  end
+
+  it "creates one relationship under concurrent cross-host processing and isolates organizations" do
+    requests = %w[host-a host-b].map { |host| ingest_request(host_id: host, raw_payload: avc_payload("/srv/test", ["read"])) }
+    events = requests.flat_map { |request| IngestEvents.new(organization: organization, payload: request).call }
+    events.map do |event|
+      Thread.new { ActiveRecord::Base.connection_pool.with_connection { ProcessRawEvent.call(event) } }
+    end.each(&:value)
+    expect(Issue.count).to eq(1)
+    expect(IssueSignature.count).to eq(1)
+    expect(Issue.sole.occurrences_count).to eq(2)
+    other = Organization.create!(name: "isolated-grouping")
+    event = IngestEvents.new(organization: other, payload: requests.first).call.sole
+    ProcessRawEvent.call(event)
+    expect(Issue.count).to eq(2)
+    expect(Issue.pluck(:fingerprint_digest).uniq.size).to eq(1)
+    expect(IssueSignature.where(issue: other.issues).count).to eq(1)
+  end
+
+  it "preserves historical broad signature decisions when the same raw event is reprocessed" do
+    post "/api/v1/events", params: ingest_request(raw_payload: avc_payload("/srv/test", ["read"])).to_json, headers: headers
+    issue = Issue.sole
+    signature = issue.signatures.sole
+    signature.update!(fingerprint_version: 2, permissions: %w[open read])
+    issue.transition_to!("ignored", signature_ids: [signature.id])
+    ProcessRawEvent.call(RawEvent.sole)
+    expect(issue.reload.status).to eq("ignored")
+    expect(issue.signatures.sole).to have_attributes(id: signature.id, permissions: %w[open read])
+    expect(Occurrence.sole.issue_signature_id).to eq(signature.id)
+    expect(NormalizedDenial.sole.permissions).to eq(["read"])
+  end
+
+  it "retains independent bind and connect signatures in one relationship" do
     bind = avc_payload("/srv/test", ["name_bind"]).sub("tclass=file", "tclass=tcp_socket")
     connect = bind.sub("name_bind", "name_connect")
 
@@ -1085,8 +1158,13 @@ RSpec.describe "Events API", type: :request do
     post "/api/v1/events", params: ingest_request(sequence: 8125, raw_payload: connect).to_json, headers: headers
 
     expect(response).to have_http_status(:accepted)
-    expect(Issue.where(fingerprint_version: 3).count).to eq(2)
-    expect(Issue.where(fingerprint_version: 3).pluck(:permissions)).to contain_exactly(["name_bind"], ["name_connect"])
+    expect(Issue.count).to eq(1)
+    expect(IssueSignature.pluck(:permissions)).to contain_exactly(["name_bind"], ["name_connect"])
+    issue = Issue.sole
+    bind_signature = issue.signatures.find { |signature| signature.permissions == ["name_bind"] }
+    issue.transition_to!("ignored", signature_ids: [bind_signature.id])
+    expect(issue.reload.status).to eq("open")
+    expect(issue.signatures.find { |signature| signature.permissions == ["name_connect"] }.status).to eq("open")
   end
 
   it "reopens resolved issues but keeps ignored issues ignored" do
@@ -1101,6 +1179,7 @@ RSpec.describe "Events API", type: :request do
     issue.transition_to!("ignored")
     post "/api/v1/events", params: ingest_request(sequence: 8126, raw_payload: avc_payload("/srv/test", ["read"])).to_json, headers: headers
     expect(issue.reload.status).to eq("ignored")
+    expect(issue.display_status).to eq("ignored")
   end
 
   it "collapses malformed bearer credentials to unauthorized" do

@@ -30,6 +30,8 @@ RSpec.describe "API v1 sessions", type: :request do
     expect(response).to have_http_status(:created)
     expect(response.headers["X-CSRF-Token"]).to be_present
     expect(JSON.parse(response.body)).to eq("operator" => { "username" => "test-admin" })
+    get "/api/v1/overview"
+    expect(response).to have_http_status(:ok)
   end
 
   it "rejects invalid credentials with one generic 401" do
@@ -59,6 +61,8 @@ RSpec.describe "API v1 sessions", type: :request do
     expect(response).to have_http_status(:no_content)
 
     get "/api/v1/sessions"
+    expect(response).to have_http_status(:unauthorized)
+    get "/api/v1/overview"
     expect(response).to have_http_status(:unauthorized)
   end
 

@@ -8,6 +8,7 @@ class OccurrenceDetailSerializer
     raw_event = occurrence.raw_event
     {
       id: occurrence.id,
+      issue_signature_id: occurrence.issue_signature_id,
       host: { id: occurrence.host_id, hostname: occurrence.host.hostname },
       occurred_at: occurrence.occurred_at,
       normalized_denial: {

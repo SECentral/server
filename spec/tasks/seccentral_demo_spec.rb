@@ -20,7 +20,8 @@ RSpec.describe "SECentral demo task", type: :request do
     demo = Organization.find_by!(name: "SECentral Demo")
 
     expect(demo.hosts.count).to eq(19)
-    expect(demo.issues.count).to be >= 8
+    expect(demo.issues.count).to eq(7)
+    expect(IssueSignature.where(issue: demo.issues).count).to be >= 8
     expect(demo.occurrences.count).to be >= 20
     expect(demo.issues.where(status: "ignored").count).to eq(1)
     expect(demo.issues.where(regressions_count: 1).count).to eq(1)
@@ -33,7 +34,7 @@ RSpec.describe "SECentral demo task", type: :request do
     file_issue = demo.issues.find { |issue| issue.source_type == "httpd_t" && issue.target_type == "user_home_t" }
     expect(IssueDiagnosis.call(file_issue)).to be_nil
 
-    connect_issue = demo.issues.find { |issue| issue.permissions == ["name_connect"] }
+    connect_issue = demo.issues.find { |issue| issue.permissions.include?("name_connect") }
     explanations = IssueDiagnosis.per_host(connect_issue)
     rhel9 = explanations.find { |item| item[:hostname] == "rhel9-web-01.demo.secentral" }
     rhel8 = explanations.find { |item| item[:hostname] == "rhel8-web-02.demo.secentral" }
@@ -44,7 +45,7 @@ RSpec.describe "SECentral demo task", type: :request do
     get "/api/v1/issues/#{connect_issue.id}/analysis"
     expect(JSON.parse(response.body).dig("fleet_explanation", "state")).to eq("insufficient_evidence")
 
-    bind_issue = demo.issues.find { |issue| issue.permissions == ["name_bind"] }
+    bind_issue = demo.issues.find { |issue| issue.permissions.include?("name_bind") }
     expect(IssueDiagnosis.call(bind_issue)).to be_nil
 
     database_issue = demo.issues.find { |issue| issue.source_type == "mysqld_t" }
@@ -52,7 +53,7 @@ RSpec.describe "SECentral demo task", type: :request do
     expect(database_diagnosis).to be_nil
     expect(database_issue.occurrences).to all(satisfy { |occurrence| occurrence.normalized_denial.details.fetch("policy_evaluations").empty? })
 
-    execute_issue = demo.issues.find { |issue| issue.permissions == ["execute"] }
+    execute_issue = demo.issues.find { |issue| issue.permissions.include?("execute") }
     execute_diagnosis = IssueDiagnosis.call(execute_issue)
     expect(execute_diagnosis).to be_nil
     expect(IssueIntelligence.call(execute_issue).dig(:policy_evaluation, :status)).to eq("pending")
