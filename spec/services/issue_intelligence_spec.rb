@@ -57,6 +57,24 @@ RSpec.describe IssueIntelligence do
     expect(result[:fleet]).to include(activity_hosts: 3, current_configuration_hosts: 1, hosts_with_occurrence: 0, hosts_without_occurrence: 1)
   end
 
+  it "skips analysis-only fleet work when building issue detail intelligence" do
+    organization = Organization.create!(name: "detail-intelligence")
+    issue = Issue.create!(organization: organization, fingerprint_version: 3, fingerprint_digest: "detail", source_type: "httpd_t", target_type: "default_t", target_class: "file", first_seen_at: 1.day.ago, last_seen_at: Time.current)
+    host = create_host(organization, "affected", "42", [])
+    create_occurrence(issue, host, host.current_snapshot, Time.current)
+    intelligence = described_class.new(issue, include_analysis: false)
+
+    expect(intelligence).not_to receive(:configuration_drift)
+    expect(intelligence).not_to receive(:current_file_context_matches)
+    expect(intelligence).not_to receive(:fleet_analysis)
+
+    result = intelligence.call
+
+    expect(result[:fleet]).to include(activity_hosts: 1, current_configuration_hosts: 1, hosts_with_occurrence: 1, hosts_without_occurrence: 0)
+    expect(result).not_to have_key(:configuration_drift)
+    expect(result).not_to have_key(:current_file_context_matches)
+  end
+
   it "keeps event file labels and booleans separate from heartbeat current state" do
     organization = Organization.create!(name: "event-evidence")
     issue = Issue.create!(organization: organization, fingerprint_version: 3, fingerprint_digest: "event-evidence", source_type: "httpd_t", target_type: "user_home_t", target_class: "file", permissions: ["read"], first_seen_at: 1.day.ago, last_seen_at: Time.current)

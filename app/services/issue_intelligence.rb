@@ -10,12 +10,13 @@ class IssueIntelligence
       .filter_map { |value| value.to_i.to_s if value.to_s.match?(/\A\d+\z/) && value.to_i.between?(0, 65_535) }.uniq
   end
 
-  def self.call(issue)
-    new(issue).call
+  def self.call(issue, include_analysis: true)
+    new(issue, include_analysis: include_analysis).call
   end
 
-  def initialize(issue)
+  def initialize(issue, include_analysis: true)
     @issue = issue
+    @include_analysis = include_analysis
   end
 
   def call
@@ -40,7 +41,6 @@ class IssueIntelligence
       {}
     end
     intelligence = {
-      occurrence_summaries: occurrence_summaries,
       paths: rows.flat_map { |row| target_evidence(row[2])["filesystem_paths"] }.uniq.sort,
       names: rows.flat_map { |row| target_evidence(row[2])["object_names"] }.uniq.sort,
       resource_summary: {
@@ -58,11 +58,7 @@ class IssueIntelligence
       commands: rows.map { |row| row[5] }.compact.uniq.sort,
       network_evidence: rows.flat_map { |row| [ row[2].to_h.fetch("network_evidence", {}) ] }.then { |values| merge_network_evidence(values) },
       process_evidence: rows.flat_map { |row| [ row[2].to_h.fetch("process_evidence", {}) ] }.then { |values| merge_process_evidence(values) },
-       contexts: rows.filter_map { |row| { source: row[3], target: row[4] } if row[3] || row[4] }.uniq,
-       observed_target_contexts: rows.filter_map { |row| row[4] }.uniq,
-        event_file_contexts: rows.flat_map { |row| RawEvent.effective_context_observations(row[2].to_h["event_file_contexts"], row[13]) },
-        expected_context_observations: expected_context_observations(rows),
-        correlated_file_contexts: correlated_file_contexts(rows),
+      expected_context_observations: expected_context_observations(rows),
       affected_hosts: @issue.occurrences.distinct.count(:host_id),
       occurrence_time: {
         affected_occurrences: @issue.occurrences.count,
@@ -71,12 +67,24 @@ class IssueIntelligence
         policy_distribution: snapshot_distribution("selinux,kernel_policy_version"),
         enforcement_distribution: snapshot_distribution("selinux,enforcement")
       },
-        fleet: fleet_comparison(configuration_hosts, affected_ids, activity_hosts.size),
-        current_file_context_matches: current_file_context_matches(configuration_hosts),
-        configuration_drift: configuration_drift(configuration_hosts, affected_ids),
-       policy_evaluation: PolicyEvaluation.call(@issue)
+      fleet: fleet_summary(configuration_hosts, affected_ids, activity_hosts.size),
+      policy_evaluation: PolicyEvaluation.call(@issue)
     }
-    intelligence[:explanation] = SelinuxExplanation.call(@issue, intelligence: intelligence)
+
+    if @include_analysis
+      intelligence.merge!(
+        occurrence_summaries: occurrence_summaries,
+        contexts: rows.filter_map { |row| { source: row[3], target: row[4] } if row[3] || row[4] }.uniq,
+        observed_target_contexts: rows.filter_map { |row| row[4] }.uniq,
+        event_file_contexts: rows.flat_map { |row| RawEvent.effective_context_observations(row[2].to_h["event_file_contexts"], row[13]) },
+        correlated_file_contexts: correlated_file_contexts(rows),
+        current_file_context_matches: current_file_context_matches(configuration_hosts),
+        configuration_drift: configuration_drift(configuration_hosts, affected_ids)
+      )
+      intelligence[:fleet].merge!(fleet_analysis(configuration_hosts, affected_ids))
+      intelligence[:explanation] = SelinuxExplanation.call(@issue, intelligence: intelligence)
+    end
+
     intelligence
   end
 
@@ -148,16 +156,20 @@ class IssueIntelligence
     details.map { |value| path.reduce(value || {}) { |current, key| current.is_a?(Hash) ? current[key] : nil } }.compact.tally.sort_by { |value, count| [-count, value.to_s] }.to_h
   end
 
-  def fleet_comparison(configuration_hosts, affected_ids, activity_host_count)
+  def fleet_summary(configuration_hosts, affected_ids, activity_host_count)
+    affected = configuration_hosts.select { |host| affected_ids.include?(host.id) }
+    { activity_hosts: activity_host_count, current_configuration_hosts: configuration_hosts.size, hosts_with_occurrence: affected.size, hosts_without_occurrence: configuration_hosts.size - affected.size }
+  end
+
+  def fleet_analysis(configuration_hosts, affected_ids)
     affected = configuration_hosts.select { |host| affected_ids.include?(host.id) }
     unaffected = configuration_hosts.reject { |host| affected_ids.include?(host.id) }
-    { activity_hosts: activity_host_count, current_configuration_hosts: configuration_hosts.size, hosts_with_occurrence: affected.size, hosts_without_occurrence: unaffected.size,
-      with_occurrence_platforms: host_distribution(affected, ["platform", "os_id", "os_version"]),
+    { with_occurrence_platforms: host_distribution(affected, ["platform", "os_id", "os_version"]),
       without_occurrence_platforms: host_distribution(unaffected, ["platform", "os_id", "os_version"]),
-       with_occurrence_policies: host_distribution(affected, ["selinux", "kernel_policy_version"]),
-       without_occurrence_policies: host_distribution(unaffected, ["selinux", "kernel_policy_version"]),
-       with_occurrence_modules: module_distribution(affected), without_occurrence_modules: module_distribution(unaffected),
-       with_occurrence_file_contexts: file_context_distribution(affected), without_occurrence_file_contexts: file_context_distribution(unaffected) }
+      with_occurrence_policies: host_distribution(affected, ["selinux", "kernel_policy_version"]),
+      without_occurrence_policies: host_distribution(unaffected, ["selinux", "kernel_policy_version"]),
+      with_occurrence_modules: module_distribution(affected), without_occurrence_modules: module_distribution(unaffected),
+      with_occurrence_file_contexts: file_context_distribution(affected), without_occurrence_file_contexts: file_context_distribution(unaffected) }
   end
 
   def host_distribution(hosts, path)

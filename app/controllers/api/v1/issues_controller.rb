@@ -32,7 +32,7 @@ class Api::V1::IssuesController < Api::V1::BaseController
 
   def show
     issue = current_organization.issues.find(params[:id])
-    intelligence = IssueIntelligence.call(issue)
+    intelligence = IssueIntelligence.call(issue, include_analysis: false)
     analyzer = IssueDiagnosis.new(issue, intelligence)
     host_explanations = analyzer.per_host
     findings = analyzer.finding_summaries
