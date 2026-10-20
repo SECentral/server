@@ -233,6 +233,51 @@ RSpec.describe IssueDiagnosis do
     expect(result[:next_step]).to include("mariadbd is configured to access /srv/database/ibdata1", "access is intended")
   end
 
+  it "explains a denied local bind using its recorded port, domain and label" do
+    result = described_class.call(no_allow_network_issue, intelligence: policy_intelligence(no_matching_network_evaluation("name_bind")))
+
+    expect(result).to include(kind: "no_matching_allow", operation: "name_bind", bind_port: "9090")
+    expect(result).not_to have_key(:destination_port)
+    expect(result[:title]).to eq("httpd (httpd_t) was denied binding to TCP port 9090")
+    expect(result[:lead]).to include("labeled websm_port_t", "does not allow httpd_t to bind to ports with that label")
+    expect(result[:next_step]).to include("listen on TCP port 9090", "service configuration and SELinux port mapping", "does not establish that the port label should change")
+    expect(result[:next_step]).not_to include("object path")
+  end
+
+  it "distinguishes outbound connections from local binding even in permissive mode" do
+    item = no_matching_network_evaluation("name_connect").merge(enforcement_mode: "permissive")
+    result = described_class.call(no_allow_network_issue(operation: "name_connect"), intelligence: policy_intelligence(item))
+
+    expect(result).to include(operation: "name_connect", destination_port: "9090", syscall_failed: false)
+    expect(result).not_to have_key(:bind_port)
+    expect(result[:title]).to include("denied connecting to TCP port 9090")
+    expect(result[:title]).not_to include("blocked")
+    expect(result[:lead]).to include("connect to ports with that label")
+    expect(result[:next_step]).not_to include("listen")
+  end
+
+  it "does not select a port from missing or ambiguous occurrence evidence" do
+    [[], ["9090", "9091"]].each do |ports|
+      result = described_class.call(no_allow_network_issue(ports: ports), intelligence: policy_intelligence(no_matching_network_evaluation("name_bind")))
+
+      expect(result).not_to have_key(:bind_port)
+      expect(result[:title]).to include("port (number not recorded unambiguously)")
+      expect(result[:title]).not_to include("9090")
+    end
+  end
+
+  def no_allow_network_issue(operation: "name_bind", ports: ["9090"])
+    denial = instance_double(NormalizedDenial, source_type: "httpd_t", target_type: "websm_port_t", target_class: "tcp_socket",
+      permissions: [operation], command: "httpd", details: { "network_evidence" => { (operation == "name_bind" ? "bind_port_fields" : "dest_fields") => ports } })
+    occurrence = instance_double(Occurrence, id: 12266, normalized_denial: denial)
+    instance_double(Issue, source_type: "httpd_t", target_type: "websm_port_t", target_class: "tcp_socket", permissions: [operation], occurrences: [occurrence])
+  end
+
+  def no_matching_network_evaluation(operation)
+    { status: "evaluated", occurrence_id: 12266, policy_identity: ["sha256:policy"], rule_state: "no_matching_allow", enforcement_mode: "enforcing",
+      evaluations: [{ "permissions" => [operation], "result" => "no_match" }] }
+  end
+
   it "does not collapse mixed observed permission states into one finding" do
     item = no_matching_file_evaluation
     item[:evaluations] << { "permissions" => ["open"], "result" => "matched" }

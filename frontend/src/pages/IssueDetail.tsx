@@ -115,6 +115,7 @@ function primaryFindingLead(diagnosis: Diagnosis): string | null {
   }
   if (diagnosis.kind === "conditional_allow_inactive") return diagnosis.operation === "read" ? "A matching SELinux read rule exists, but its condition was inactive at the associated host checkpoint." : "A matching SELinux allow path exists, but its condition was inactive at the associated host checkpoint.";
   if (diagnosis.kind === "no_matching_allow") {
+    if (["name_bind", "name_connect"].includes(diagnosis.operation ?? "")) return text(row(diagnosis).lead);
     if (diagnosis.permissions?.includes("entrypoint")) return "The evaluated policy has no allow rule for this launch on the observed file label.";
     if (diagnosis.permissions?.includes("getattr")) return `The evaluated policy has no allow rule for checking metadata on this file labeled ${diagnosis.target_type ?? "the observed type"}.`;
     return `The evaluated policy has no allow rule for the denied ${permissionLabel(diagnosis.permissions?.[0] ?? "access")}.`;
@@ -139,6 +140,7 @@ function issueHeadline(detail: IssueDetailResponse): string {
 }
 
 function primaryLimitation(diagnosis: Diagnosis): string | null {
+  if (diagnosis.kind === "no_matching_allow" && ["name_bind", "name_connect"].includes(diagnosis.operation ?? "")) return null;
   if (diagnosis.kind === "file_context_mismatch") return "The expected label was checked shortly after the denial; it may not reflect the label configuration at that time.";
   if (diagnosis.kind === "conditional_allow_inactive" && diagnosis.operation === "execute") return "This denial does not establish that a domain transition was attempted or intended.";
   if (diagnosis.kind === "conditional_allow_inactive") return null;
@@ -211,6 +213,7 @@ function FindingCard({ detail }: { detail: IssueDetailResponse }) {
       {lead && <p className="issue-finding-lead">{lead}</p>}
       {diagnosis.kind === "conditional_allow_inactive" && <p>Recorded target type: <code>{diagnosis.target_type ?? issue.target_type}</code></p>}
       <DiagnosisEvidence diagnosis={diagnosis} />
+      {diagnosis.kind === "no_matching_allow" && ["name_bind", "name_connect"].includes(diagnosis.operation ?? "") && <p><strong>Investigate:</strong> {diagnosis.next_step}</p>}
        {primaryLimitation(diagnosis) && <p className="issue-limitation"><strong>Limitation:</strong> {primaryLimitation(diagnosis)}</p>}
      </article> : <MissingExplanation issue={issue} paths={intelligence.paths} names={intelligence.names} hasFindings={(findings?.length ?? 0) > 0} policyAnalysis={policy_analysis} />}
   </section>;

@@ -672,6 +672,29 @@ RSpec.describe "Issues API", type: :request do
     expect(host_explanation(equivalent)).to include("status" => "agreement")
   end
 
+  it "keeps port-specific no-match findings scoped to their own occurrences" do
+    issue = create_issue(target_type: "unreserved_port_t", target_class: "tcp_socket", permissions: ["name_connect"])
+    first = create_occurrence(issue, "host-a", 1)
+    second = create_occurrence(issue, "host-a", 2, host: first.host)
+    [first, second].each { |occurrence| configure_policy_occurrence(occurrence, result: "no_match", identity: "sha256:policy") }
+    details = second.normalized_denial.details.deep_dup
+    details["network_evidence"]["dport_fields"] = ["9090"]
+    second.normalized_denial.update!(details: details)
+
+    get "/api/v1/issues/#{issue.id}"
+
+    body = JSON.parse(response.body)
+    expect(body.fetch("findings").sole.fetch("occurrence_count")).to eq(1)
+    expect(body.fetch("additional_finding_count")).to eq(1)
+    groups = body.fetch("host_explanations").sole.fetch("diagnosis_groups")
+    expect(groups.map { |group| group.dig("diagnosis", "destination_port") }).to contain_exactly("12345", "9090")
+    expect(groups.map { |group| group.fetch("count") }).to eq([1, 1])
+    groups.each do |group|
+      diagnosis = group.fetch("diagnosis")
+      expect(diagnosis.fetch("title")).to include("connecting to TCP port #{diagnosis.fetch('destination_port')}")
+    end
+  end
+
   it "compares file-context types and preserves insufficient per-occurrence evidence" do
     issue = create_issue(target_type: "var_t")
     first = create_occurrence(issue, "host-a", 1)

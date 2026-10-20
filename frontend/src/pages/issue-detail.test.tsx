@@ -338,6 +338,32 @@ describe("issue investigation", () => {
     expect(diagnosis).not.toHaveTextContent("no active allow rule");
     expect(document.querySelector(".issue-investigation details")).toBeNull();
   });
+  it.each(["name_bind", "name_connect"])("explains the port-label conflict for %s instead of leading with a generic policy result", async (operation) => {
+    const bind = operation === "name_bind";
+    const payload = detailPayload(bind ? "003" : "002");
+    const title = `httpd (httpd_t) was denied ${bind ? "binding" : "connecting"} to TCP port 9090`;
+    const lead = `The port was labeled websm_port_t. The evaluated policy does not allow httpd_t to ${bind ? "bind to" : "connect to"} ports with that label.`;
+    payload.issue.target_type = "websm_port_t";
+    payload.diagnosis = {
+      kind: "no_matching_allow", title, lead, operation, permissions: [operation], source_domain: "httpd_t",
+      target_type: "websm_port_t", target_class: "tcp_socket", occurrence_id: 101, host_id: 10,
+      interpretation: "No matching allow explains the observed policy denial, not workload intent.",
+      limitation: "No matching allow does not establish a wrong target label or required custom policy.",
+      ...(bind ? { bind_port: "9090" } : { destination_port: "9090" }),
+      next_step: `Confirm whether httpd is intended to ${bind ? "listen on" : "connect to"} TCP port 9090. If so, check whether the service configuration and SELinux port mapping agree; this does not establish that the port label should change.`
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    renderDetail();
+
+    const diagnosis = await screen.findByRole("region", { name: "Diagnosis" });
+    expect(within(diagnosis).getByRole("heading", { level: 3 })).toHaveTextContent(title);
+    expect(within(diagnosis).getByText(lead)).toBeVisible();
+    expect(diagnosis).toHaveTextContent(`intended to ${bind ? "listen on" : "connect to"} TCP port 9090`);
+    expect(diagnosis).toHaveTextContent("does not establish that the port label should change");
+    expect(diagnosis).not.toHaveTextContent("No matching SELinux allow was found");
+    expect(diagnosis).not.toHaveTextContent("Limitation:");
+  });
+
   it("keeps Diagnosis command-free and stable while the active workspace owns resource-specific inspection", async () => {
     const payload = detailPayload("003");
     payload.operator_guidance = {

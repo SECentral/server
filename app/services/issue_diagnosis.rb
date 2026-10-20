@@ -201,8 +201,29 @@ class IssueDiagnosis
       limitation: "No matching allow does not establish a wrong target label, required custom policy, or intended workload access.",
       policy_guidance: "Review the object identity, workload intent, labels, constraints, and policy evidence before making any change. This finding does not authorize a policy, labeling, boolean, or enforcement change.",
       temporal_scope: "correlated_occurrence_state",
-      evaluations: candidate[:item][:evaluations]
+      evaluations: candidate[:item][:evaluations],
+      **network_no_matching_allow_details(denial)
     }.compact
+  end
+
+  def network_no_matching_allow_details(denial)
+    endpoint = PortMappingGuidance.endpoint(denial)
+    return {} unless endpoint
+
+    bind = endpoint[:operation] == "name_bind"
+    protocol = endpoint[:protocol].upcase
+    resource = endpoint[:port] ? "#{protocol} port #{endpoint[:port]}" : "a #{protocol} port (number not recorded unambiguously)"
+    action = bind ? "bind to" : "connect to"
+    command = denial.command if denial.respond_to?(:command)
+    actor = command.present? ? "#{command} (#{@issue.source_type})" : @issue.source_type
+    {
+      operation: endpoint[:operation],
+      bind_port: bind ? endpoint[:port]&.to_s : nil,
+      destination_port: bind ? nil : endpoint[:port]&.to_s,
+      title: "#{actor} was denied #{bind ? 'binding' : 'connecting'} to #{resource}",
+      lead: "The port was labeled #{@issue.target_type}. The evaluated policy does not allow #{@issue.source_type} to #{action} ports with that label.",
+      next_step: "Confirm whether #{command.presence || @issue.source_type} is intended to #{bind ? 'listen on' : 'connect to'} #{resource}. If so, check whether the service configuration and SELinux port mapping agree; this does not establish that the port label should change."
+    }
   end
 
   def conditional_allow_candidate
@@ -491,6 +512,7 @@ class IssueDiagnosis
     when "no_matching_allow"
       { kind: diagnosis[:kind], source_type: occurrence.normalized_denial.source_type,
         target_type: diagnosis[:target_type], target_class: diagnosis[:target_class], permissions: Array(diagnosis[:permissions]).sort,
+        operation: diagnosis[:operation], endpoint: diagnosis[:bind_port] || diagnosis[:destination_port],
         policy_evidence: policy_evidence_signature(evaluation, diagnosis[:permissions]) }
     when "file_context_mismatch"
       candidate = occurrence_mismatch_candidate(occurrence)
