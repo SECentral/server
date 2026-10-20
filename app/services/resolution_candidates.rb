@@ -214,6 +214,14 @@ class ResolutionCandidates
       end
       candidate[:presentation] = direct_source ? "primary" : "technical_alternative"
       candidate[:presentation_reason] = direct_source ? "The retained conditional rule names the workload's source type directly. This is a review lead, not proof of intent." : "The retained rule matches through a source attribute, not a workload-specific source type. Confirm the capability's purpose before choosing this technical alternative."
+      home_content = @issue.source_type == "httpd_t" && @issue.target_type == "user_home_t" && @issue.target_class == "file"
+      if home_content
+        paths = Array(occurrence.normalized_denial.details.dig("target_evidence", "filesystem_paths")).uniq
+        candidate[:requires_home_content_review] = true
+        candidate[:home_content_path] = paths.one? ? paths.first : nil
+        candidate[:presentation] = "technical_alternative"
+        candidate[:presentation_reason] = "Identify the file and inspect current/configured labels first. A matching Boolean does not establish intentional home-content access."
+      end
       rules = (current_rules.presence || [rule[:rule]]).uniq.sort
       symbols = rules.filter_map do |r|
         match = PolicyRuleEvaluator::RULE.match(r)
@@ -227,7 +235,10 @@ class ResolutionCandidates
         expected_effect: "Activates the retained True-branch allow path for #{finding[:permission]}. Other checks may still deny access; workload intent remains your decision.",
         limitations: ["Checkpoint state is not an AVC-time or apply-time measurement.", "Persistent rollback state unknown; runtime Off does not establish the persistent setting.",
           "The complete host-wide effects of this boolean are not enumerated.",
-          (candidate[:status] == "no_longer_supported" ? "The latest retained state already has the boolean On or lacks a matching current policy fact; no applicable plan is exposed." : "Inspect current runtime and persistent state before making a change.")])
+           (candidate[:status] == "no_longer_supported" ? "The latest retained state already has the boolean On or lacks a matching current policy fact; no applicable plan is exposed." : "Inspect current runtime and persistent state before making a change.")])
+      if home_content
+        candidate[:intent_prompt] = "I identified this file on the named host, checked its current and configured SELinux labels and account/home configuration, and confirm Apache should intentionally serve this home content. I reviewed this Boolean's broader host-wide effects."
+      end
       basis = { version: VERSION, occurrence_id: occurrence.id, host_id: occurrence.host_id, finding_kind: finding[:kind],
         historical_policy_identity: finding[:policy_identity], checkpoint_id: occurrence.host_snapshot_id,
         historical_policy_fact_ids: Array(finding[:evaluations]).map { |f| f["policy_fact_id"] }.compact,
@@ -251,6 +262,13 @@ class ResolutionCandidates
           permission: finding[:permission], result: fact&.status, evaluator_version: fact&.evaluator_version,
           matching_rules: rules, rule_details: ResolutionPlanBasis.ordered_set(details) }
       }
+      if home_content
+        basis[:home_content_names] = Array(occurrence.normalized_denial.details.dig("target_evidence", "object_names"))
+        basis[:home_content_path] = candidate[:home_content_path]
+        semantic_basis[:home_content_review_required] = true
+        semantic_basis[:home_content_path] = candidate[:home_content_path]
+        semantic_basis[:home_content_names] = basis[:home_content_names].sort
+      end
       finish(candidate, basis, semantic_basis, {
         preview_steps: [step("Inspect runtime boolean", "getsebool #{name}", "Stop and re-review if runtime state is no longer Off."),
           step("Inspect persistent/local boolean configuration", "sudo semanage boolean -l", "Record the previous persistent setting before choosing a persistent change; this is inspection, not a preview of all policy effects.")],

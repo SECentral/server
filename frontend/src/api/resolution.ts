@@ -5,10 +5,11 @@ export type ResolutionWorkflow = Types.ResolutionWorkflow;
 export type ChangePlan = Types.ChangePlan;
 export type PolicyDraft = Types.PolicyDraft;
 export type PolicyDraftExport = Types.PolicyDraftExport;
+export type HomeContentReview = { path: string; confirmed: boolean };
 
 export const fetchResolutions = (id: number) => apiFetch<ResolutionWorkflow>(`/api/v1/issues/${id}/resolutions`);
-export const selectIntent = (id: number, candidate_id: string, evidence_version: string) =>
-  apiFetch<ResolutionWorkflow>(`/api/v1/issues/${id}/resolution-intent`, { method: "PATCH", body: { candidate_id, evidence_version } });
+export const selectIntent = (id: number, candidate_id: string, evidence_version: string, home_content_review?: HomeContentReview) =>
+  apiFetch<ResolutionWorkflow>(`/api/v1/issues/${id}/resolution-intent`, { method: "PATCH", body: { candidate_id, evidence_version, ...(home_content_review ? { home_content_review } : {}) } });
 export const clearIntent = (id: number) => apiFetch<ResolutionWorkflow>(`/api/v1/issues/${id}/resolution-intent`, { method: "DELETE" });
 export const fetchDrafts = (issue_id: number) => apiFetch<{ drafts: PolicyDraft[] }>(`/api/v1/policy-drafts?issue_id=${issue_id}`);
 export const createDraft = (issue_id: number, name: string) => apiFetch<PolicyDraft>("/api/v1/policy-drafts", { method: "POST", body: { issue_id, name } });

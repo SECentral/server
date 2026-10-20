@@ -42,6 +42,29 @@ function mount() {
 }
 
 describe("Evidence-driven resolution UI", () => {
+  it("requires identified file and home-content confirmation before submitting a Boolean review", async () => {
+    const state = initial();
+    state.candidates = [{ ...candidate, id: "home-content", requires_home_content_review: true, home_content_path: null, presentation: "technical_alternative",
+      evidence_basis: { occurrence_id: 1, boolean: "httpd_read_user_content" }, intent_prompt: "I checked labels and confirm intentional home content." }];
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(state), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("button", { name: /Alternative policy approaches/ }));
+    await user.click(screen.getByRole("button", { name: "Review Boolean change" }));
+    const confirm = screen.getByRole("button", { name: "Confirm intent" });
+    expect(confirm).toBeDisabled();
+    expect(screen.getByText(/account\/NSS database/)).toBeVisible();
+    expect(screen.queryByText("sudo setsebool httpd_read_user_content on")).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText("Identified home-content file path"), "/srv/custom-home/alice/report.html");
+    expect(confirm).toBeDisabled();
+    await user.click(screen.getByRole("checkbox", { name: /I completed these checks/ }));
+    expect(confirm).toBeEnabled();
+    await user.click(confirm);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/1939/resolution-intent", expect.objectContaining({ method: "PATCH",
+      body: JSON.stringify({ candidate_id: "home-content", evidence_version: "v1", home_content_review: { path: "/srv/custom-home/alice/report.html", confirmed: true } }) })));
+  });
+
   it("synchronizes file resource focus, preserves full identities and reports failed evidence without substituting the latest event", async () => {
     const state = initial();
     const paths = ["/srv/a/20261006/first", "/srv/a/20261006/later-modify", "/srv/b/20261006/first"];

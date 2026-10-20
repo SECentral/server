@@ -9,7 +9,7 @@ import CopyIcon from "@patternfly/react-icons/dist/esm/icons/copy-icon";
 import { fetchIssueOccurrence, type IssueDetailResponse } from "../api/issue";
 import { ContextSidebar, EvidenceLink, ObservedAccessFlow, TechnicalEvidenceDisclosure, evidenceRecord, valueText } from "./WorkbenchEvidence";
 import { clearIntent, createDraft, exportDraft, fetchDrafts, fetchResolutions, removeEntry, selectIntent, stagePermission,
-  type ChangePlan as PlanData, type PolicyDraftExport, type ResolutionWorkflow as Workflow } from "../api/resolution";
+  type ChangePlan as PlanData, type HomeContentReview, type PolicyDraftExport, type ResolutionWorkflow as Workflow } from "../api/resolution";
 import { activeResolutionResource, fileResourceLabel, resolutionResources } from "./resolutionResources";
 import { OperatorChecks, OperatorVerification, ReadOnlyCommands } from "./OperatorGuidance";
 import { Disclosure as ExpandableSection } from "./Disclosure";
@@ -53,6 +53,7 @@ function ChangePlan({ plan, detail }: { plan: PlanData; detail?: IssueDetailResp
   return <section className="selected-change-plan" aria-label="Selected change plan"><header className="workbench-section-header"><h3>Reviewed runbook</h3><Label color="blue">Review current against retained evidence</Label></header>
     <div className="plan-scope"><ShieldAltIcon aria-hidden="true" /><strong>{port ? "Host protocol/port classification" : file ? "Single evidenced object · no recursion" : "Host-wide SELinux boolean"}</strong><a href="#plan-rollback" onClick={() => setRollbackOpen(true)}>Rollback</a></div>
     <p>{plan.scope_description}</p>
+    {evidenceRecord(plan.evidence_basis.home_content_review).confirmed === true && <p>Operator-confirmed home-content path: <code>{String(evidenceRecord(plan.evidence_basis.home_content_review).path)}</code>. This is a review statement, not a filesystem observation collected by SECentral.</p>}
     <ExpandableSection className="plan-mechanism" toggleText="Why this affects the denial"><p>{plan.explanation}</p></ExpandableSection>
     <section id="plan-inspection" tabIndex={-1}><h3>1. Inspect host baseline <Label isCompact color="blue">Read-only</Label></h3>
       {port && <PriorPortMappings basis={plan.evidence_basis} />}
@@ -78,6 +79,7 @@ function ChangePlan({ plan, detail }: { plan: PlanData; detail?: IssueDetailResp
 }
 
 type Candidate = Workflow["candidates"][number];
+type SelectCandidate = (candidate: Candidate, review?: HomeContentReview) => void;
 
 function candidatePresentation(candidate: Candidate) {
   const boolean = evidenceRecord(candidate.evidence_basis.current_boolean);
@@ -96,6 +98,7 @@ function candidateNextStep(candidate: Candidate): string | null {
     : "Refresh the missing or stale evidence identified below and inspect runtime state before reviewing a change.";
   if (state === "unsupported") return "Inspect the policy-evidence blocker below; no applicable change plan is supported by the retained evidence.";
   if (candidate.kind === "restore_configured_label") return "Inspect current object identity and host-configured labeling before reviewing targeted restoration.";
+  if (candidate.requires_home_content_review) return "Identify the file, inspect its labels and configured home location, and confirm intentional home-content access before reviewing a Boolean change.";
   if (candidate.kind === "enable_boolean") return "Inspect runtime and persistent Boolean state, then review the host-wide impact before choosing an intent.";
   return null;
 }
@@ -105,9 +108,9 @@ function FocusedResource({ issueId, workflow, detail, stage, onShowTechnicalEvid
   const active = activeResolutionResource(workflow, params.get("resource"), detail?.operator_guidance?.source);
   const candidate = active?.candidates[0];
   const source = detail?.operator_guidance?.source;
-  const path = valueText(candidate?.evidence_basis.path) ?? (!active ? source?.path : null);
-  const occurrenceId = active?.port?.occurrence_id ?? candidate?.evidence_basis.occurrence_id ?? source?.occurrence_id;
-  const hostId = active?.port?.host_id ?? candidate?.host_id ?? source?.host_id;
+  const path = active?.source?.path ?? valueText(candidate?.evidence_basis.path) ?? (!active ? source?.path : null);
+  const occurrenceId = active?.port?.occurrence_id ?? active?.source?.occurrence_id ?? candidate?.evidence_basis.occurrence_id ?? source?.occurrence_id;
+  const hostId = active?.port?.host_id ?? active?.source?.host_id ?? candidate?.host_id ?? source?.host_id;
   const needsOccurrence = typeof occurrenceId === "number" && (occurrenceId !== workflow.observed_access?.occurrence_id || hostId !== workflow.observed_access?.host_id || !!path && path !== workflow.observed_access?.resource);
   const query = useQuery({ queryKey: ["issue-occurrence", issueId, occurrenceId], queryFn: () => fetchIssueOccurrence(issueId, occurrenceId as number), enabled: needsOccurrence });
   if (needsOccurrence && (query.isPending || query.isError || !query.data?.normalized_denial || query.data.id !== occurrenceId || query.data.host?.id !== hostId)) return <section aria-label={stage === "observed" ? "Observed access" : "Investigation context"}>{query.isPending ? <Spinner size="md" aria-label="Loading active resource" /> : <Alert isInline variant="warning" title="Active resource evidence unavailable"><Button variant="link" onClick={() => void query.refetch()}>Retry evidence</Button></Alert>}</section>;
@@ -217,8 +220,10 @@ function PortInvestigation({ investigation, workflow, busy, onSelect, children }
   </article>;
 }
 
-function ResolutionCandidateCard({ candidate, selected, freshness, busy, onSelect }: { candidate: Candidate; selected: boolean; freshness: Workflow["freshness"]; busy: boolean; onSelect: (c: Candidate) => void }) {
+function ResolutionCandidateCard({ candidate, selected, freshness, busy, onSelect }: { candidate: Candidate; selected: boolean; freshness: Workflow["freshness"]; busy: boolean; onSelect: SelectCandidate }) {
   const [confirming, setConfirming] = useState(false);
+  const [homePath, setHomePath] = useState(candidate.home_content_path ?? "");
+  const [homeConfirmed, setHomeConfirmed] = useState(false);
   const basis = candidate.evidence_basis;
   const boolean = evidenceRecord(basis.current_boolean);
   const state = boolean.status && boolean.status !== "observed" ? `Not verified (${String(boolean.status)})` : typeof boolean.current === "boolean" ? boolean.current ? "On" : "Off" : "Not verified";
@@ -242,7 +247,13 @@ function ResolutionCandidateCard({ candidate, selected, freshness, busy, onSelec
       : (port || !unavailable) && <p className="candidate-relevance">{port ? candidate.explanation : "Matching independent policy path"}</p>}
     <dl className="candidate-facts">{!path && !port && <div><dt>Recorded state</dt><dd>Off at checkpoint · last observed Boolean state: <Label color={state === "Off" ? "orange" : "grey"} isCompact>{state}</Label>. Recheck runtime state.</dd></div>}<div><dt>Scope</dt><dd>{port ? "Host protocol/port classification" : candidate.scope_kind === "host_boolean" ? "Host-wide boolean" : "Targeted path relabel"} · {candidate.hostname ?? "Host not recorded"}</dd></div>{typeof basis.occurrence_id === "number" && <div><dt>Evidence example</dt><dd><Link to={`/hosts/${candidate.host_id}/occurrences/${basis.occurrence_id}`}>Occurrence #{basis.occurrence_id}</Link></dd></div>}</dl>
     {candidate.scope_kind === "host_boolean" && <p className="candidate-breadth">Can enable broader access through other policy rules; not limited to this occurrence or destination.</p>}
-    {!unavailable && (confirming ? <div className="intent-confirmation"><p>{candidate.intent_prompt}</p><Button variant="primary" isDisabled={busy} onClick={() => onSelect(candidate)}>Confirm intent</Button><Button variant="link" onClick={() => setConfirming(false)}>Cancel</Button></div>
+    {!unavailable && (confirming ? <div className="intent-confirmation"><p>{candidate.intent_prompt}</p>
+      {candidate.requires_home_content_review && <>
+        <p>Identify the actual file on {candidate.hostname ?? "this host"} and inspect its current label and configured context first. Verify home-directory configuration through the account/NSS database (for example, getent passwd for a known account) and SELinux home mappings; /home or file ownership alone does not establish intent.</p>
+        <label>Identified absolute file path<TextInput aria-label="Identified home-content file path" value={homePath} onChange={(_event, value) => { setHomePath(value); setHomeConfirmed(false); }} /></label>
+        <label><input type="checkbox" checked={homeConfirmed} onChange={(event) => setHomeConfirmed(event.target.checked)} /> I completed these checks and intend Apache to serve this home content.</label>
+      </>}
+      <Button variant="primary" isDisabled={busy || (candidate.requires_home_content_review && (!homeConfirmed || !homePath.startsWith("/")))} onClick={() => onSelect(candidate, candidate.requires_home_content_review ? { path: homePath, confirmed: homeConfirmed } : undefined)}>Confirm intent</Button><Button variant="link" onClick={() => { setConfirming(false); setHomeConfirmed(false); }}>Cancel</Button></div>
           : <><Button variant="primary" isDisabled={busy} onClick={() => setConfirming(true)}>{selected ? "Review updated option" : path ? "Review label restoration" : candidate.kind === "enable_boolean" ? "Review Boolean change" : "Choose intent"}</Button><p className="workbench-caption">Review impact, then confirm intent to see the proposed runbook. Selection does not apply or verify a change.</p></>)}
     <p>{candidate.scope_warning}</p>
     {visibleLimitations.length > 0 && <ul>{visibleLimitations.map((text) => <li key={text}>{text}</li>)}</ul>}
@@ -255,10 +266,10 @@ function ResolutionCandidateCard({ candidate, selected, freshness, busy, onSelec
   </article>;
 }
 
-function CandidateGroup({ candidates, workflow, busy, onSelect }: { candidates: Candidate[]; workflow: Workflow; busy: boolean; onSelect: (c: Candidate) => void }) {
+function CandidateGroup({ candidates, workflow, busy, onSelect }: { candidates: Candidate[]; workflow: Workflow; busy: boolean; onSelect: SelectCandidate }) {
   const labels = candidates.filter((c) => c.kind === "restore_configured_label");
   const others = candidates.filter((c) => c.kind !== "restore_configured_label" && c.kind !== "set_port_mapping");
-  const card = (candidate: Candidate) => <ResolutionCandidateCard key={candidate.id} candidate={candidate} selected={workflow.intent?.candidate_id === candidate.id} freshness={workflow.freshness} busy={busy} onSelect={onSelect} />;
+  const card = (candidate: Candidate) => <ResolutionCandidateCard key={`${candidate.id}:${candidate.evidence_version}`} candidate={candidate} selected={workflow.intent?.candidate_id === candidate.id} freshness={workflow.freshness} busy={busy} onSelect={onSelect} />;
   if (labels.length === 1 && workflow.intent?.candidate_id === labels[0].id && !others.length) return card(labels[0]);
   return <>{labels.length > 0 && <section className="candidate-group" aria-label="Restore configured SELinux labeling"><h3>Restore configured SELinux labeling <span aria-hidden="true">· </span><small>{labels.length} signature-scoped candidate{labels.length === 1 ? "" : "s"}</small></h3><div className="candidate-grid candidate-paths">{labels.map(card)}</div></section>}
     {others.length > 0 && <div className="candidate-grid">{others.map(card)}</div>}</>;
@@ -360,7 +371,7 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
   </section> : null;
   const selected = workflow.candidates.find((c) => c.id === workflow.intent?.candidate_id);
   const source = detail?.operator_guidance?.source;
-  const resources = resolutionResources(workflow);
+  const resources = resolutionResources(workflow, source);
   const reviewedResource = resources.find((resource) => resource.candidates.some((c) => c.id === workflow.intent?.candidate_id));
   const active = activeResolutionResource(workflow, requestedResource, source);
   const selectedHere = !!selected && !!active?.candidates.includes(selected);
@@ -373,7 +384,7 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
       : selected.kind === "restore_configured_label" ? selected.evidence_basis.path === source.path : selected.evidence_basis.occurrence_id === source.occurrence_id);
   const inspectionElsewhere = !!active && !!source && (active.port ? active.port.host_id === source.host_id &&
     (active.port.occurrence_id === source.occurrence_id || (active.port.port === source.port && active.port.protocol === source.protocol && active.port.operation === source.operation))
-    : active.candidates.some((candidate) => candidate.host_id === source.host_id && (source.path ? candidate.evidence_basis.path === source.path : candidate.evidence_basis.occurrence_id === source.occurrence_id)));
+    : active.source?.occurrence_id === source.occurrence_id || active.candidates.some((candidate) => candidate.host_id === source.host_id && (source.path ? candidate.evidence_basis.path === source.path : candidate.evidence_basis.occurrence_id === source.occurrence_id)));
   const nextCandidate = selectedHere ? selected : primaryOptions.find((candidate) => candidatePresentation(candidate).state === "observed_on") ?? primaryOptions.find((candidate) => candidatePresentation(candidate).state === "verify") ?? primaryOptions[0];
   const missingPath = detail && ["file", "dir"].includes(detail.issue?.target_class) && source && !source.path && (!active || inspectionElsewhere);
   const nextStep = plan ? "Inspect the reviewed host/resource baseline before making any change."
@@ -384,7 +395,7 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
     : active?.port?.operation === "name_connect" ? "Confirm the intended remote service, inspect runtime Boolean state and check port policy classification."
     : nextCandidate ? candidateNextStep(nextCandidate)
     : (!active || inspectionElsewhere) && source?.path ? "Inspect the current file label and host-configured labeling before considering restoration." : null;
-  const resourceOccurrenceId = active?.port?.occurrence_id ?? active?.candidates[0]?.evidence_basis.occurrence_id;
+  const resourceOccurrenceId = active?.port?.occurrence_id ?? active?.source?.occurrence_id ?? active?.candidates[0]?.evidence_basis.occurrence_id;
   const inspection = !plan && ((inspectionElsewhere || !active) && detail?.operator_guidance ? <OperatorChecks detail={detail} />
     : active && typeof resourceOccurrenceId === "number" && Number.isSafeInteger(resourceOccurrenceId) && resourceOccurrenceId > 0 ? <ResourceInspection key={active.key} issueId={issueId} occurrenceId={resourceOccurrenceId} /> : null);
   const compactPorts = resources.length > 0 && resources.every((resource) => resource.port && resource.port.host_id === resources[0].port?.host_id && resource.port.operation === resources[0].port?.operation);
@@ -400,7 +411,7 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
     next.delete("phase");
     return next;
   });
-  const choose = (c: Candidate) => void run(() => selectIntent(issueId, c.id, c.evidence_version));
+  const choose: SelectCandidate = (candidate, review) => void run(() => selectIntent(issueId, candidate.id, candidate.evidence_version, review));
   return <Card isCompact className="resolution-options"><CardBody>
     <section aria-label="Resolution options"><header className="workbench-section-header"><h2>Resolution workspace</h2>{workflow.intent && <Button variant="link" isDisabled={busy} onClick={() => void run(() => clearIntent(issueId))}>Clear selected intent</Button>}</header>
       {error && <Alert variant="danger" isInline title="Intent update failed">{error}</Alert>}
@@ -427,7 +438,7 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
       {selectedHere && (selected.kind === "set_port_mapping" ? <ResolutionCandidateCard candidate={selected} selected freshness={workflow.freshness} busy={busy} onSelect={choose} /> : <CandidateGroup candidates={[selected]} workflow={workflow} busy={busy} onSelect={choose} />)}
       {plan && <ChangePlan plan={plan} detail={sameCheckScope ? detail : undefined} />}
       {selectedHere ? alternatives.length > 0 && <ExpandableSection className="other-options" toggleText={`Alternative approaches · ${alternatives.length}${alternatives.some((candidate) => candidate.scope_kind === "host_boolean") ? " · Host-wide Boolean; broader access" : ""}`}><CandidateGroup candidates={alternatives} workflow={workflow} busy={busy} onSelect={choose} /></ExpandableSection>
-        : <><CandidateGroup candidates={primaryOptions} workflow={workflow} busy={busy} onSelect={choose} />{technicalOptions.length > 0 && <ExpandableSection className="other-options" toggleText={`Alternative policy approaches · ${technicalOptions.length} · Host-wide scope`}><p>These matching paths use a source attribute; review the capability's purpose and broader effects.</p><CandidateGroup candidates={technicalOptions} workflow={workflow} busy={busy} onSelect={choose} /></ExpandableSection>}</>}
+         : <><CandidateGroup candidates={primaryOptions} workflow={workflow} busy={busy} onSelect={choose} />{technicalOptions.length > 0 && <ExpandableSection className="other-options" toggleText={`Alternative policy approaches · ${technicalOptions.length} · Host-wide scope`}><p>Matching policy paths do not establish workload intent. Identify the resource, inspect its configuration and review the capability's broader effects.</p><CandidateGroup candidates={technicalOptions} workflow={workflow} busy={busy} onSelect={choose} /></ExpandableSection>}</>}
       {workflow.candidates.length > 0 && !selected && <p className="workbench-caption">You can choose neither and continue investigating.</p>}
       {!plan && detail?.triage_guidance && (!active || inspectionElsewhere) && <ExpandableSection toggleText="Post-restoration verification checklist"><OperatorVerification detail={detail} inline /></ExpandableSection>}
       </section>

@@ -47,6 +47,53 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
     JSON.parse(response.body)
   end
 
+  def home_content_fixture(path: nil)
+    issue, occurrence, host, snapshot = fixture(network: false, path: path)
+    issue.update!(permissions: ["read"])
+    occurrence.normalized_denial.update!(permissions: ["read"], details: {
+      "enforcement_mode" => "enforcing", "syscall_evidence" => [{ "success" => "no" }],
+      "target_evidence" => { "filesystem_paths" => [path].compact, "object_names" => ["report.html"] }
+    })
+    occurrence.raw_event.update!(file_context_observations: [])
+    snapshot.update!(details: snapshot.details.deep_merge("selinux" => {
+      "booleans" => [{ "name" => "httpd_read_user_content", "current" => false, "status" => "observed" }]
+    }))
+    PolicyFact.create!(policy_identity: snapshot.details.dig("selinux", "policy_identity"), query_kind: "allow", source_type: "httpd_t",
+      target_type: "user_home_t", object_class: "file", permission: "read", status: "matched", evaluator_version: "test",
+      matching_rules: ["allow httpd_t user_home_t:file read; [ httpd_read_user_content ]:True"])
+    [issue, occurrence, host, snapshot]
+  end
+
+  it "keeps home-content Boolean changes secondary and requires a path and explicit home-content review on the server" do
+    issue, _, host, = home_content_fixture
+    candidate = workflow(issue).fetch("candidates").sole
+    expect(candidate).to include("requires_home_content_review" => true, "presentation" => "technical_alternative", "home_content_path" => nil)
+    params = { candidate_id: candidate.fetch("id"), evidence_version: candidate.fetch("evidence_version") }
+    [nil, { path: "/home/alice/report.html", confirmed: false }, { path: "report.html", confirmed: true },
+      { path: "/home/alice/../report.html", confirmed: true }, { path: "/home/alice/wrong.html", confirmed: true }].each do |review|
+      mutate("/api/v1/issues/#{issue.id}/resolution-intent", **params, home_content_review: review)
+      expect(response).to have_http_status(:conflict)
+      expect(ResolutionIntent.where(issue: issue)).to be_empty
+    end
+    review = { path: "/srv/custom-home/alice/report.html", confirmed: true }
+    mutate("/api/v1/issues/#{issue.id}/resolution-intent", **params, home_content_review: review)
+    expect(response).to have_http_status(:ok)
+    intent = ResolutionIntent.find_by!(issue: issue)
+    expect(intent.evidence_basis["home_content_review"]).to eq(review.stringify_keys.merge("host_id" => host.id))
+    expect(workflow(issue)).to include("freshness" => "current", "change_plan" => include("evidence_basis" => include("home_content_review" => include("path" => review[:path]))))
+    intent.update!(evidence_basis: intent.evidence_basis.except("home_content_review"))
+    expect(workflow(issue)).to include("freshness" => "evidence_changed", "change_plan" => nil)
+  end
+
+  it "requires the home-content review path to match a retained absolute path" do
+    issue, = home_content_fixture(path: "/home/alice/report.html")
+    candidate = workflow(issue).fetch("candidates").sole
+    mutate("/api/v1/issues/#{issue.id}/resolution-intent", candidate_id: candidate["id"], evidence_version: candidate["evidence_version"],
+      home_content_review: { path: "/srv/custom-home/alice/report.html", confirmed: true })
+    expect(response).to have_http_status(:conflict)
+    expect(ResolutionIntent.where(issue: issue)).to be_empty
+  end
+
   def mutate(path, method: :patch, **params)
     token = response.headers["X-CSRF-Token"]
     public_send(method, path, params: params.to_json, headers: { "Content-Type" => "application/json", "X-CSRF-Token" => token })

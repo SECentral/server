@@ -10,7 +10,8 @@ import {
   updateIssueDisposition,
   updateIssueStatus,
   type Diagnosis,
-  type IssueDetailResponse,
+   type IssueDetailResponse,
+   type OccurrencePage,
   type OccurrenceDetail
 } from "../api/issue";
 import { EvidenceLink } from "../components/WorkbenchEvidence";
@@ -208,14 +209,16 @@ function FindingCard({ detail }: { detail: IssueDetailResponse }) {
   const conditionalTitle = diagnosis?.kind === "conditional_allow_inactive" ? `${diagnosis.source_domain ?? issue.source_type} was denied ${diagnosis.operation === "name_bind" ? "binding" : diagnosis.operation === "name_connect" ? "connecting to" : diagnosis.operation === "read" ? "reading" : "executing"} ${diagnosis.path ?? (diagnosis.bind_port || diagnosis.destination_port ? `${issue.target_class === "udp_socket" ? "UDP" : "TCP"}/${diagnosis.bind_port ?? diagnosis.destination_port}` : `objects labeled ${diagnosis.target_type ?? issue.target_type}`)}.` : null;
   return <section aria-labelledby="finding-title" className="issue-section issue-primary-finding"><h2 id="finding-title">Diagnosis</h2>
     {policy_analysis.status !== "evaluated" && <p role="status">Policy analysis: {displayState(policy_analysis.status)}. Retained facts and local checks remain available; this is not a completed policy assessment.</p>}
-     {!diagnosis && triage_guidance ? <LabelMismatchGuidance guidance={triage_guidance} /> : diagnosis ? <article>
-      <Title headingLevel="h3" size="xl">{conditionalTitle ?? diagnosis.title}</Title>
+     {triage_guidance && diagnosis?.kind !== "file_context_mismatch" && <LabelMismatchGuidance guidance={triage_guidance} />}
+     {diagnosis ? <article>
+       <Title headingLevel="h3" size="xl">{conditionalTitle ?? diagnosis.title}</Title>
+       {diagnosis.occurrence_id && diagnosis.host_id && detail.operator_guidance?.source.occurrence_id !== diagnosis.occurrence_id && <p>Finding evidence: <Link to={`/hosts/${diagnosis.host_id}/occurrences/${diagnosis.occurrence_id}`}>{detail.host_explanations.find((host) => host.host_id === diagnosis.host_id)?.hostname ?? `Host ${diagnosis.host_id}`} · occurrence #{diagnosis.occurrence_id}</Link>. Inspection uses a different retained example; this finding does not establish that example's cause.</p>}
       {lead && <p className="issue-finding-lead">{lead}</p>}
       {diagnosis.kind === "conditional_allow_inactive" && <p>Recorded target type: <code>{diagnosis.target_type ?? issue.target_type}</code></p>}
       <DiagnosisEvidence diagnosis={diagnosis} />
       {diagnosis.kind === "no_matching_allow" && ["name_bind", "name_connect"].includes(diagnosis.operation ?? "") && <p><strong>Investigate:</strong> {diagnosis.next_step}</p>}
        {primaryLimitation(diagnosis) && <p className="issue-limitation"><strong>Limitation:</strong> {primaryLimitation(diagnosis)}</p>}
-     </article> : <MissingExplanation issue={issue} paths={intelligence.paths} names={intelligence.names} hasFindings={(findings?.length ?? 0) > 0} policyAnalysis={policy_analysis} />}
+     </article> : !triage_guidance && <MissingExplanation issue={issue} paths={intelligence.paths} names={intelligence.names} hasFindings={(findings?.length ?? 0) > 0} policyAnalysis={policy_analysis} />}
   </section>;
 }
 
@@ -335,6 +338,29 @@ function FleetSection({
   );
 }
 
+function ActivityTable({ page, onInspect }: { page: OccurrencePage; onInspect: (id: number) => void }) {
+  return <>
+    <p>Activity groups use only events on this page and can split at page or permission-filter boundaries. Correlation does not establish one application request or read-only mapping. Occurrence counts and decisions remain unchanged.</p>
+    <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Audit activity"><Thead><Tr><Th>Time (UTC)</Th><Th>Host</Th><Th>Resource</Th><Th>Observed activity</Th><Th>Audit events</Th></Tr></Thead><Tbody>
+      {page.activity_groups?.map((group) => {
+        const members = group.occurrence_ids.flatMap((id) => { const item = page.occurrences.find((occurrence) => occurrence.id === id); return item ? [item] : []; });
+        const first = members[0];
+        if (!first) return null;
+        const resource = members.find((item) => item.absolute_path) ?? first;
+        return <Tr key={group.occurrence_ids.join(":")}>
+          <Td dataLabel="Time (UTC)">{formatUtc(first.occurred_at)}</Td>
+          <Td dataLabel="Host"><Link to={`/hosts/${first.host.id}`}>{first.host.hostname}</Link></Td>
+          <Td dataLabel="Resource"><code>{resource.resource ?? "Complete path not recorded"}</code></Td>
+          <Td dataLabel="Observed activity">{members.map((item) => item.permissions.join(", ")).join(" → ")}{group.correlated && <Label isCompact>Correlated</Label>}</Td>
+          <Td dataLabel="Audit events">{group.correlated ? <ExpandableSection toggleText={`${members.length} audit events`}>
+            <p>{group.basis}</p><ul>{members.map((item) => <li key={item.id}>{formatUtc(item.occurred_at)} · {item.permissions.join(", ")} · <code>{item.resource ?? "Resource not recorded"}</code>{!item.absolute_path && " (complete path not recorded)"} · {displayState(item.enforcement_mode ?? "unknown")} · Syscall: {displayState(item.syscall_outcome ?? "unknown")} <Button variant="link" onClick={() => onInspect(item.id)}>Inspect occurrence #{item.id}</Button></li>)}</ul>
+          </ExpandableSection> : <Button variant="link" onClick={() => onInspect(first.id)}>Inspect occurrence #{first.id}</Button>}</Td>
+        </Tr>;
+      })}
+    </Tbody></Table>
+  </>;
+}
+
 export function IssueDetail() {
   const { id } = useParams();
   const issueId = Number(id);
@@ -360,7 +386,9 @@ export function IssueDetail() {
   const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   const perPage = pageSize(searchParams.get("occurrence_limit"), EMBEDDED_PAGE_SIZES, 10);
   const signatureFilter = searchParams.get("signature_id");
-  const occurrencesQuery = useQuery({ queryKey: ["issue-occurrence-page", issueId, page, perPage, signatureFilter], queryFn: () => fetchIssueOccurrencePage(issueId, page, perPage, signatureFilter), enabled: validId && showOccurrences });
+  const occurrenceView = searchParams.get("occurrence_view") === "summary" ? "summary" : "activity";
+  const occurrencesQuery = useQuery({ queryKey: ["issue-occurrence-page", issueId, page, perPage, signatureFilter, occurrenceView], queryFn: () => fetchIssueOccurrencePage(issueId, page, perPage, signatureFilter, occurrenceView), enabled: validId && showOccurrences });
+  const setOccurrenceView = (view: "summary" | "activity") => setSearchParams((previous) => { const next = new URLSearchParams(previous); next.set("tab", "occurrences"); next.set("occurrence_view", view); return next; });
   const showSignatureOccurrences = (signatureId: number | null) => {
     const next = new URLSearchParams(searchParams);
     next.set("tab", "occurrences"); next.set("occurrence_page", "1");
@@ -499,7 +527,7 @@ export function IssueDetail() {
       </CardBody></Card>
 
       <ResolutionWorkflow issueId={issueId} stage="intent" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} detail={detailQuery.data}>
-        {!diagnosis && detailQuery.data.triage_guidance ? <StandardRestoration detail={detailQuery.data} /> : undefined}
+        {detailQuery.data.triage_guidance ? <StandardRestoration detail={detailQuery.data} /> : undefined}
       </ResolutionWorkflow>
       </div>
       <ResolutionWorkflow issueId={issueId} stage="context" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} detail={detailQuery.data} onShowTechnicalEvidence={() => setTechnicalEvidenceIssueId(issueId)} />
@@ -556,7 +584,10 @@ export function IssueDetail() {
           : occurrencesQuery.isPending ? <div aria-label="Loading occurrences"><Spinner /></div>
           : occurrencesQuery.isError ? <Alert variant="warning" isInline title="Could not load occurrences">{occurrencesQuery.error instanceof Error ? occurrencesQuery.error.message : "Unknown error"}</Alert>
             : occurrencesQuery.data.occurrences.length ? <>
+              <Button variant="secondary" onClick={() => setOccurrenceView(occurrenceView === "activity" ? "summary" : "activity")}>{occurrenceView === "activity" ? "Show individual occurrences" : "Group related activity"}</Button>
+              {occurrenceView === "activity" && occurrencesQuery.data.activity_groups ? <ActivityTable page={occurrencesQuery.data} onInspect={inspectOccurrence} /> : <>
               <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Occurrence summary"><Thead><Tr><Th>Time (UTC)</Th><Th>Host</Th><Th>Resource</Th><Th>Permissions</Th><Th>SELinux mode</Th><Th>Syscall outcome</Th>{!issue.target_class.endsWith("_socket") && <Th>Path evidence</Th>}<Th>Inspect</Th></Tr></Thead><Tbody>{occurrencesQuery.data.occurrences.map((item) => <Tr key={item.id}><Td dataLabel="Time (UTC)">{formatUtc(item.occurred_at)}</Td><Td dataLabel="Host"><Link to={`/hosts/${item.host.id}`}>{item.host.hostname}</Link></Td><Td dataLabel="Resource"><code>{item.resource ?? "Not recorded"}</code></Td><Td dataLabel="Permissions">{item.permissions.join(", ")}</Td><Td dataLabel="SELinux mode">{displayState(item.enforcement_mode ?? "unknown")}</Td><Td dataLabel="Syscall outcome">{displayState(item.syscall_outcome ?? "unknown")}</Td>{!issue.target_class.endsWith("_socket") && <Td dataLabel="Path evidence">{item.absolute_path ? "Absolute path" : item.resource ? "Basename only" : "Not recorded"}</Td>}<Td dataLabel="Inspect"><Button variant="link" onClick={() => inspectOccurrence(item.id)} aria-label={`Inspect occurrence ${item.id}`}>View evidence</Button></Td></Tr>)}</Tbody></Table>
+              </>}
               <div className="table-pagination"><Pagination itemCount={occurrencesQuery.data.meta.total} page={occurrencesQuery.data.meta.page} perPage={occurrencesQuery.data.meta.page_size}
                 perPageOptions={EMBEDDED_PAGE_SIZES.map((value) => ({ title: String(value), value }))} titles={{ paginationAriaLabel: "Issue occurrence pagination" }}
                 isDisabled={occurrencesQuery.isFetching} onSetPage={(_event, value) => setOccurrencePage(value)} onPerPageSelect={(_event, size) => setOccurrencePage(1, size)} /></div>

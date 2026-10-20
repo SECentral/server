@@ -283,7 +283,7 @@ function mockApi(fetchMock: ReturnType<typeof vi.fn>, scenario: Scenario, option
       return Promise.resolve(response(200, detailPayload(scenario, currentStatus).issue));
     }
     if (url === `/api/v1/issues/${issueId}/disposition` && method === "PATCH") return Promise.resolve(response(200, detailPayload(scenario, currentStatus).issue));
-    if (url.includes("view=summary")) {
+    if (/view=(summary|activity)/.test(url)) {
       const occurrences = occurrencePage(scenario).occurrences;
       return Promise.resolve(response(200, { occurrences: occurrences.map((item) => ({ id: item.id, occurred_at: item.occurred_at, host: item.host, resource: item.normalized_denial.target_paths[0] ?? "secentral-test.html", absolute_path: item.normalized_denial.target_paths.length > 0, target_type: item.normalized_denial.target_type, permissions: item.normalized_denial.permissions })), meta: { page: 1, page_size: 25, total: occurrences.length, total_pages: 1 } }));
     }
@@ -317,7 +317,7 @@ describe("issue investigation", () => {
         if (change.disposition) signature.disposition = change.disposition;
         return response(200, payload.issue);
       }
-      return response(200, url.includes("view=summary") ? { occurrences: [], meta: { page: 1, page_size: 10, total: 0, total_pages: 1 } } : payload);
+      return response(200, /view=(summary|activity)/.test(url) ? { occurrences: [], meta: { page: 1, page_size: 10, total: 0, total_pages: 1 } } : payload);
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -349,9 +349,9 @@ describe("issue investigation", () => {
     await user.click(within(review).getByRole("button", { name: "Close review" }));
     expect(screen.queryByRole("region", { name: "Review permission set" })).not.toBeInTheDocument();
     await user.click(within(table).getByRole("button", { name: "View open, read signature 12 occurrences" }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/occurrences?view=summary&page=1&limit=10&signature_id=12", expect.anything()));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/occurrences?view=activity&page=1&limit=10&signature_id=12", expect.anything()));
     await user.click(screen.getByRole("button", { name: "Show all operations" }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/occurrences?view=summary&page=1&limit=10", expect.anything()));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/occurrences?view=activity&page=1&limit=10", expect.anything()));
   });
 
   it("omits the operation breakdown for a single permission set and retains issue actions", async () => {
@@ -511,6 +511,50 @@ describe("issue investigation", () => {
     return payload;
   }
 
+  it("keeps a labeling inspection resource ahead of a Boolean finding from another host", async () => {
+    const payload = labelingPayload();
+    payload.operator_guidance!.source.object_class = "file";
+    payload.triage_guidance = { ...payload.triage_guidance!, host_id: 10, occurrence_id: 101 };
+    payload.diagnosis = { ...conditionalDiagnosis("002"), host_id: 20, occurrence_id: 202, operation: "read", permissions: ["read"], target_class: "file", target_type: "user_home_t" } as IssueDetailResponse["diagnosis"];
+    payload.resolutions = { candidates: [{ id: "home-read", kind: "enable_boolean", finding_kind: "conditional_allow_inactive", host_id: 20, hostname: "basename-host",
+      title: "Enable httpd_read_user_content", explanation: "A conditional path exists", evidence_basis: { occurrence_id: 202, boolean: "httpd_read_user_content" }, evidence_version: "v1",
+      intent_prompt: "Confirm intentional home content", scope_kind: "host_boolean", scope_description: "Host-wide", scope_warning: "Broader effects", expected_effect: "May supply read permission",
+      mechanically_supported: true, intent_confirmation_required: true, limitations: [], status: "proposed", presentation: "technical_alternative", requires_home_content_review: true }],
+      observed_access: { occurrence_id: 202, host_id: 20, hostname: "basename-host", actor: "httpd", source_type: "httpd_t", resource: "Complete path not recorded", target_type: "user_home_t", object_class: "file", permissions: ["read"], operation_label: "read", outcome: "DENIED", observed_at: "2026-10-01T10:00:00Z" },
+      rejected_candidates: [], intent: null, freshness: null, change_plan: null, history: [] };
+    const occurrence = occurrencePage("001").occurrences[0];
+    occurrence.id = 101;
+    occurrence.normalized_denial.target_paths = ["/var/www/html/a file.txt"];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => response(200, url.endsWith("/occurrences/101") ? occurrence : payload)));
+    renderDetail();
+    expect(await screen.findByRole("heading", { name: "Investigation lead: probable label mismatch" })).toBeVisible();
+    expect(screen.getByLabelText("Suggested next step")).toHaveTextContent("Inspect the current file label");
+    await waitFor(() => expect(screen.getByRole("region", { name: "Observed access" })).toHaveTextContent("/var/www/html/a file.txt"));
+    expect(screen.getByRole("button", { name: "Copy command: restorecon -v -- '/var/www/html/a file.txt'" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Review Boolean change" })).not.toBeInTheDocument();
+  });
+
+  it("presents a correlated pair as one activity while keeping both audit events accessible", async () => {
+    const payload = detailPayload("repeated");
+    payload.issue.occurrences_count = 3;
+    const rows = [101, 102, 103].map((id) => ({ id, occurred_at: "2026-10-01T10:00:00Z", host: { id: id === 101 ? 10 : 20, hostname: id === 101 ? "enforcing-host" : "permissive-host" },
+      resource: id === 101 ? "page.html" : "/var/www/html/page.html", absolute_path: id !== 101, target_type: "user_home_t", permissions: id === 101 ? ["read"] : id === 102 ? ["open", "read"] : ["map"], enforcement_mode: id === 101 ? "enforcing" : "permissive", syscall_outcome: id === 101 ? "failed" : "succeeded" }));
+    const fetchMock = vi.fn(async (url: string) => response(200, /view=(activity|summary)/.test(url) ? { occurrences: rows, meta: { page: 1, page_size: 10, total: 3, total_pages: 1 },
+      ...(url.includes("view=activity") ? { activity_scope: "current_page", activity_groups: [{ occurrence_ids: [101], correlated: false, basis: null }, { occurrence_ids: [102, 103], correlated: true, basis: "Same host and object; not proof of one request." }] } : {}) } : payload));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderDetail("/issues/7?tab=occurrences");
+    const table = await screen.findByRole("table", { name: "Audit activity" });
+    expect(within(table).getAllByRole("row")).toHaveLength(3);
+    expect(screen.getByText(/can split at page or permission-filter boundaries/)).toBeVisible();
+    await user.click(within(table).getByRole("button", { name: "2 audit events" }));
+    expect(within(table).getByRole("button", { name: "Inspect occurrence #102" })).toBeVisible();
+    expect(within(table).getByRole("button", { name: "Inspect occurrence #103" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Show individual occurrences" }));
+    expect(await screen.findByRole("table", { name: "Occurrence summary" })).toBeVisible();
+    expect(fetchMock.mock.calls.map(([url]) => url)).toContain("/api/v1/issues/7/occurrences?view=summary&page=1&limit=10");
+  });
+
   it("leads with server-provided label guidance and copyable commands without rejected solver options", async () => {
     const payload = labelingPayload();
     const user = userEvent.setup();
@@ -562,6 +606,7 @@ describe("issue investigation", () => {
         { action: "inspect", label: "Check the configured label", command: "matchpathcon -- /etc/shadow" },
         { action: "restore_targeted", label: "Restore this file's configured context", command: "restorecon -v -- /etc/shadow" }
       ] };
+    payload.operator_guidance!.source.path = "/etc/shadow";
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
     renderDetail();
     expect(await screen.findByRole("button", { name: "Copy command: restorecon -v -- /etc/shadow" })).toBeVisible();
@@ -726,7 +771,7 @@ describe("issue investigation", () => {
     payload.policy_analysis.limitations = ["For 1 denial, a matching conditional rule was active at the associated checkpoint, so that sample does not support an inactive-condition explanation. Checkpoint state is not an AVC-time measurement."];
     const selected = occurrencePage("002").occurrences[0];
     selected.normalized_denial.details.network_evidence = {dport_fields: [], dest_fields: ["127.0.0.1", "12345"]};
-    const fetchMock = vi.fn((url: string) => Promise.resolve(response(200, /occurrences\/101$/.test(url) ? selected : url.includes("view=summary") ? {occurrences: [{id: 101, occurred_at: "2026-10-01T10:42:20Z", host: {id: 10, hostname: "agent-test"}, resource: "TCP/12345", absolute_path: false, permissions: ["name_connect"], target_type: "unreserved_port_t"}], meta: {page: 1, page_size: 25, total: 3, total_pages: 1}} : payload)));
+    const fetchMock = vi.fn((url: string) => Promise.resolve(response(200, /occurrences\/101$/.test(url) ? selected : /view=(summary|activity)/.test(url) ? {occurrences: [{id: 101, occurred_at: "2026-10-01T10:42:20Z", host: {id: 10, hostname: "agent-test"}, resource: "TCP/12345", absolute_path: false, permissions: ["name_connect"], target_type: "unreserved_port_t"}], meta: {page: 1, page_size: 25, total: 3, total_pages: 1}} : payload)));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     renderDetail();
@@ -879,7 +924,7 @@ describe("issue investigation", () => {
     renderDetail("/issues/7?tab=occurrences");
 
     expect((await screen.findAllByText("secentral-agent-test")).length).toBeGreaterThan(0);
-    expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain("/api/v1/issues/7/occurrences?view=summary&page=1&limit=10");
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain("/api/v1/issues/7/occurrences?view=activity&page=1&limit=10");
   });
 
   it("replaces occurrence pages instead of appending rows and never requests raw evidence for the table", async () => {
@@ -887,7 +932,7 @@ describe("issue investigation", () => {
     mockApi(fetchMock, "basename");
     const fallback = fetchMock.getMockImplementation()!;
     fetchMock.mockImplementation((url: string, request?: { method?: string; body?: string }) => {
-      if (url.includes("view=summary")) {
+      if (/view=(summary|activity)/.test(url)) {
         const page = Number(new URL(url, "http://localhost").searchParams.get("page"));
         return Promise.resolve(response(200, { occurrences: [{ id: page, occurred_at: "2026-10-01T08:47:03Z", host: { id: 10, hostname: "agent-test" }, resource: `page-${page}.txt`, absolute_path: false, target_type: "user_home_t", permissions: ["read"] }], meta: { page, page_size: 25, total: 2057, total_pages: 83 } }));
       }
@@ -981,9 +1026,9 @@ describe("issue investigation", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderDetail();
     await screen.findByRole("heading", { name: "Potential file-context mismatch" });
-    expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContain("/api/v1/issues/7/occurrences?view=summary&page=1&limit=10");
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContain("/api/v1/issues/7/occurrences?view=activity&page=1&limit=10");
     await userEvent.setup().click(screen.getByRole("button", { name: "Show recent occurrences" }));
-    await waitFor(() => expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain("/api/v1/issues/7/occurrences?view=summary&page=1&limit=10"));
+    await waitFor(() => expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain("/api/v1/issues/7/occurrences?view=activity&page=1&limit=10"));
 
     const notFoundFetch = vi.fn().mockResolvedValue(response(404, { error: { code: "not_found", message: "Resource not found" } }));
     vi.stubGlobal("fetch", notFoundFetch);

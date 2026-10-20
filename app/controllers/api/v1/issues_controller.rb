@@ -48,7 +48,7 @@ class Api::V1::IssuesController < Api::V1::BaseController
       process_command: intelligence[:commands].one? ? intelligence[:commands].first : nil)
     summary[:fleet] = intelligence[:fleet].slice(:activity_hosts, :current_configuration_hosts, :hosts_with_occurrence, :hosts_without_occurrence)
     diagnosis = displayed_findings.first&.fetch(:diagnosis)
-    triage_guidance = IssueLabelingGuidance.call(issue, paths: intelligence[:paths], observations: analyzer.eligible_expected_context_observations)
+    investigation = IssueInvestigation.call(issue, analyzer: analyzer)
     render json: {
       issue: IssueDetailSerializer.call(issue),
       intelligence: summary,
@@ -56,8 +56,8 @@ class Api::V1::IssuesController < Api::V1::BaseController
       findings: displayed_findings,
       additional_finding_count: findings.size - displayed_findings.size,
       diagnosis: diagnosis,
-      triage_guidance: triage_guidance,
-      operator_guidance: IssueOperatorGuidance.call(issue, diagnosis: diagnosis, triage_guidance: diagnosis ? nil : triage_guidance),
+      triage_guidance: investigation[:triage_guidance],
+      operator_guidance: investigation[:operator_guidance],
       host_explanations: host_explanations,
       fleet_explanation: fleet_explanation.slice(:state, :affected_host_count, :host_status_counts),
       policy_analysis: intelligence[:policy_evaluation].slice(:status, :limitations),

@@ -3,13 +3,14 @@ import type { IssueDetailResponse } from "../api/issue";
 
 type Candidate = ResolutionWorkflow["candidates"][number];
 type Port = NonNullable<ResolutionWorkflow["port_investigations"]>[number];
+type Source = NonNullable<IssueDetailResponse["operator_guidance"]>["source"];
 
 export function portResourceKey(port: Pick<Port, "host_id" | "protocol" | "port" | "operation">): string {
   return `${port.host_id}:${port.protocol}:${port.port ?? "unknown"}:${port.operation}`;
 }
 
-export function resolutionResources(workflow: ResolutionWorkflow) {
-  const resources: { key: string; label: string; port?: Port; candidates: Candidate[] }[] = (workflow.port_investigations ?? []).map((port) => ({
+export function resolutionResources(workflow: ResolutionWorkflow, source?: Source) {
+  const resources: { key: string; label: string; port?: Port; source?: Source; candidates: Candidate[] }[] = (workflow.port_investigations ?? []).map((port) => ({
     key: portResourceKey(port),
     label: `${port.protocol.toUpperCase()}/${port.port ?? "port not recorded"} · ${port.operation === "name_bind" ? "Local bind" : "Outbound connect"} · ${port.hostname ?? `Host ${port.host_id}`}`,
     port, candidates: []
@@ -28,26 +29,32 @@ export function resolutionResources(workflow: ResolutionWorkflow) {
     }
     resource.candidates.push(candidate);
   }
+  if (source && (source.path || ["file", "dir", "lnk_file", "fifo_file", "chr_file", "blk_file", "sock_file"].includes(source.object_class ?? ""))) {
+    const key = `${source.host_id}:${source.path ?? `policy:${source.occurrence_id}`}`;
+    const existing = resources.find((resource) => resource.key === key);
+    if (existing) existing.source = source;
+    else resources.unshift({ key, label: `${source.path ?? "Identify file"} · ${source.hostname ?? `Host ${source.host_id}`}`, source, candidates: [] });
+  }
   return resources;
 }
 
 export function activeResolutionResource(workflow: ResolutionWorkflow, requested: string | null, source?: NonNullable<IssueDetailResponse["operator_guidance"]>["source"]) {
-  const resources = resolutionResources(workflow);
-  return resources.find((resource) => resource.key === requested) ?? resources.find((resource) => source && (resource.port?.occurrence_id === source.occurrence_id || resource.candidates.some((candidate) => candidate.host_id === source.host_id && (source.path ? candidate.evidence_basis.path === source.path : candidate.evidence_basis.occurrence_id === source.occurrence_id))))
+  const resources = resolutionResources(workflow, source);
+  return resources.find((resource) => resource.key === requested) ?? resources.find((resource) => source && (resource.source?.occurrence_id === source.occurrence_id || resource.port?.occurrence_id === source.occurrence_id || resource.candidates.some((candidate) => candidate.host_id === source.host_id && (source.path ? candidate.evidence_basis.path === source.path : candidate.evidence_basis.occurrence_id === source.occurrence_id))))
     ?? resources.find((resource) => resource.candidates.some((candidate) => candidate.id === workflow.intent?.candidate_id)) ?? resources[0];
 }
 
 export function fileResourceLabel(resource: ReturnType<typeof resolutionResources>[number], resources: ReturnType<typeof resolutionResources>): string {
-  const path = resource.candidates[0]?.evidence_basis.path;
+  const path = resource.source?.path ?? resource.candidates[0]?.evidence_basis.path;
   if (typeof path !== "string") return resource.label;
   const parts = path.split("/").filter(Boolean);
-  const otherPaths = resources.filter((other) => other.key !== resource.key).map((other) => other.candidates[0]?.evidence_basis.path).filter((other): other is string => typeof other === "string");
+  const otherPaths = resources.filter((other) => other.key !== resource.key).map((other) => other.source?.path ?? other.candidates[0]?.evidence_basis.path).filter((other): other is string => typeof other === "string");
   let suffix = parts.at(-1) ?? "/";
   for (let length = 1; length <= parts.length; length++) {
     suffix = parts.slice(-length).join("/");
     if (!otherPaths.some((other) => other !== path && other.split("/").filter(Boolean).slice(-length).join("/") === suffix)) break;
     if (length === parts.length) suffix = path;
   }
-  if (otherPaths.includes(path)) return `${suffix} · ${resource.candidates[0].hostname ?? "Host"} (#${resource.candidates[0].host_id})`;
+  if (otherPaths.includes(path)) return `${suffix} · ${resource.source?.hostname ?? resource.candidates[0]?.hostname ?? "Host"} (#${resource.source?.host_id ?? resource.candidates[0]?.host_id})`;
   return suffix;
 }

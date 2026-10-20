@@ -74,6 +74,18 @@ class AvcNormalizer
     }]
   end
 
+  def activity_identity
+    records = @records.map { |record| parse_record(record) }.select { |record| AVC_TYPES.include?(record[:type_name]) }
+    identities = records.map { |record| record[:fields].slice("pid", "dev", "ino", "scontext", "tcontext", "tclass", "comm", "exe") }.uniq
+    return unless identities.one?
+
+    identity = identities.first
+    return unless %w[pid dev ino scontext tcontext tclass].all? { |key| identity[key].present? }
+    return unless identity["pid"].match?(/\A[1-9]\d*\z/) && identity["ino"].match?(/\A[1-9]\d*\z/)
+
+    identity
+  end
+
   private
 
   def parse_record(record)

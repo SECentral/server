@@ -300,18 +300,19 @@ RSpec.describe "Issues API", type: :request do
     expect(body.dig("diagnosis", "expected_type")).to be_in(%w[custom_a_t custom_b_t])
   end
 
-  it "counts distinct paths across hosts without claiming host or occurrence coverage" do
+  it "keeps selected-occurrence labeling scope distinct from issue-wide resource counts" do
     issue = create_issue(target_type: "user_home_t")
     paths = ["/var/www/html/a.txt", "/var/www/html/b.txt", "/var/www/html-other/c.txt"]
-    2.times do |index|
+    (paths + [paths.last]).each_with_index do |path, index|
       occurrence = create_occurrence(issue, "host-#{index + 1}", index + 1)
-      occurrence.normalized_denial.update!(details: { "target_evidence" => { "filesystem_paths" => paths.reverse } })
+      occurrence.normalized_denial.update!(details: { "target_evidence" => { "filesystem_paths" => [path] } })
     end
 
     get "/api/v1/issues/#{issue.id}"
-    guidance = JSON.parse(response.body).fetch("triage_guidance")
-    # Lexicographic selection is deliberate: '-' precedes '/', so html-other comes first.
-    expect(guidance).to include("path" => paths.last, "path_count" => 3,
+    body = JSON.parse(response.body)
+    guidance = body.fetch("triage_guidance")
+    expect(body.dig("intelligence", "resource_summary", "path_count")).to eq(3)
+    expect(guidance).to include("path" => paths.last, "path_count" => 1,
       "recursive_directory" => "/var/www/html-other", "recursive_path_count" => 1)
     expect(guidance).not_to have_key("occurrence_count")
     expect(guidance).not_to have_key("expected_type")
@@ -832,6 +833,86 @@ RSpec.describe "Issues API", type: :request do
     foreign = create_issue
     get "/api/v1/issues/#{issue.id}/occurrences", params: { view: "summary", signature_id: foreign.signatures.first.id }
     expect(response).to have_http_status(:not_found)
+  end
+
+  %w[enforcing permissive].each do |rich_mode|
+    it "leads with a retained path on a #{rich_mode} host instead of a basename-only Boolean example" do
+      issue = create_issue(target_type: "user_home_t", permissions: %w[open read map])
+      basename = create_occurrence(issue, "host-basename")
+      richer = create_occurrence(issue, "host-path", 2)
+      basename.update!(occurred_at: richer.occurred_at + 10.seconds)
+      basename.normalized_denial.update!(target_type: "user_home_t", target_context: "system_u:object_r:user_home_t:s0", details: {
+        "enforcement_mode" => rich_mode == "permissive" ? "enforcing" : "permissive",
+        "target_evidence" => { "filesystem_paths" => [], "object_names" => ["page.html"] }
+      })
+      identity = "sha256:#{'1' * 64}"
+      basename.host_snapshot.update!(details: { "selinux" => { "policy_identity" => identity,
+        "booleans" => [{ "name" => "httpd_read_user_content", "status" => "observed", "current" => false }] } })
+      PolicyFact.create!(policy_identity: identity, query_kind: "allow", source_type: "httpd_t", target_type: "user_home_t", object_class: "file",
+        permission: "read", status: "matched", matching_rules: ["allow httpd_t user_home_t:file read; [ httpd_read_user_content ]:True"])
+      richer.normalized_denial.update!(target_type: "user_home_t", target_context: "system_u:object_r:user_home_t:s0", permissions: %w[open read], details: {
+        "enforcement_mode" => rich_mode, "target_evidence" => { "filesystem_paths" => ["/var/www/html/page.html"] }
+      })
+
+      get "/api/v1/issues/#{issue.id}"
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body.dig("diagnosis", "kind")).to eq("conditional_allow_inactive")
+      expect(body["triage_guidance"]).to include("path" => "/var/www/html/page.html", "host_id" => richer.host_id, "occurrence_id" => richer.id)
+      expect(body.dig("operator_guidance", "source")).to include("host_id" => richer.host_id, "occurrence_id" => richer.id, "path" => "/var/www/html/page.html")
+      expect(body.dig("operator_guidance", "checks").map { |check| check["command"] }).to include("matchpathcon -- /var/www/html/page.html", "restorecon -n -v -- /var/www/html/page.html")
+      expect(body.dig("operator_guidance", "checks").map { |check| check["command"] }).not_to include("getsebool httpd_read_user_content")
+      expect(issue.occurrences.count).to eq(2)
+    end
+  end
+
+  it "does not borrow another host's configured context to suppress the selected path's labeling lead" do
+    issue = create_issue(target_type: "user_home_t")
+    first = create_occurrence(issue, "host-agreement")
+    configure_file_context_occurrence(first, context: "system_u:object_r:user_home_t:s0", expected_context: "system_u:object_r:user_home_t:s0")
+    second = create_occurrence(issue, "host-uninspected", 2)
+    second.normalized_denial.update!(target_type: "user_home_t", target_context: "system_u:object_r:user_home_t:s0", details: { "target_evidence" => { "filesystem_paths" => ["/srv/app/data"] } })
+    get "/api/v1/issues/#{issue.id}"
+    body = JSON.parse(response.body)
+    expect(body.dig("operator_guidance", "source", "host_id")).to eq(second.host_id)
+    expect(body["triage_guidance"]).to include("host_id" => second.host_id, "path" => "/srv/app/data")
+    second.raw_event.update!(file_context_observations: first.raw_event.file_context_observations)
+    get "/api/v1/issues/#{issue.id}"
+    expect(JSON.parse(response.body)["triage_guidance"]).to be_nil
+  end
+
+  it "returns page-local activity groups without changing retained events or summary evidence loading" do
+    issue = create_issue
+    first = create_occurrence(issue)
+    second = create_occurrence(issue, "host-1", 2, host: first.host, occurred_at: first.occurred_at + 0.001)
+    [first, second].each_with_index do |item, index|
+      permissions = index.zero? ? %w[open read] : ["map"]
+      item.normalized_denial.update!(permissions: permissions, details: { "enforcement_mode" => "permissive",
+        "target_evidence" => { "filesystem_paths" => ["/var/www/html/page.html"] } })
+      item.raw_event.raw_audit_records.create!(position: 0, record_type: 1400, type_name: "AVC", audit_timestamp: item.occurred_at, sequence: index + 1,
+        payload: "avc: denied { #{permissions.join(' ')} } for pid=42 dev=vda1 ino=123 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:default_t:s0 tclass=file permissive=1")
+    end
+    get "/api/v1/issues/#{issue.id}/occurrences", params: { view: "activity" }
+    body = JSON.parse(response.body)
+    expect(body).to include("activity_scope" => "current_page")
+    expect(body.fetch("activity_groups").sole).to include("occurrence_ids" => [first.id, second.id], "correlated" => true)
+    expect(body.dig("meta", "total")).to eq(2)
+    expect(issue.occurrences.count).to eq(2)
+    get "/api/v1/issues/#{issue.id}/occurrences", params: { view: "activity", limit: 1 }
+    expect(JSON.parse(response.body).fetch("activity_groups").sole["correlated"]).to eq(false)
+  end
+
+  it "does not turn ambiguous retained paths into a representative restoration target" do
+    issue = create_issue(target_type: "user_home_t")
+    occurrence = create_occurrence(issue)
+    occurrence.normalized_denial.update!(target_type: "user_home_t", details: {
+      "target_evidence" => { "filesystem_paths" => ["/var/www/html/a.html", "/var/www/html/b.html"] }
+    })
+    get "/api/v1/issues/#{issue.id}"
+    body = JSON.parse(response.body)
+    expect(body["triage_guidance"]).to be_nil
+    expect(body.dig("operator_guidance", "source", "path")).to be_nil
+    expect(body.dig("operator_guidance", "checks")).to be_empty
   end
 
   def create_issue(digest = "digest-#{SecureRandom.hex(4)}", source_type = "httpd_t", **attributes)

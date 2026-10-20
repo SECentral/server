@@ -157,6 +157,11 @@ export type EvidenceBasis = {
 };
 
 export type ResolutionCandidate = {
+    requires_home_content_review?: boolean;
+    /**
+     * Retained path when unambiguous; otherwise the operator must identify it before review
+     */
+    home_content_path?: string | null;
     issue_signature_id?: number | null;
     /**
      * Exact denied permission set supporting this candidate
@@ -1726,6 +1731,7 @@ export type OperatorGuidance = {
         occurred_at: string;
         path: string | null;
         observed_type: string | null;
+        object_class?: string;
         protocol?: 'tcp' | 'udp';
         port?: number | null;
         operation?: 'name_bind' | 'name_connect';
@@ -1746,6 +1752,8 @@ export type OperatorGuidance = {
  * Convention-based investigation lead, not an authoritative finding or reviewed change plan. Eligible contradictory or conflicting expected-context observations suppress the lead; missing or null guidance is valid.
  */
 export type TriageGuidance = {
+    host_id?: number;
+    occurrence_id?: number;
     type: 'probable_label_mismatch';
     title: string;
     path: string;
@@ -1755,12 +1763,12 @@ export type TriageGuidance = {
      */
     conventional_type?: string | null;
     /**
-     * Number of distinct qualifying paths; the path field is the lexicographically first representative, not whole-issue coverage.
+     * Qualifying paths in the selected occurrence's investigation scope, not whole-issue coverage.
      */
     path_count: number;
     recursive_directory?: string | null;
     /**
-     * Qualifying distinct retained paths beneath recursive_directory across hosts, not occurrence coverage or a guarantee of resolution.
+     * Qualifying paths beneath recursive_directory in the selected occurrence's investigation scope, not fleet coverage or a guarantee of resolution.
      */
     recursive_path_count: number;
     summary: string;
@@ -1927,6 +1935,15 @@ export type OccurrenceDetail = {
 };
 
 export type OccurrenceSummaryPage = {
+    /**
+     * Correlation is page-local and may split across pagination or permission filters; no global activity count is implied.
+     */
+    activity_scope?: 'current_page';
+    activity_groups?: Array<{
+        occurrence_ids: Array<number>;
+        correlated: boolean;
+        basis: string | null;
+    }>;
     occurrences: Array<{
         issue_signature_id?: number | null;
         enforcement_mode?: 'enforcing' | 'permissive' | 'unknown';
@@ -2481,6 +2498,13 @@ export type SelectResolutionIntentData = {
     body: {
         candidate_id: string;
         evidence_version: string;
+        /**
+         * Required for a home-content Boolean alternative. Operator attestation only; not collected filesystem evidence.
+         */
+        home_content_review?: {
+            path: string;
+            confirmed: true;
+        };
     };
     path: {
         id: number;
@@ -2849,7 +2873,7 @@ export type ListIssueOccurrencesData = {
          * Opaque cursor from `meta.next_cursor`.
          */
         before?: string;
-        view?: 'summary';
+        view?: 'summary' | 'activity';
         page?: number;
     };
     url: '/api/v1/issues/{id}/occurrences';

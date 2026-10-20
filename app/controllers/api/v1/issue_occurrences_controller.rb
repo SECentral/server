@@ -2,7 +2,7 @@ class Api::V1::IssueOccurrencesController < Api::V1::BaseController
   def index
     issue = current_organization.issues.find(params[:id])
     scope = params[:signature_id].present? ? issue.signatures.find(params[:signature_id]).occurrences : issue.occurrences
-    return render_summary_page(scope) if params[:view] == "summary"
+    return render_summary_page(scope) if %w[summary activity].include?(params[:view])
     limit = params.fetch(:limit, 50).to_i
     limit = 50 if limit > 50 || limit < 1
 
@@ -50,7 +50,8 @@ class Api::V1::IssueOccurrencesController < Api::V1::BaseController
     page = params.fetch(:page, 1).to_i.clamp(1, pages)
     occurrences = scope.includes(:host, :normalized_denial)
       .order(occurred_at: :desc, id: :desc).offset((page - 1) * page_size).limit(page_size)
-    render json: {
+    occurrences = occurrences.includes(raw_event: :raw_audit_records) if params[:view] == "activity"
+    result = {
       occurrences: occurrences.map do |occurrence|
         denial = occurrence.normalized_denial
         evidence = denial.details.to_h.fetch("target_evidence", {})
@@ -81,6 +82,11 @@ class Api::V1::IssueOccurrencesController < Api::V1::BaseController
       end,
       meta: { page: page, page_size: page_size, total: total, total_pages: pages }
     }
+    if params[:view] == "activity"
+      result[:activity_groups] = IssueActivityGroups.call(occurrences)
+      result[:activity_scope] = "current_page"
+    end
+    render json: result
   end
 
   def occurrence_guidance(issue, occurrence)

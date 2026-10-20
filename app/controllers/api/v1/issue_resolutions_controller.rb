@@ -8,7 +8,8 @@ class Api::V1::IssueResolutionsController < Api::V1::BaseController
   end
 
   def update
-    render json: workflow.select!(params.require(:candidate_id), params.require(:evidence_version))
+    review = params.permit(home_content_review: [:path, :confirmed])[:home_content_review]&.to_h
+    render json: workflow.select!(params.require(:candidate_id), params.require(:evidence_version), home_content_review: review)
   end
 
   def destroy

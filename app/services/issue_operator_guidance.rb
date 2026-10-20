@@ -2,17 +2,19 @@ require "pathname"
 require "shellwords"
 
 class IssueOperatorGuidance
-  def self.call(issue, diagnosis: nil, triage_guidance: nil)
-    new(issue, diagnosis, triage_guidance).call
+  def self.call(issue, diagnosis: nil, triage_guidance: nil, occurrence: nil)
+    new(issue, diagnosis, triage_guidance, occurrence).call
   end
 
-  def initialize(issue, diagnosis, triage_guidance)
-    @issue, @diagnosis, @triage = issue, diagnosis, triage_guidance
+  def initialize(issue, diagnosis, triage_guidance, occurrence = nil)
+    @issue, @diagnosis, @triage, @occurrence = issue, diagnosis, triage_guidance, occurrence
   end
 
   def call
     occurrences = @issue.occurrences.includes(:host, :normalized_denial).order(occurred_at: :desc, id: :desc).to_a
-    occurrence = if @diagnosis
+    occurrence = if @occurrence
+      @occurrence
+    elsif @diagnosis
       occurrences.find { |item| item.id == @diagnosis[:occurrence_id] }
     elsif @triage
       occurrences.find { |item| paths(item).include?(@triage[:path]) }
@@ -63,7 +65,7 @@ class IssueOperatorGuidance
     manual, possible_fix, verification = next_steps(denial, permissions, path)
     {
       source: { occurrence_id: occurrence.id, host_id: occurrence.host_id, hostname: occurrence.host.hostname,
-        occurred_at: occurrence.occurred_at, path: path, observed_type: denial.target_type }.merge(PortMappingGuidance.endpoint(denial) || {}),
+        occurred_at: occurrence.occurred_at, path: path, observed_type: denial.target_type, object_class: denial.target_class }.merge(PortMappingGuidance.endpoint(denial) || {}),
       checks: checks, manual_check: manual, possible_fix: possible_fix, verification: verification,
       verification_limit: "Absence of new AVCs alone proves neither workload success nor safety. Record the test time and check fresh AVCs, enforcement/domain permissiveness and event-delivery health.",
       restriction: "If this access is unwanted, keep it denied and correct the calling workload or exposure. Verify the unwanted operation remains denied and legitimate work still succeeds. Acknowledge your decision with a note; intentional denial does not mean harmless or fixed."

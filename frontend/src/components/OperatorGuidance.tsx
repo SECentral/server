@@ -19,7 +19,7 @@ export function OperatorChecks({ detail, runbookCommands = [], supplemental = fa
   const latest = detail.resolutions?.observed_access;
   const different = latest && (latest.occurrence_id !== source.occurrence_id || (source.path && latest.resource !== source.path));
   const expected = detail.diagnosis?.occurrence_id === source.occurrence_id ? detail.diagnosis : null;
-  const primaryCount = source.path || source.operation === "name_bind" ? 3 : 1;
+  const primaryCount = source.path || source.operation === "name_bind" ? 3 : ["file", "dir"].includes(source.object_class ?? detail.issue?.target_class ?? "") ? 0 : 1;
   const primary = guidance.checks.slice(0, primaryCount).filter((check) => !runbookCommands.includes(check.command));
   const secondary = guidance.checks.slice(primaryCount).filter((check) => !runbookCommands.includes(check.command));
   if (supplemental && !primary.length && !secondary.length) return null;
@@ -28,7 +28,7 @@ export function OperatorChecks({ detail, runbookCommands = [], supplemental = fa
     {!supplemental && <>
     <p>Investigation example: <Link to={`/hosts/${source.host_id}/occurrences/${source.occurrence_id}`}>{source.hostname ?? `Host ${source.host_id}`} · occurrence #{source.occurrence_id}</Link>{source.path && <> · <code>{source.path}</code></>}</p>
     {different && <p>Checks are scoped to the linked investigation example. Do not apply one host's results to another.</p>}
-    {!detail.diagnosis && detail.triage_guidance && <p>The convention lead uses the lexicographically first qualifying retained path, not necessarily the latest occurrence.</p>}
+    {detail.triage_guidance && <p>The labeling lead is scoped to this retained host/path example, not every occurrence in the issue.</p>}
     {source.path && <p>Historical AVC label: <code>{source.observed_type ?? "Not recorded"}</code>. Current object label: inspect on host; local results have not been observed by SECentral. Host-configured context: {expected?.expected_context ? <><code>{expected.expected_context}</code> · checked after denial at {expected.expected_context_observed_at ?? "retained inspection time"}; recheck current configuration.</> : "Look up on host; not established by a convention."}</p>}
     {!source.path && ["file", "dir"].includes(detail.issue?.target_class) ? <Alert variant="info" isInline isPlain title="Complete target path not recorded">Identify the files this workload is accessing before considering a labeling or Boolean change.</Alert> : <p>{guidance.manual_check}</p>}
     </>}
@@ -41,9 +41,10 @@ export function OperatorChecks({ detail, runbookCommands = [], supplemental = fa
 }
 
 export function StandardRestoration({ detail }: { detail: IssueDetailResponse }) {
-  const guidance = !detail.diagnosis ? detail.triage_guidance : null;
-  if (!guidance) return null;
+  const guidance = detail.triage_guidance;
+  if (!guidance || detail.diagnosis?.kind === "file_context_mismatch") return null;
   const source = detail.operator_guidance?.source;
+  if (!source || source.path !== guidance.path || (guidance.host_id != null && source.host_id !== guidance.host_id) || (guidance.occurrence_id != null && source.occurrence_id !== guidance.occurrence_id)) return null;
   return <section aria-label="Optional restoration after verification">
     <h3>Restore only after checking <Label color="orange">Changes file labels</Label></h3>
     <p>Only if the current object differs from suitable host-configured labeling. Uses configured mappings, including local customizations; does not guarantee access.</p>

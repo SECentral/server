@@ -265,6 +265,13 @@ paths:
               properties:
                 candidate_id: {type: string}
                 evidence_version: {type: string}
+                home_content_review:
+                  description: Required for a home-content Boolean alternative. Operator attestation only; not collected filesystem evidence.
+                  type: object
+                  required: [path, confirmed]
+                  properties:
+                    path: {type: string, maxLength: 4096}
+                    confirmed: {type: boolean, const: true}
       responses:
         "200":
           description: Selected intent and reviewed change plan
@@ -689,7 +696,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [summary]
+            enum: [summary, activity]
         - name: page
           in: query
           schema:
@@ -1802,6 +1809,8 @@ components:
       type: object
       required: [id, kind, title, explanation, finding_kind, host_id, hostname, evidence_basis, evidence_version, intent_prompt, scope_kind, scope_description, scope_warning, expected_effect, mechanically_supported, intent_confirmation_required, limitations, status]
       properties:
+        requires_home_content_review: {type: boolean}
+        home_content_path: {type: [string, 'null'], description: Retained path when unambiguous; otherwise the operator must identify it before review}
         issue_signature_id: {type: [integer, 'null']}
         permissions: {type: array, items: {type: string}, description: Exact denied permission set supporting this candidate, not the issue-wide union}
         presentation: {type: string, enum: [primary, technical_alternative], description: Conservative display priority; direct workload-source conditional rules or path-evidenced restoration are primary, not proof of intent}
@@ -4650,6 +4659,8 @@ components:
               type: [string, "null"]
             observed_type:
               type: [string, "null"]
+            object_class:
+              type: string
             protocol: {type: string, enum: [tcp, udp]}
             port: {type: [integer, 'null'], minimum: 1, maximum: 65535}
             operation: {type: string, enum: [name_bind, name_connect]}
@@ -4680,6 +4691,10 @@ components:
       type: object
       required: [type, title, path, observed_type, summary, commands, path_count, recursive_path_count]
       properties:
+        host_id:
+          type: integer
+        occurrence_id:
+          type: integer
         type:
           type: string
           enum: [probable_label_mismatch]
@@ -4693,12 +4708,12 @@ components:
           description: Common convention only, never a host-resolved expected context.
           type: [string, "null"]
         path_count:
-          description: Number of distinct qualifying paths; the path field is the lexicographically first representative, not whole-issue coverage.
+          description: Qualifying paths in the selected occurrence's investigation scope, not whole-issue coverage.
           type: integer
         recursive_directory:
           type: [string, "null"]
         recursive_path_count:
-          description: Qualifying distinct retained paths beneath recursive_directory across hosts, not occurrence coverage or a guarantee of resolution.
+          description: Qualifying paths beneath recursive_directory in the selected occurrence's investigation scope, not fleet coverage or a guarantee of resolution.
           type: integer
         summary:
           type: string
@@ -5008,9 +5023,27 @@ components:
       type: object
       required: [occurrences, meta]
       properties:
+        activity_scope:
+          type: string
+          enum: [current_page]
+          description: Correlation is page-local and may split across pagination or permission filters; no global activity count is implied.
+        activity_groups:
+          type: array
+          maxItems: 50
+          items:
+            type: object
+            required: [occurrence_ids, correlated, basis]
+            properties:
+              occurrence_ids:
+                type: array
+                minItems: 1
+                maxItems: 2
+                items: {type: integer}
+              correlated: {type: boolean}
+              basis: {type: [string, 'null']}
         occurrences:
           type: array
-          maxItems: 25
+          maxItems: 50
           items:
             type: object
             required: [id, occurred_at, host, resource, absolute_path, target_type, permissions]
