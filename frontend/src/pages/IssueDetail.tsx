@@ -385,6 +385,10 @@ export function IssueDetail() {
   const [workflowError, setWorkflowError] = useState<string | null>(null);
   const [showKeepRestriction, setShowKeepRestriction] = useState(false);
   const [acknowledgementSaved, setAcknowledgementSaved] = useState(false);
+  const [operationReview, setOperationReview] = useState<{ issueId: number; id: number; status: typeof STATUS_OPTIONS[number]; disposition: string } | null>(null);
+  const [savingOperation, setSavingOperation] = useState(false);
+  const [operationError, setOperationError] = useState<string | null>(null);
+  const [operationSaved, setOperationSaved] = useState<string | null>(null);
 
   const changeStatus = async (status: typeof STATUS_OPTIONS[number], signatureIds = detailQuery.data?.issue.signatures?.map((signature) => signature.id) ?? []) => {
     setSavingStatus(true);
@@ -422,16 +426,20 @@ export function IssueDetail() {
     }
   };
 
-  const changeSignatureDisposition = async (signatureId: number, value: string) => {
-    setSavingDisposition(true);
-    setWorkflowError(null);
+  const saveOperationReview = async (field: "status" | "disposition") => {
+    if (!operationReview || operationReview.issueId !== issueId) return;
+    setSavingOperation(true);
+    setOperationError(null);
+    setOperationSaved(null);
     try {
-      await updateIssueDisposition(issueId, value, [signatureId]);
+      if (field === "status") await updateIssueStatus(issueId, operationReview.status, [operationReview.id]);
+      else await updateIssueDisposition(issueId, operationReview.disposition, [operationReview.id]);
       await queryClient.invalidateQueries({ queryKey: ["issue", issueId] });
+      setOperationSaved(`${field === "status" ? "Status" : "Disposition"} saved for this permission set only.`);
     } catch (error) {
-      setWorkflowError(error instanceof Error ? error.message : "Could not update signature disposition");
+      setOperationError(error instanceof Error ? error.message : "Could not save operation review");
     } finally {
-      setSavingDisposition(false);
+      setSavingOperation(false);
     }
   };
 
@@ -461,9 +469,9 @@ export function IssueDetail() {
           <ExpandableSection toggleText={`Actions · ${displayState(issue.disposition)}`}>
             <div className="issue-workflow-panel">
               {workflowError && <Alert variant="danger" isInline title="Workflow update failed">{workflowError}</Alert>}
-              <p>Applies to all signatures currently shown. Future signatures require a new review.</p>
+              <p>Applies to all currently observed permission sets. New permission sets require a new review.</p>
               <label>Lifecycle status<select aria-label="Issue status" value={issue.status} disabled={savingStatus} onChange={(event) => void changeStatus(event.target.value as typeof STATUS_OPTIONS[number])}>{STATUS_OPTIONS.map((status) => <option key={status} value={status}>{displayState(status)}</option>)}</select></label>
-              <label>Operator disposition<select aria-label="Operator disposition" value={disposition} onChange={(event) => setPendingDisposition(event.target.value)}>{issue.disposition === "mixed" && <option value="mixed" disabled>Mixed — review signatures</option>}{DISPOSITIONS.map((item) => <option key={item} value={item}>{displayState(item)}</option>)}</select></label>
+              <label>Operator disposition<select aria-label="Operator disposition" value={disposition} onChange={(event) => setPendingDisposition(event.target.value)}>{issue.disposition === "mixed" && <option value="mixed" disabled>Mixed — review denied operations</option>}{DISPOSITIONS.map((item) => <option key={item} value={item}>{displayState(item)}</option>)}</select></label>
               <TextInput value={dispositionNote} onChange={(_event, value) => setDispositionNote(value)} aria-label="Disposition note" placeholder="Note (optional)" />
               <Button variant="primary" isDisabled={savingDisposition || disposition === "mixed" || (disposition === issue.disposition && !dispositionNote.trim())} onClick={() => void applyDisposition()}>{savingDisposition ? "Applying…" : "Save disposition"}</Button>
             </div>
@@ -479,20 +487,6 @@ export function IssueDetail() {
           </section>}
         </div>
       </header>
-
-      {(issue.signatures?.length ?? 0) > 0 && <Card isCompact><CardBody>
-        <Title headingLevel="h2" size="lg">Permission signatures</Title>
-        <p>This relationship groups related evidence, not a confirmed shared cause. Review operations independently; permissions below are exact observed sets unless marked historical.</p>
-        {workflowError && <Alert variant="danger" isInline title="Signature update failed">{workflowError}</Alert>}
-        <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Permission signatures"><Thead><Tr><Th>Permissions</Th><Th>Occurrences</Th><Th>Hosts</Th><Th>Status</Th><Th>Disposition</Th></Tr></Thead><Tbody>
-          {issue.signatures.map((signature) => <Tr key={signature.id}>
-            <Td dataLabel="Permissions"><code>{signature.permissions.join(", ")}</code>{signature.legacy && <Label isCompact>Historical fingerprint</Label>}</Td>
-            <Td dataLabel="Occurrences"><Button variant="link" onClick={() => showSignatureOccurrences(signature.id)} aria-label={`View ${signature.permissions.join(", ")} signature ${signature.id} occurrences`}>{signature.occurrences_count}</Button></Td><Td dataLabel="Hosts">{signature.affected_hosts}</Td>
-            <Td dataLabel="Status"><select aria-label={`Status for ${signature.permissions.join(", ")} signature ${signature.id}`} value={signature.status} disabled={savingStatus} onChange={(event) => void changeStatus(event.target.value as typeof STATUS_OPTIONS[number], [signature.id])}>{STATUS_OPTIONS.map((status) => <option key={status} value={status}>{displayState(status)}</option>)}</select></Td>
-            <Td dataLabel="Disposition"><select aria-label={`Disposition for ${signature.permissions.join(", ")} signature ${signature.id}`} value={signature.disposition} disabled={savingDisposition} onChange={(event) => void changeSignatureDisposition(signature.id, event.target.value)}>{DISPOSITIONS.map((value) => <option key={value} value={value}>{displayState(value)}</option>)}</select></Td>
-          </Tr>)}
-        </Tbody></Table>
-      </CardBody></Card>}
 
       <ResolutionWorkflow issueId={issueId} stage="draft" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} />
 
@@ -530,8 +524,33 @@ export function IssueDetail() {
 
       {triage.signals.length > 0 && <ExpandableSection className="issue-activity-context" toggleText="Occurrence pattern"><ul>{triage.signals.map((signal) => <li key={signal.code}><strong>{signal.label}:</strong> {signal.explanation}</li>)}</ul></ExpandableSection>}
 
+      {(issue.signatures?.length ?? 0) > 1 && <ExpandableSection toggleText="Denied operations">
+        <p>This issue contains different denied permission sets. Compare their occurrences below; use Review separately only when they need different tracking decisions.</p>
+        <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Denied operations"><Thead><Tr><Th>Permissions</Th><Th>Occurrences</Th><Th>Hosts</Th><Th>Status</Th><Th>Disposition</Th><Th>Review</Th></Tr></Thead><Tbody>
+          {issue.signatures.map((signature) => <Tr key={signature.id}>
+            <Td dataLabel="Permissions"><code>{signature.permissions.join(", ")}</code>{signature.legacy && <><Label isCompact>Historical record</Label><p>These permissions may combine older observations; they were not necessarily observed together.</p></>}</Td>
+            <Td dataLabel="Occurrences"><Button variant="link" onClick={() => showSignatureOccurrences(signature.id)} aria-label={`View ${signature.permissions.join(", ")} signature ${signature.id} occurrences`}>{signature.occurrences_count}</Button></Td><Td dataLabel="Hosts">{signature.affected_hosts}</Td>
+            <Td dataLabel="Status">{displayState(signature.status)}</Td>
+            <Td dataLabel="Disposition">{displayState(signature.disposition)}</Td>
+            <Td dataLabel="Review"><Button variant="link" isDisabled={savingOperation} aria-label={`Review ${signature.permissions.join(", ")} separately`} onClick={() => { setOperationReview({ issueId, id: signature.id, status: signature.status, disposition: signature.disposition }); setOperationError(null); setOperationSaved(null); }}>Review separately</Button></Td>
+          </Tr>)}
+        </Tbody></Table>
+        {operationReview?.issueId === issueId && issue.signatures.filter((signature) => signature.id === operationReview.id).map((signature) => <section key={signature.id} aria-label="Review permission set" className="issue-workflow-panel">
+          <h3>Review <code>{signature.permissions.join(", ")}</code> separately</h3>
+          <p>Changes apply only to this permission set: {signature.occurrences_count} occurrences on {signature.affected_hosts} hosts. Other permission sets keep their decisions; the issue summary reflects all sets.</p>
+          <p>These controls update SECentral tracking only. They do not change SELinux policy or verify a fix. Resolved sets reopen on a new matching denial; ignored sets stay ignored while denials are still collected.</p>
+          {operationError && <Alert variant="danger" isInline role="alert" title="Operation review failed">{operationError}</Alert>}
+          {operationSaved && <p role="status">{operationSaved}</p>}
+          <label>Status<select aria-label="Operation status" value={operationReview.status} disabled={savingOperation} onChange={(event) => { setOperationReview({ ...operationReview, status: event.target.value as typeof STATUS_OPTIONS[number] }); setOperationSaved(null); }}>{STATUS_OPTIONS.map((status) => <option key={status} value={status}>{displayState(status)}</option>)}</select></label>
+          <Button variant="secondary" isDisabled={savingOperation || operationReview.status === signature.status} onClick={() => void saveOperationReview("status")}>Save operation status</Button>
+          <label>Disposition<select aria-label="Operation disposition" value={operationReview.disposition} disabled={savingOperation} onChange={(event) => { setOperationReview({ ...operationReview, disposition: event.target.value }); setOperationSaved(null); }}>{DISPOSITIONS.map((value) => <option key={value} value={value}>{displayState(value)}</option>)}</select></label>
+          <Button variant="secondary" isDisabled={savingOperation || operationReview.disposition === signature.disposition} onClick={() => void saveOperationReview("disposition")}>Save operation disposition</Button>
+          <Button variant="link" isDisabled={savingOperation} onClick={() => setOperationReview(null)}>Close review</Button>
+        </section>)}
+      </ExpandableSection>}
+
       <section id="issue-occurrences" tabIndex={-1} aria-labelledby="occurrences-title" className="issue-section issue-occurrences-section">
-        {signatureFilter && <p>Showing signature #{signatureFilter}. <Button variant="link" onClick={() => showSignatureOccurrences(null)}>Show all signatures</Button></p>}
+        {signatureFilter && <p>Showing occurrences for {issue.signatures?.find((signature) => String(signature.id) === signatureFilter)?.permissions.join(", ") ?? "the selected permission set"}. <Button variant="link" onClick={() => showSignatureOccurrences(null)}>Show all operations</Button></p>}
         <header><div><h3 id="occurrences-title">Retained occurrences</h3><p>{issue.occurrences_count} retained denial{issue.occurrences_count === 1 ? "" : "s"}{occurrencesQuery.data && ` · ${(occurrencesQuery.data.meta.page - 1) * occurrencesQuery.data.meta.page_size + (occurrencesQuery.data.meta.total ? 1 : 0)}–${Math.min(occurrencesQuery.data.meta.page * occurrencesQuery.data.meta.page_size, occurrencesQuery.data.meta.total)} of ${occurrencesQuery.data.meta.total}`}</p></div></header>
         {!showOccurrences ? <Button variant="secondary" onClick={() => setShowOccurrences(true)}>Show recent occurrences</Button>
           : occurrencesQuery.isPending ? <div aria-label="Loading occurrences"><Spinner /></div>

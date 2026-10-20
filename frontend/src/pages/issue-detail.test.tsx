@@ -309,20 +309,79 @@ describe("issue investigation", () => {
     const first = payload.issue.signatures[0];
     payload.issue.signatures = [first, { ...first, id: 12, permissions: ["open", "read"] }, { ...first, id: 13, permissions: ["execute"] }];
     payload.issue.permissions = ["execute", "open", "read"];
-    const fetchMock = vi.fn(async (url: string) => response(200, url.includes("view=summary") ? { occurrences: [], meta: { page: 1, page_size: 10, total: 0, total_pages: 1 } } : url.endsWith("/status") ? payload.issue : payload));
+    const fetchMock = vi.fn(async (url: string, request?: { method?: string; body?: string }) => {
+      if (request?.method === "PATCH") {
+        const change = JSON.parse(request.body!);
+        const signature = payload.issue.signatures.find((item) => item.id === change.signature_ids[0])!;
+        if (change.status) signature.status = change.status;
+        if (change.disposition) signature.disposition = change.disposition;
+        return response(200, payload.issue);
+      }
+      return response(200, url.includes("view=summary") ? { occurrences: [], meta: { page: 1, page_size: 10, total: 0, total_pages: 1 } } : payload);
+    });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     renderDetail();
-    const table = await screen.findByRole("table", { name: "Permission signatures" });
+    const operations = await screen.findByRole("button", { name: "Denied operations" });
+    expect(operations).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("table", { name: "Denied operations" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/This relationship groups related evidence/)).not.toBeInTheDocument();
+    await user.click(operations);
+    const table = screen.getByRole("table", { name: "Denied operations" });
     expect(within(table).getAllByRole("row")).toHaveLength(4);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("httpd_t access to file objects labeled user_home_t");
-    await user.selectOptions(within(table).getByLabelText("Status for read signature 11"), "ignored");
+    expect(within(table).queryByRole("combobox")).not.toBeInTheDocument();
+    await user.click(within(table).getByRole("button", { name: "Review read separately" }));
+    const review = screen.getByRole("region", { name: "Review permission set" });
+    expect(review).toHaveTextContent("Changes apply only to this permission set");
+    expect(review).toHaveTextContent("They do not change SELinux policy or verify a fix");
+    await user.selectOptions(within(review).getByLabelText("Operation status"), "ignored");
+    expect(fetchMock.mock.calls.some(([, request]) => request?.method === "PATCH")).toBe(false);
+    await user.click(within(review).getByRole("button", { name: "Save operation status" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/status", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ status: "ignored", signature_ids: [11] }) })));
-    expect(within(table).getByLabelText("Status for execute signature 13")).toHaveValue("open");
+    expect(await within(review).findByRole("status")).toHaveTextContent("Status saved for this permission set only");
+    expect(within(table).getAllByRole("row")[3]).toHaveTextContent("Open");
+    await user.selectOptions(within(review).getByLabelText("Operation disposition"), "under_investigation");
+    expect(fetchMock.mock.calls.filter(([, request]) => request?.method === "PATCH")).toHaveLength(1);
+    await user.click(within(review).getByRole("button", { name: "Save operation disposition" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/disposition", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ disposition: "under_investigation", signature_ids: [11] }) })));
+    expect(await within(review).findByRole("status")).toHaveTextContent("Disposition saved for this permission set only");
+    await user.click(within(review).getByRole("button", { name: "Close review" }));
+    expect(screen.queryByRole("region", { name: "Review permission set" })).not.toBeInTheDocument();
     await user.click(within(table).getByRole("button", { name: "View open, read signature 12 occurrences" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/occurrences?view=summary&page=1&limit=10&signature_id=12", expect.anything()));
-    await user.click(screen.getByRole("button", { name: "Show all signatures" }));
+    await user.click(screen.getByRole("button", { name: "Show all operations" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/occurrences?view=summary&page=1&limit=10", expect.anything()));
+  });
+
+  it("omits the operation breakdown for a single permission set and retains issue actions", async () => {
+    const fetchMock = vi.fn();
+    mockApi(fetchMock, "003");
+    vi.stubGlobal("fetch", fetchMock);
+    renderDetail();
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.queryByRole("button", { name: "Denied operations" })).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: /Actions ·/ }));
+    expect(screen.getByLabelText("Issue status")).toBeVisible();
+    expect(screen.getByLabelText("Operator disposition")).toBeVisible();
+  });
+
+  it("keeps an unsuccessful separate review editable and reports the failure", async () => {
+    const payload = detailPayload("001");
+    payload.issue.signatures.push({ ...payload.issue.signatures[0], id: 12, permissions: ["execute"] });
+    const fetchMock = vi.fn(async (_url: string, request?: { method?: string }) => request?.method === "PATCH"
+      ? response(500, { error: { message: "Could not save review" } }) : response(200, payload));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderDetail();
+    await user.click(await screen.findByRole("button", { name: "Denied operations" }));
+    await user.click(screen.getByRole("button", { name: "Review read separately" }));
+    await user.selectOptions(screen.getByLabelText("Operation status"), "resolved");
+    await user.click(screen.getByRole("button", { name: "Save operation status" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Operation review failed");
+    expect(screen.getByLabelText("Operation status")).toHaveValue("resolved");
+    expect(screen.getByRole("button", { name: "Save operation status" })).toBeEnabled();
+    expect(screen.queryByText("Status saved for this permission set only.")).not.toBeInTheDocument();
   });
 
   it("does not infer a blocked syscall or an active-policy conclusion from an inactive conditional path", async () => {
