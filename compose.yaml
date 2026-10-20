@@ -15,9 +15,7 @@ services:
       retries: 10
 
   server:
-    build:
-      context: .
-      dockerfile: Containerfile
+    image: quay.io/secentral/server:0.0.1
     restart: unless-stopped
     environment:
       RAILS_ENV: production

@@ -16,9 +16,9 @@ See [Contributing](CONTRIBUTING.md) for feedback and contribution guidelines.
 
 ## Self-hosted deployment
 
-The production `Containerfile` builds the Rails application and its SPA. The
-`Containerfile.dev` is only for development and tests. To deploy with PostgreSQL
-and automatic HTTPS:
+The Compose deployment uses the published `quay.io/secentral/server:0.0.1` image
+with PostgreSQL and automatic HTTPS. Podman and `podman-compose` are required.
+The server image is currently available for Linux amd64.
 
 1. Point a public DNS name at the host and allow inbound TCP ports 80 and 443
    (and UDP 443 for HTTP/3).
@@ -26,34 +26,36 @@ and automatic HTTPS:
    `SECENTRAL_SERVER_DATABASE_PASSWORD`, and `SECENTRAL_INGESTION_KEY` to
    unique generated values. For random values, use `openssl rand -hex 32`.
 3. Set `ADMIN_USERNAME` and `ADMIN_PASSWORD_DIGEST`. Generate a bcrypt digest
-   for your chosen operator password with the development image:
+   for your chosen operator password with the published image:
 
    ```sh
-   docker build -f Containerfile.dev -t secentral-server-dev .
    read -rsp 'Operator password: ' ADMIN_PASSWORD; printf '\n'
-   printf '%s' "$ADMIN_PASSWORD" | docker run --rm -i secentral-server-dev \
-     bundle exec ruby -rbcrypt -e 'puts BCrypt::Password.create(STDIN.read)'
+   printf '%s' "$ADMIN_PASSWORD" | podman run --rm -i --entrypoint bundle \
+     quay.io/secentral/server:0.0.1 exec ruby -rbcrypt \
+     -e 'puts BCrypt::Password.create(STDIN.read)'
    unset ADMIN_PASSWORD
    ```
 
-   Put the printed digest in `.env` as `ADMIN_PASSWORD_DIGEST`.
-4. Start the services with `docker compose up -d --build`.
+   Put the printed digest in `.env` as `ADMIN_PASSWORD_DIGEST`, enclosed in single
+   quotes so Compose preserves its `$` characters.
+4. Start the services with `podman-compose up -d`.
 5. Open `https://<DOMAIN>` and sign in with the configured operator account.
 
 Keep `.env` private and back up the PostgreSQL volume. The Compose deployment
 uses Caddy to obtain and renew HTTPS certificates. It publishes the Rails app
-through Caddy only; PostgreSQL is not published to the host. `docker compose
-down` preserves the database volume; `docker compose down -v` deletes it.
+through Caddy only; PostgreSQL is not published to the host. `podman-compose down`
+preserves the database volume; `podman-compose down -v` deletes it.
 
 Agent hosts must use the same `SECENTRAL_INGESTION_KEY` value for bearer
 authentication.
 
-To upgrade after updating the server source, run `docker compose up -d --build`;
-the application entrypoint prepares the database and applies migrations. Back
-up the database before upgrades, for example:
+To upgrade, back up the database, update the server image version in
+`compose.yaml`, then run `podman-compose pull server` and `podman-compose up -d`.
+The application entrypoint prepares the database and applies migrations; reverting
+the image does not undo those migrations. For a database backup:
 
 ```sh
-docker compose exec -T db pg_dump -U secentral_server secentral_server_production > secentral-backup.sql
+podman-compose exec -T db pg_dump -U secentral_server secentral_server_production > secentral-backup.sql
 ```
 
 ## Current capabilities
