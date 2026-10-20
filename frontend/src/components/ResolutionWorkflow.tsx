@@ -10,7 +10,7 @@ import { fetchIssueOccurrence, type IssueDetailResponse } from "../api/issue";
 import { ContextSidebar, EvidenceLink, ObservedAccessFlow, TechnicalEvidenceDisclosure, evidenceRecord, valueText } from "./WorkbenchEvidence";
 import { clearIntent, createDraft, exportDraft, fetchDrafts, fetchResolutions, removeEntry, selectIntent, stagePermission,
   type ChangePlan as PlanData, type PolicyDraftExport, type ResolutionWorkflow as Workflow } from "../api/resolution";
-import { activeResolutionResource, resolutionResources } from "./resolutionResources";
+import { activeResolutionResource, fileResourceLabel, resolutionResources } from "./resolutionResources";
 import { OperatorChecks, OperatorVerification, ReadOnlyCommands } from "./OperatorGuidance";
 import { Disclosure as ExpandableSection } from "./Disclosure";
 
@@ -24,11 +24,13 @@ function download(filename: string, content: string) {
 }
 
 export function CopyCommand({ command }: { command: string }) {
-  const [message, setMessage] = useState("");
-  return <div className="command-block"><CodeBlock actions={<CodeBlockAction><Tooltip content="Copy to clipboard"><Button variant="plain" icon={<CopyIcon />} aria-label={`Copy command: ${command}`} onClick={() => {
+  const [feedback, setFeedback] = useState({ command: "", message: "" });
+  const message = feedback.command === command ? feedback.message : "";
+  const setMessage = (text: string) => setFeedback({ command, message: text });
+  return <div className="command-block"><CodeBlock actions={<CodeBlockAction><Tooltip content={message || "Copy command"}><Button variant="plain" icon={message === "Copied" ? <CheckCircleIcon /> : <CopyIcon />} aria-label={`Copy command: ${command}`} onClick={() => {
     if (!navigator.clipboard) { setMessage("Copy unavailable; select the command text"); return; }
     void navigator.clipboard.writeText(command).then(() => setMessage("Copied"), () => setMessage("Copy unavailable; select the command text"));
-  }} /></Tooltip></CodeBlockAction>}><CodeBlockCode tabIndex={0} aria-label="Exact command">{command}</CodeBlockCode></CodeBlock><small role="status">{message}</small></div>;
+  }} /></Tooltip></CodeBlockAction>}><CodeBlockCode tabIndex={0} aria-label="Exact command">{command}</CodeBlockCode></CodeBlock><small className="pf-v6-screen-reader" role="status">{message}</small></div>;
 }
 
 function optionTitle(basis: Record<string, unknown>, title: string) {
@@ -76,6 +78,27 @@ function ChangePlan({ plan, detail }: { plan: PlanData; detail?: IssueDetailResp
 }
 
 type Candidate = Workflow["candidates"][number];
+
+function candidatePresentation(candidate: Candidate) {
+  const boolean = evidenceRecord(candidate.evidence_basis.current_boolean);
+  const observedOn = (!boolean.status || boolean.status === "observed") && boolean.current === true;
+  if (candidate.status === "proposed") return { state: "review", label: "Available for review" } as const;
+  if (candidate.status === "evidence_changed") return { state: "verify", label: "Needs verification · plan unavailable" } as const;
+  if (candidate.scope_kind === "host_boolean" && observedOn) return { state: "observed_on", label: "Last observed Boolean: On" } as const;
+  return { state: "unsupported", label: "Plan unavailable" } as const;
+}
+
+function candidateNextStep(candidate: Candidate): string | null {
+  const { state } = candidatePresentation(candidate);
+  if (state === "observed_on") return "Recheck current runtime state and retry the intended workload before considering a policy change.";
+  if (state === "verify") return candidate.kind === "restore_configured_label"
+    ? "Refresh the host configuration evidence and verify the current file label before reviewing restoration."
+    : "Refresh the missing or stale evidence identified below and inspect runtime state before reviewing a change.";
+  if (state === "unsupported") return "Inspect the policy-evidence blocker below; no applicable change plan is supported by the retained evidence.";
+  if (candidate.kind === "restore_configured_label") return "Inspect current object identity and host-configured labeling before reviewing targeted restoration.";
+  if (candidate.kind === "enable_boolean") return "Inspect runtime and persistent Boolean state, then review the host-wide impact before choosing an intent.";
+  return null;
+}
 
 function FocusedResource({ issueId, workflow, detail, stage, onShowTechnicalEvidence }: { issueId: number; workflow: Workflow; detail?: IssueDetailResponse; stage: "observed" | "context"; onShowTechnicalEvidence?: () => void }) {
   const [params] = useSearchParams();
@@ -199,7 +222,8 @@ function ResolutionCandidateCard({ candidate, selected, freshness, busy, onSelec
   const basis = candidate.evidence_basis;
   const boolean = evidenceRecord(basis.current_boolean);
   const state = boolean.status && boolean.status !== "observed" ? `Not verified (${String(boolean.status)})` : typeof boolean.current === "boolean" ? boolean.current ? "On" : "Off" : "Not verified";
-  const unavailable = candidate.status !== "proposed";
+  const presentation = candidatePresentation(candidate);
+  const unavailable = presentation.state !== "review";
   const path = valueText(basis.path);
   const port = candidate.scope_kind === "host_port";
   const current = selected && freshness === "current";
@@ -210,14 +234,14 @@ function ResolutionCandidateCard({ candidate, selected, freshness, busy, onSelec
     <EvidenceLink target={`option-${candidate.id}`} occurrenceId={typeof basis.occurrence_id === "number" ? basis.occurrence_id : undefined}>Evidence supporting this option</EvidenceLink>
   </article>;
   return <article className={`resolution-candidate-card ${selected ? "resolution-selected" : ""} ${unavailable ? "candidate-muted" : ""}`} aria-label={optionTitle(basis, candidate.title)}>
-    <header><ShieldAltIcon aria-hidden="true" /><h3>{path ?? (unavailable && valueText(basis.boolean) ? String(basis.boolean) : optionTitle(basis, candidate.title))}</h3>{selected && <Label color={current ? "blue" : "orange"} icon={<CheckCircleIcon />}>{current ? "Selected · current" : "Selected · review required"}</Label>}{unavailable && <Label color="grey">{candidate.scope_kind === "host_boolean" && state === "On" ? "Latest observation: On" : "Plan unavailable"}</Label>}</header>
-    {unavailable && <Alert variant="info" isInline isPlain title={candidate.scope_kind === "host_boolean" && state === "On" ? "Recheck runtime state on the host before considering a change." : "Retained evidence does not support a change plan."}>{candidate.unavailable_reason}</Alert>}
-    {path ? <p className="candidate-label-change"><code>{valueText(basis.observed_context)?.split(":")[2] ?? "Observed label"}</code><span aria-label="to">→</span><code>{valueText(basis.expected_context)?.split(":")[2] ?? "Expected label"}</code></p>
-      : <p className="candidate-relevance">{port ? candidate.explanation : unavailable && state === "On" ? "Latest observation recorded this capability On." : "Matching independent policy path"}</p>}
-    <dl className="candidate-facts">{!path && !port && <div><dt>Recorded state</dt><dd>Off at checkpoint · latest observation: <Label color={state === "Off" ? "orange" : "grey"} isCompact>{state}</Label>. Recheck runtime state.</dd></div>}<div><dt>Scope</dt><dd>{port ? "Host protocol/port classification" : candidate.scope_kind === "host_boolean" ? "Host-wide boolean" : "Targeted path relabel"} · {candidate.hostname ?? "Host not recorded"}</dd></div>{typeof basis.occurrence_id === "number" && <div><dt>Evidence example</dt><dd><Link to={`/hosts/${candidate.host_id}/occurrences/${basis.occurrence_id}`}>Occurrence #{basis.occurrence_id}</Link></dd></div>}</dl>
+    <header><ShieldAltIcon aria-hidden="true" /><h3>{path ?? (unavailable && valueText(basis.boolean) ? String(basis.boolean) : optionTitle(basis, candidate.title))}</h3>{selected && <Label color={current ? "blue" : "orange"} icon={<CheckCircleIcon />}>{current ? "Selected · current" : "Selected · review required"}</Label>}{unavailable && <Label color={presentation.state === "verify" ? "orange" : "grey"}>{presentation.label}</Label>}</header>
+    {unavailable && <Alert variant="info" isInline isPlain title={presentation.state === "verify" ? "Verify prerequisites before review" : "No proposed change plan"}>{candidate.unavailable_reason}</Alert>}
+    {path ? <p className="candidate-label-change">AVC label <code>{valueText(basis.observed_context)?.split(":")[2] ?? "Not recorded"}</code><span aria-label="to">→</span> Configured label <code>{valueText(basis.expected_context)?.split(":")[2] ?? "Not recorded"}</code></p>
+      : (port || !unavailable) && <p className="candidate-relevance">{port ? candidate.explanation : "Matching independent policy path"}</p>}
+    <dl className="candidate-facts">{!path && !port && <div><dt>Recorded state</dt><dd>Off at checkpoint · last observed Boolean state: <Label color={state === "Off" ? "orange" : "grey"} isCompact>{state}</Label>. Recheck runtime state.</dd></div>}<div><dt>Scope</dt><dd>{port ? "Host protocol/port classification" : candidate.scope_kind === "host_boolean" ? "Host-wide boolean" : "Targeted path relabel"} · {candidate.hostname ?? "Host not recorded"}</dd></div>{typeof basis.occurrence_id === "number" && <div><dt>Evidence example</dt><dd><Link to={`/hosts/${candidate.host_id}/occurrences/${basis.occurrence_id}`}>Occurrence #{basis.occurrence_id}</Link></dd></div>}</dl>
     {candidate.scope_kind === "host_boolean" && <p className="candidate-breadth">Can enable broader access through other policy rules; not limited to this occurrence or destination.</p>}
     {!unavailable && (confirming ? <div className="intent-confirmation"><p>{candidate.intent_prompt}</p><Button variant="primary" isDisabled={busy} onClick={() => onSelect(candidate)}>Confirm intent</Button><Button variant="link" onClick={() => setConfirming(false)}>Cancel</Button></div>
-          : <><Button variant="primary" isDisabled={busy} onClick={() => setConfirming(true)}>{selected ? "Review updated option" : path ? "Choose this path" : "Choose intent"}</Button><p className="workbench-caption">Review this option to see copyable inspection and change commands.</p></>)}
+          : <><Button variant="primary" isDisabled={busy} onClick={() => setConfirming(true)}>{selected ? "Review updated option" : path ? "Review label restoration" : candidate.kind === "enable_boolean" ? "Review Boolean change" : "Choose intent"}</Button><p className="workbench-caption">Review impact, then confirm intent to see the proposed runbook. Selection does not apply or verify a change.</p></>)}
     <p>{candidate.scope_warning}</p>
     {visibleLimitations.length > 0 && <ul>{visibleLimitations.map((text) => <li key={text}>{text}</li>)}</ul>}
     <ExpandableSection toggleText="Evidence & limitations">
@@ -348,21 +372,24 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
   const inspectionElsewhere = !!active && !!source && (active.port ? active.port.host_id === source.host_id &&
     (active.port.occurrence_id === source.occurrence_id || (active.port.port === source.port && active.port.protocol === source.protocol && active.port.operation === source.operation))
     : active.candidates.some((candidate) => candidate.host_id === source.host_id && (source.path ? candidate.evidence_basis.path === source.path : candidate.evidence_basis.occurrence_id === source.occurrence_id)));
+  const nextCandidate = selectedHere ? selected : primaryOptions.find((candidate) => candidatePresentation(candidate).state === "observed_on") ?? primaryOptions.find((candidate) => candidatePresentation(candidate).state === "verify") ?? primaryOptions[0];
+  const missingPath = detail && ["file", "dir"].includes(detail.issue?.target_class) && source && !source.path && (!active || inspectionElsewhere);
+  const nextStep = plan ? "Inspect the reviewed host/resource baseline before making any change."
+    : selectedHere && workflow.freshness && workflow.freshness !== "current" ? "Review the changed evidence and prerequisites below before confirming updated intent."
+    : missingPath ? "Identify the complete target path before considering a file-label modification."
+    : nextCandidate && candidatePresentation(nextCandidate).state !== "review" ? candidateNextStep(nextCandidate)
+    : active?.port?.operation === "name_bind" ? "Confirm the intended listener and existing port classification before selecting an SELinux port type."
+    : active?.port?.operation === "name_connect" ? "Confirm the intended remote service, inspect runtime Boolean state and check port policy classification."
+    : nextCandidate ? candidateNextStep(nextCandidate)
+    : (!active || inspectionElsewhere) && source?.path ? "Inspect the current file label and host-configured labeling before considering restoration." : null;
   const resourceOccurrenceId = active?.port?.occurrence_id ?? active?.candidates[0]?.evidence_basis.occurrence_id;
   const inspection = !plan && ((inspectionElsewhere || !active) && detail?.operator_guidance ? <OperatorChecks detail={detail} />
     : active && typeof resourceOccurrenceId === "number" && Number.isSafeInteger(resourceOccurrenceId) && resourceOccurrenceId > 0 ? <ResourceInspection key={active.key} issueId={issueId} occurrenceId={resourceOccurrenceId} /> : null);
   const compactPorts = resources.length > 0 && resources.every((resource) => resource.port && resource.port.host_id === resources[0].port?.host_id && resource.port.operation === resources[0].port?.operation);
-  const sameFileHost = resources.length > 0 && resources.every((resource) => !resource.port && resource.candidates[0]?.host_id === resources[0].candidates[0]?.host_id);
-  const compactName = (resource: typeof resources[number]) => {
-    const path = valueText(resource.candidates[0]?.evidence_basis.path);
+  const resourceName = (resource: typeof resources[number]) => {
     if (compactPorts && resource.port) return `${resource.port.protocol.toUpperCase()}/${resource.port.port ?? "port not recorded"}`;
-    if (!path) return resource.label;
-    const parts = path.split("/").filter(Boolean);
-    const parent = parts.at(-2) ?? "";
-    const shortParent = parent.length > 20 ? `…${parent.slice(-16)}` : parent;
-    return `${parts.length > 2 ? "…/" : "/"}${shortParent ? `${shortParent}/` : ""}${parts.at(-1) ?? ""}${sameFileHost ? "" : ` · ${resource.candidates[0].hostname ?? `Host ${resource.candidates[0].host_id}`}`}`;
+    return fileResourceLabel(resource, resources);
   };
-  const resourceName = (resource: typeof resources[number]) => resources.some((other) => other.key !== resource.key && compactName(other) === compactName(resource)) ? resource.label : compactName(resource);
   const useTabs = resources.length <= 5 && !(resources.length > 3 && resources.some((resource) => resource.candidates.some((candidate) => candidate.evidence_basis.path)));
   const resourceLabel = (resource: typeof resources[number]) => `${resourceName(resource)}${resource.port?.occurrence_count != null ? ` (${resource.port.occurrence_count} denial${resource.port.occurrence_count === 1 ? "" : "s"})` : ""}${resource === reviewedResource ? workflow.freshness === "current" ? " · Review current" : " · Review required" : ""}`;
   const navigateResource = (key: string) => setParams((previous) => {
@@ -381,7 +408,7 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
           : <>The reviewed resource is no longer supported by retained evidence; no reviewed commands are shown.</>}
       </p>}
       {resources.length > 1 && (useTabs ? <Tabs activeKey={active.key} onSelect={(_event, key) => navigateResource(String(key))} aria-label="Investigation resources" isBox>
-        {resources.map((resource) => <Tab key={resource.key} eventKey={resource.key} aria-label={`${resource.label}${resourceLabel(resource).slice(resourceName(resource).length)}`} title={<TabTitleText>{resourceLabel(resource)}</TabTitleText>} tabContentId="issue-resource-panel" />)}
+        {resources.map((resource) => <Tab key={resource.key} eventKey={resource.key} aria-label={`${resource.label}${resourceLabel(resource).slice(resourceName(resource).length)}`} title={<TabTitleText><span title={resource.label}>{resourceLabel(resource)}</span></TabTitleText>} tabContentId="issue-resource-panel" />)}
       </Tabs> : <Stack hasGutter>
         <StackItem><SearchInput aria-label="Search investigation resources" value={resourceSearch} onChange={(_event, value) => setResourceSearch(value)} onClear={() => setResourceSearch("")} /></StackItem>
         <StackItem><FormSelect aria-label="Active investigation resource" value={active.key} onChange={(_event, key) => navigateResource(key)}>
@@ -390,6 +417,7 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
       </Stack>)}
       <section id="issue-resource-panel" role={resources.length > 1 && useTabs ? "tabpanel" : undefined} tabIndex={0} aria-label={`Active resource: ${active?.label ?? "Investigation example"}`}>
       {active && !active.port && <p><strong>Inspecting:</strong> {active.label}</p>}
+      {nextStep && <p className="suggested-next-step" aria-label="Suggested next step"><strong>Suggested next step</strong> · {nextStep}</p>}
       {detail?.operator_guidance && (!active || inspectionElsewhere) && source?.path && <p>{detail.operator_guidance.possible_fix}</p>}
       {active?.port ? <PortInvestigation key={`${issueId}-${active.key}`} investigation={active.port} workflow={workflow} busy={busy} onSelect={choose}>{inspection}</PortInvestigation> : inspection}
       {(!active || inspectionElsewhere) && children}

@@ -37,6 +37,7 @@ export function Login() {
 
   return (
     <LoginPage
+      className="app-login"
       loginTitle="Log in to SECentral"
       brandImgSrc={logo}
       brandImgAlt="SECentral"

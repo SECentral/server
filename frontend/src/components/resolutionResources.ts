@@ -36,3 +36,18 @@ export function activeResolutionResource(workflow: ResolutionWorkflow, requested
   return resources.find((resource) => resource.key === requested) ?? resources.find((resource) => source && (resource.port?.occurrence_id === source.occurrence_id || resource.candidates.some((candidate) => candidate.host_id === source.host_id && (source.path ? candidate.evidence_basis.path === source.path : candidate.evidence_basis.occurrence_id === source.occurrence_id))))
     ?? resources.find((resource) => resource.candidates.some((candidate) => candidate.id === workflow.intent?.candidate_id)) ?? resources[0];
 }
+
+export function fileResourceLabel(resource: ReturnType<typeof resolutionResources>[number], resources: ReturnType<typeof resolutionResources>): string {
+  const path = resource.candidates[0]?.evidence_basis.path;
+  if (typeof path !== "string") return resource.label;
+  const parts = path.split("/").filter(Boolean);
+  const otherPaths = resources.filter((other) => other.key !== resource.key).map((other) => other.candidates[0]?.evidence_basis.path).filter((other): other is string => typeof other === "string");
+  let suffix = parts.at(-1) ?? "/";
+  for (let length = 1; length <= parts.length; length++) {
+    suffix = parts.slice(-length).join("/");
+    if (!otherPaths.some((other) => other !== path && other.split("/").filter(Boolean).slice(-length).join("/") === suffix)) break;
+    if (length === parts.length) suffix = path;
+  }
+  if (otherPaths.includes(path)) return `${suffix} · ${resource.candidates[0].hostname ?? "Host"} (#${resource.candidates[0].host_id})`;
+  return suffix;
+}

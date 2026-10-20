@@ -1,4 +1,4 @@
-import { Alert, Breadcrumb, BreadcrumbItem, Button, Card, CardBody, Label, Pagination, Spinner, TextInput, Title } from "@patternfly/react-core";
+import { Alert, Breadcrumb, BreadcrumbItem, Button, Card, CardBody, Label, Pagination, Spinner, TextInput, Title, Tooltip } from "@patternfly/react-core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
@@ -293,7 +293,7 @@ function FleetSection({
     <section className="issue-fleet-section" aria-labelledby="issue-fleet-title">
       <header><div><h2 id="issue-fleet-title">Fleet Scope & Occurrences</h2><p>{fleet.affected_host_count} affected host{fleet.affected_host_count === 1 ? "" : "s"} · {fleetSummary(fleet.state, fleet.affected_host_count)}</p></div></header>
       <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Finding distribution">
-        <Thead><Tr><Th>Host</Th><Th>Finding coverage</Th><Th>Finding groups</Th><Th>Evidence</Th></Tr></Thead><Tbody>
+        <Thead><Tr><Th>Host</Th><Th><Tooltip content="Supported findings are evidence-backed explanations for occurrences, not verified root causes or successful remediation."><span tabIndex={0}>Finding coverage</span></Tooltip></Th><Th>Finding groups</Th><Th>Evidence</Th></Tr></Thead><Tbody>
         {hostExplanations.map((host) => {
           const groups = host.diagnosis_groups ?? [];
           const unexplained = host.unexplained_occurrence_count;
@@ -304,7 +304,7 @@ function FleetSection({
               : `Same explanation across ${host.occurrence_count} occurrences`;
           return <Tr key={host.host_id}>
             <Td dataLabel="Host"><Link to={`/hosts/${host.host_id}`}>{host.hostname ?? `Host ${host.host_id}`}</Link></Td>
-            <Td dataLabel="Finding coverage"><p>{host.occurrence_count - unexplained} supported · {unexplained} unconfirmed</p><small>{occurrenceSummary}</small></Td>
+            <Td dataLabel="Finding coverage"><p>{host.occurrence_count - unexplained} with supported findings · {unexplained} without a complete explanation</p><small>{occurrenceSummary}</small></Td>
             <Td dataLabel="Finding groups"><ul>{groups.map((group, index) => <li key={index}>{diagnosisVariantDetail(group.diagnosis) ?? "Cause not confirmed"} · {group.count} occurrence{group.count === 1 ? "" : "s"}</li>)}</ul>
               {host.additional_diagnosis_group_count > 0 && <small>{host.additional_diagnosis_group_count} more groups; inspect occurrence records</small>}
             </Td>

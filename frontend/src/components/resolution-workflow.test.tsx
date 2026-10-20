@@ -3,7 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import type { PolicyDraft, ResolutionWorkflow as Workflow } from "../api/resolution";
-import { ResolutionWorkflow } from "./ResolutionWorkflow";
+import { CopyCommand, ResolutionWorkflow } from "./ResolutionWorkflow";
+import { ReadOnlyCommands } from "./OperatorGuidance";
+import { fileResourceLabel, resolutionResources } from "./resolutionResources";
 import { TechnicalEvidenceDisclosure } from "./WorkbenchEvidence";
 import { MemoryRouter } from "react-router-dom";
 import type { IssueDetailResponse } from "../api/issue";
@@ -43,6 +45,7 @@ describe("Evidence-driven resolution UI", () => {
   it("synchronizes file resource focus, preserves full identities and reports failed evidence without substituting the latest event", async () => {
     const state = initial();
     const paths = ["/srv/a/20261006/first", "/srv/a/20261006/later-modify", "/srv/b/20261006/first"];
+    state.history = [{ action: "selected", operator: "operator-a", created_at: "2026-10-01T10:00:00Z", details: {} }];
     state.candidates = paths.map((path, index) => ({ ...candidate, id: `file-${index}`, kind: "restore_configured_label", scope_kind: "single_object", evidence_basis: { path, occurrence_id: index + 11 }, status: "evidence_changed", unavailable_reason: "Host configuration snapshot missing." }));
     const detail = { issue: { source_type: "httpd_t", target_type: "var_t", target_class: "file", permissions: ["read"], occurrences_count: 3, disposition_history: [] }, host_explanations: [], intelligence: {}, diagnosis: null } as unknown as IssueDetailResponse;
     let fail = false;
@@ -55,9 +58,15 @@ describe("Evidence-driven resolution UI", () => {
     render(<QueryClientProvider client={client}><MemoryRouter><ResolutionWorkflow issueId={7} stage="observed" initialData={state} detail={detail} /><ResolutionWorkflow issueId={7} stage="context" initialData={state} detail={detail} /><ResolutionWorkflow issueId={7} stage="intent" initialData={state} detail={detail} /></MemoryRouter></QueryClientProvider>);
     const user = userEvent.setup();
     expect(await screen.findByRole("complementary", { name: "Investigation context" })).toHaveTextContent(paths[0]);
-    expect(screen.getByRole("tab", { name: `${paths[0]} · web-1` })).toHaveTextContent(paths[0]);
+    const history = within(screen.getByRole("complementary", { name: "Investigation context" })).getByRole("button", { name: "Intent history" });
+    expect(history).toHaveAttribute("aria-expanded", "false");
+    await user.click(history);
+    expect(screen.getByRole("region", { name: "Operator history" })).toHaveTextContent("operator-a");
+    expect(document.querySelector(".workbench-activity-history")).toBeNull();
+    expect(screen.getByRole("tab", { name: `${paths[0]} · web-1` })).toHaveTextContent("a/20261006/first");
     const next = screen.getByRole("tab", { name: `${paths[1]} · web-1` });
-    expect(next).toHaveTextContent("…/20261006/later-modify");
+    expect(next).toHaveTextContent("later-modify");
+    expect(within(next).getByTitle(`${paths[1]} · web-1`)).toBeInTheDocument();
     await user.click(next);
     await waitFor(() => expect(screen.getByRole("region", { name: "Observed access" })).toHaveTextContent(paths[1]));
     expect(screen.getByRole("complementary", { name: "Investigation context" })).toHaveTextContent("process-12");
@@ -68,6 +77,67 @@ describe("Evidence-driven resolution UI", () => {
     await waitFor(() => expect(screen.getAllByText("Active resource evidence unavailable")).toHaveLength(2));
     expect(screen.getByRole("region", { name: "Observed access" })).not.toHaveTextContent("TCP/12345");
     expect(fetchMock.mock.calls.every((call) => !call[1]?.method || call[1].method === "GET")).toBe(true);
+  });
+
+  it("keeps next steps and review controls aligned with changing server eligibility and observation trust", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const baseTime = Date.now();
+    const content = (state: Workflow, version: number) => <QueryClientProvider client={client}><MemoryRouter><ResolutionWorkflow issueId={7} stage="intent" initialData={state} initialDataUpdatedAt={baseTime + version} /></MemoryRouter></QueryClientProvider>;
+    const view = render(content(initial(), 0));
+    expect(screen.getByLabelText("Suggested next step")).toHaveTextContent("runtime and persistent Boolean state");
+    expect(screen.getByRole("button", { name: "Review Boolean change" })).toBeEnabled();
+    const unavailable = { ...candidate, status: "evidence_changed" as const, evidence_basis: { current_boolean: { status: "observed", current: true } }, unavailable_reason: "Host configuration snapshot missing or stale." };
+    view.rerender(content({ ...initial(), candidates: [unavailable] }, 1));
+    expect(screen.getByLabelText("Suggested next step")).toHaveTextContent("Refresh the missing or stale evidence");
+    expect(screen.getByText("Needs verification · plan unavailable")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Review Boolean change" })).not.toBeInTheDocument();
+    view.rerender(content({ ...initial(), candidates: [{ ...unavailable, status: "no_longer_supported" }] }, 2));
+    expect(screen.getByLabelText("Suggested next step")).toHaveTextContent("Recheck current runtime state and retry");
+    view.rerender(content({ ...initial(), candidates: [{ ...unavailable, status: "no_longer_supported", evidence_basis: { current_boolean: { status: "unavailable", current: true } } }] }, 3));
+    expect(screen.queryByText("Last observed Boolean: On")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Suggested next step")).toHaveTextContent("policy-evidence blocker");
+    view.rerender(content({ ...initial(), candidates: [] }, 4));
+    expect(screen.queryByLabelText("Suggested next step")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Verify" })).not.toBeInTheDocument();
+  });
+
+  it("uses whole path segments for unique suffixes and distinguishes identical paths on different hosts", () => {
+    const state = initial();
+    state.candidates = ["/srv/a/later-modify", "/srv/b/later-modify", "/srv/b/later-add"].map((path, index) => ({ ...candidate, id: `file-${index}`, evidence_basis: { path } }));
+    let resources = resolutionResources(state);
+    expect(resources.map((resource) => fileResourceLabel(resource, resources))).toEqual(["a/later-modify", "b/later-modify", "later-add"]);
+    state.candidates.push({ ...state.candidates[0], id: "other-host", host_id: 2 });
+    resources = resolutionResources(state);
+    const labels = resources.map((resource) => fileResourceLabel(resource, resources));
+    expect(new Set(labels).size).toBe(4);
+    expect(labels[0]).toContain("#1");
+    expect(labels[3]).toContain("#2");
+  });
+
+  it("keeps command purpose and safety interpretation together above exact code and announces copy failure", async () => {
+    const command = "stat -- '/srv/a file'";
+    render(<><ReadOnlyCommands checks={[{ title: "Inspect object identity", command, interpretation: "Stop if missing or replaced." }]} /><CopyCommand command="getsebool httpd_read_user_content" /></>);
+    const header = screen.getByText("Inspect object identity").closest("p")!;
+    expect(header).toHaveTextContent("Inspect object identity · Stop if missing or replaced.");
+    const code = screen.getByText(command).closest(".command-block")!;
+    expect(header.compareDocumentPosition(code) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(code.nextElementSibling).toBeNull();
+    const user = userEvent.setup();
+    vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("Denied"));
+    await user.click(screen.getByRole("button", { name: `Copy command: ${command}` }));
+    await waitFor(() => expect(within(code as HTMLElement).getByRole("status")).toHaveTextContent("Copy unavailable; select the command text"));
+    expect(screen.queryByRole("button", { name: "Confirm intent" })).not.toBeInTheDocument();
+  });
+
+  it("prioritizes identifying a missing file path while keeping eligible host-wide Boolean review separate", () => {
+    const state = { ...initial(), candidates: [{ ...candidate, evidence_basis: { ...candidate.evidence_basis, occurrence_id: 1 } }] };
+    const detail = { issue: { target_class: "file" }, operator_guidance: { source: { host_id: 1, occurrence_id: 1, path: null }, checks: [], manual_check: "Inspect intended access" } } as unknown as IssueDetailResponse;
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><MemoryRouter><ResolutionWorkflow issueId={7} stage="intent" initialData={state} detail={detail} /></MemoryRouter></QueryClientProvider>);
+    expect(screen.getByLabelText("Suggested next step")).toHaveTextContent("Identify the complete target path");
+    expect(screen.getByRole("button", { name: "Review Boolean change" })).toBeEnabled();
+    expect(screen.getByText(/Can enable broader access/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Copy command:.*restorecon/ })).not.toBeInTheDocument();
   });
 
   it("keeps hashes, policy conditions and nested provenance out of the default view but available on demand", async () => {
@@ -114,13 +184,13 @@ describe("Evidence-driven resolution UI", () => {
     }));
     const user = userEvent.setup();
     const view = mount();
-    await screen.findByRole("button", { name: "Choose intent" });
+    await screen.findByRole("button", { name: "Review Boolean change" });
     expect(screen.getByRole("region", { name: "Observed access" })).toHaveTextContent("TCP/12345");
     expect(screen.getByText("Host-wide boolean · web-1")).toBeVisible();
     expect(screen.getByText(/Can enable broader access/)).toBeVisible();
-    expect(screen.getByText(/Review this option to see copyable inspection and change commands/)).toBeVisible();
+    expect(screen.getByText(/Selection does not apply or verify a change/)).toBeVisible();
     expect(screen.queryByText("sudo setsebool httpd_can_network_connect on")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Choose intent" }));
+    await user.click(screen.getByRole("button", { name: "Review Boolean change" }));
     expect(screen.getByText(candidate.intent_prompt)).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Confirm intent" }));
     await screen.findByRole("region", { name: "Selected change plan" });
@@ -159,9 +229,9 @@ describe("Evidence-driven resolution UI", () => {
     const state = { ...initial(), candidates: [{ ...candidate, evidence_basis: { ...candidate.evidence_basis, current_boolean: {current: true} }, status: "no_longer_supported" }] };
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(state), { status: 200 })));
     mount();
-    await screen.findByText("Latest observation recorded this capability On.");
-    expect(screen.queryByRole("button", { name: "Choose intent" })).not.toBeInTheDocument();
-    expect(screen.getByText("Latest observation: On")).toBeVisible();
+    await screen.findByText("Last observed Boolean: On");
+    expect(screen.queryByRole("button", { name: "Review Boolean change" })).not.toBeInTheDocument();
+    expect(screen.getByText("Last observed Boolean: On")).toBeVisible();
     await userEvent.setup().click(screen.getByRole("button", { name: "Evidence & limitations" }));
     expect(screen.getByText("Why is this shown?")).toBeVisible();
   });
@@ -180,14 +250,14 @@ describe("Evidence-driven resolution UI", () => {
     }));
     const user = userEvent.setup();
     const view = mount();
-    await screen.findByRole("button", { name: "Choose intent" });
+    await screen.findByRole("button", { name: "Review Boolean change" });
     await user.click(screen.getByRole("button", { name: "Open policy draft workspace" }));
     await user.click(await screen.findByRole("button", { name: "Add observed permission to Custom Policy Draft" }));
     await screen.findByText("Known alternatives at staging");
     expect(screen.getByText("httpd_t → unreserved_port_t:tcp_socket name_connect")).toBeVisible();
     view.unmount();
     mount();
-    await screen.findByRole("button", { name: "Choose intent" });
+    await screen.findByRole("button", { name: "Review Boolean change" });
     await user.click(screen.getByRole("button", { name: "Open policy draft workspace" }));
     await screen.findByText("httpd_t → unreserved_port_t:tcp_socket name_connect");
     await user.click(screen.getByText("Review proposed literal policy export"));
@@ -204,10 +274,10 @@ describe("Evidence-driven resolution UI", () => {
     mount();
     await screen.findByText("Selected · current");
     expect(document.querySelectorAll(".resolution-selected")).toHaveLength(1);
-    expect(screen.getByText("Latest observation recorded this capability On.")).not.toBeVisible();
+    expect(screen.getByText("Last observed Boolean: On")).not.toBeVisible();
     await user.click(screen.getByRole("button", { name: /Alternative approaches · 1 · Host-wide Boolean/ }));
-    expect(screen.getByText("Latest observation recorded this capability On.")).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Choose intent" })).not.toBeInTheDocument();
+    expect(screen.getByText("Last observed Boolean: On")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Review Boolean change" })).not.toBeInTheDocument();
   });
 
   it("groups label choices by mechanism while preserving their resource-scoped confirmation", async () => {
@@ -221,7 +291,7 @@ describe("Evidence-driven resolution UI", () => {
     expect(screen.getAllByRole("tab")).toHaveLength(2);
     expect(document.querySelectorAll(".candidate-paths .resolution-candidate-card")).toHaveLength(1);
     await user.click(screen.getByRole("tab", { name: /\/var\/www\/b/ }));
-    await user.click(screen.getByRole("button", { name: "Choose this path" }));
+    await user.click(screen.getByRole("button", { name: "Review label restoration" }));
     const confirmation = document.querySelector(".intent-confirmation")!;
     expect(confirmation.closest("article")).toHaveTextContent("/var/www/b");
     expect(screen.queryByText("sudo restorecon")).not.toBeInTheDocument();
@@ -253,7 +323,7 @@ describe("Evidence-driven resolution UI", () => {
     await screen.findByRole("region", { name: "Selected change plan" });
     await user.click(screen.getByRole("button", { name: "Copy command: sudo setsebool httpd_can_network_connect on" }));
     expect(write).toHaveBeenCalledWith("sudo setsebool httpd_can_network_connect on");
-    expect(await screen.findByText("Copied")).toBeVisible();
+    await waitFor(() => expect(screen.getByRole("tooltip")).toHaveTextContent("Copied"));
     expect(screen.getByText("Review current against retained evidence")).toBeVisible();
   });
 
@@ -299,11 +369,11 @@ describe("Evidence-driven resolution UI", () => {
     expect(screen.getByText(/2026-10-17T12:00:00Z/)).toBeVisible();
     expect(screen.getByText(/2026-10-01T10:00:00Z/)).toBeVisible();
     expect(screen.getByText("Enable nis_enabled")).not.toBeVisible();
-    expect(screen.queryByRole("button", { name: "Choose intent" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Review Boolean change" })).not.toBeInTheDocument();
     const disclosure = screen.getByRole("button", { name: "Alternative policy approaches · 1 · Host-wide scope" });
     await user.click(disclosure);
     expect(screen.getByText("Enable nis_enabled")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Choose intent" }));
+    await user.click(screen.getByRole("button", { name: "Review Boolean change" }));
     expect(screen.getByRole("button", { name: "Confirm intent" })).toBeVisible();
     expect(document.body.textContent).not.toContain("setsebool");
   });
@@ -324,7 +394,7 @@ describe("Evidence-driven resolution UI", () => {
     expect(screen.getAllByRole("tab")).toHaveLength(3);
     const card = screen.getByRole("heading", { name: "/srv/launch" }).closest("article")!;
     expect(within(card).getByRole("link", { name: "Occurrence #2" })).toHaveAttribute("href", "/hosts/2/occurrences/2");
-    expect(within(card).queryByRole("button", { name: "Choose this path" })).not.toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: "Review label restoration" })).not.toBeInTheDocument();
   });
 
   it("does not render an unavailable Boolean observation as a known On state", async () => {
@@ -334,7 +404,7 @@ describe("Evidence-driven resolution UI", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(state), { status: 200 })));
     mount();
     expect(await screen.findByText("Not verified (unavailable)")).toBeVisible();
-    expect(screen.queryByText("Latest observation recorded this capability On.")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Choose intent" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Last observed Boolean: On")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Review Boolean change" })).not.toBeInTheDocument();
   });
 });

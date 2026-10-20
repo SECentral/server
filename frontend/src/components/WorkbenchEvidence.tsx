@@ -1,4 +1,4 @@
-import { Button, Card, CardBody, Label } from "@patternfly/react-core";
+import { Button, Label, Tooltip } from "@patternfly/react-core";
 import { useState } from "react";
 import CogsIcon from "@patternfly/react-icons/dist/esm/icons/cogs-icon";
 import ServerIcon from "@patternfly/react-icons/dist/esm/icons/server-icon";
@@ -117,14 +117,14 @@ export function ContextSidebar({ detail, workflow, focusedAccess, onShowTechnica
     <section><h3>Permission</h3><code>{(access?.permissions ?? detail.issue.permissions).join(", ")}</code></section>
     {diagnosis?.kind === "file_context_mismatch" && (!access || diagnosis.occurrence_id === access.occurrence_id) && <section><h3>Expected for this path</h3><code>{diagnosis.expected_type ?? "Not available"}</code><small><ClockIcon aria-hidden="true" /> Checked after the denial</small></section>}
      {diagnosis?.kind === "conditional_allow_inactive" && (!access || diagnosis.occurrence_id === access.occurrence_id) && <section><h3>Policy state at checkpoint</h3><span>{diagnosis.conditional_rules?.length ?? 0} conditional path{(diagnosis.conditional_rules?.length ?? 0) === 1 ? "" : "s"} recorded</span><small>Historical checkpoint evidence</small></section>}
-     <section aria-label="Finding coverage"><h3>Finding coverage</h3><strong>Issue: {detail.issue.occurrences_count - unexplained} of {detail.issue.occurrences_count} supported</strong>
-      <small>{unexplained} unconfirmed</small>
+      <section aria-label="Finding coverage"><h3>Finding coverage</h3><Tooltip content="Occurrences with evidence-supported findings, not verified root causes or confirmed remediation. Counts cover the whole issue, not just the selected resource."><strong tabIndex={0}>Supported findings: {detail.issue.occurrences_count - unexplained} of {detail.issue.occurrences_count} occurrences</strong></Tooltip>
+       <small>{unexplained} occurrence{unexplained === 1 ? " lacks" : "s lack"} a complete explanation</small>
         {diagnosis && <small>Displayed finding: {detail.findings?.[0]?.occurrence_count ?? "Not counted"} · <EvidenceLink target="policy-evaluation-evidence" occurrenceId={diagnosis.occurrence_id}>Policy evidence</EvidenceLink></small>}</section>
      <Button component="a" variant="link" href="#issue-technical-evidence" onClick={onShowTechnicalEvidence}>View technical evidence</Button>
-   </aside>
-   {(workflow.history.length > 0 || detail.issue.disposition_history.length > 0) && <Card isCompact className="workbench-activity-history" aria-label="Activity & history"><CardBody><h2>Activity &amp; history</h2>
+   {(workflow.history.length > 0 || detail.issue.disposition_history.length > 0) && <section aria-label="Operator history"><h3>Operator history</h3>
      {workflow.history.length > 0 && <Disclosure toggleText="Intent history"><ul>{workflow.history.map((change, i) => <li key={i}>{change.created_at} · {change.operator} · {change.action}</li>)}</ul></Disclosure>}
      {detail.issue.disposition_history.length > 0 && <Disclosure toggleText="Disposition history"><ul>{detail.issue.disposition_history.map((change) => <li key={change.changed_at}><time dateTime={change.changed_at}>{change.changed_at}</time> · {change.previous_disposition} → {change.disposition}{change.note ? ` · ${change.note}` : ""}</li>)}</ul></Disclosure>}
-   </CardBody></Card>}
+   </section>}
+   </aside>
    </div>;
 }

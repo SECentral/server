@@ -7,18 +7,9 @@ import { Disclosure } from "./Disclosure";
 export function ReadOnlyCommands({ checks }: { checks: NonNullable<IssueDetailResponse["operator_guidance"]>["checks"] }) {
   if (!checks.length) return null;
   return <div className="inspection-commands">{checks.map((check) => <div key={check.command} className="inspection-command">
-    <strong className="inspection-command-title">{check.title}</strong><CopyCommand command={check.command} />
-    <p className="step-detail">{conciseInspectionNote(check.command, check.interpretation)}</p>
+    <p className="inspection-command-header"><strong>{check.command.startsWith("getsebool ") ? check.title.replace(/^Current Boolean:/, "Inspect runtime Boolean:") : check.title}</strong>{check.interpretation && <> · <span>{check.interpretation}</span></>}</p>
+    <CopyCommand command={check.command} />
   </div>)}</div>;
-}
-
-function conciseInspectionNote(command: string, fallback: string): string {
-  if (command.startsWith("ss ")) return "Confirm the intended listener and check for conflicting ownership.";
-  if (command === "semanage port -l -C") return "Check local overrides and prior mapping state.";
-  if (command === "semanage port -l") return "Verify the effective range and recorded classification.";
-  if (command.startsWith("sesearch ")) return "Inspect loaded-policy conditions if central evaluation is unavailable.";
-  if (command.startsWith("getsebool ")) return "Check current Boolean state; this does not recommend enabling it.";
-  return fallback;
 }
 
 export function OperatorChecks({ detail, runbookCommands = [], supplemental = false }: { detail: IssueDetailResponse; runbookCommands?: string[]; supplemental?: boolean }) {

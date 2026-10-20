@@ -368,9 +368,11 @@ describe("issue investigation", () => {
     renderDetail();
     expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("denied local TCP binding on ports 23451, 12345");
     const scope = screen.getByRole("region", { name: "Finding coverage" });
-    expect(scope).toHaveTextContent("Issue: 4 of 6 supported");
-    expect(scope).toHaveTextContent("2 unconfirmed");
+    expect(scope).toHaveTextContent("Supported findings: 4 of 6 occurrences");
+    expect(scope).toHaveTextContent("2 occurrences lack a complete explanation");
     expect(scope).toHaveTextContent("Displayed finding: 1");
+    await userEvent.setup().hover(within(scope).getByText("Supported findings: 4 of 6 occurrences"));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("not verified root causes or confirmed remediation");
   });
   function labelingPayload() {
     const payload = detailPayload("missing-observation");
