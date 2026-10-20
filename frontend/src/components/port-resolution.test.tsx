@@ -166,7 +166,6 @@ describe("Port troubleshooting", () => {
     expect(screen.getByRole("region", { name: "Check" })).toHaveTextContent("Listener ownership");
     expect(screen.getAllByRole("button", { name: "Copy command: semanage port -l -C" })).toHaveLength(2);
     expect(screen.getByRole("region", { name: "Selected change plan" })).toHaveTextContent("Retry the actual application request");
-    expect(screen.getByRole("region", { name: "Selected change plan" })).toHaveTextContent("Retry the actual application request");
     expect(screen.getByRole("button", { name: "Copy command: ss -ltnp" })).toBeVisible();
     reviewedView.unmount();
     state.change_plan.preview_steps[0].command = "semanage port -l";

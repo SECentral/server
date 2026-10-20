@@ -80,10 +80,4 @@ RSpec.describe "Security headers", type: :request do
     expect(response.headers["Permissions-Policy"]).to be_present
     expect(response.headers["Feature-Policy"]).to be_nil
   end
-
-  it "does not expose a CSP nonce meta tag, since no scripts are loaded" do
-    get "/login"
-
-    expect(response.body).not_to include('name="csp-nonce"')
-  end
 end

@@ -315,7 +315,6 @@ describe("Configuration", () => {
     expect(await screen.findByRole("table", { name: "Port inventory rows" })).toBeVisible();
     expect(screen.getByText("200 hosts")).toBeInTheDocument();
     expect(screen.getByText("Policy default")).toBeInTheDocument();
-    expect(screen.queryByText("config-01")).not.toBeInTheDocument();
   });
 
   it("selects a policy cohort from the URL", async () => {

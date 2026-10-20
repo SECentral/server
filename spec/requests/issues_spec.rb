@@ -143,26 +143,6 @@ RSpec.describe "Issues API", type: :request do
     expect(JSON.parse(response.body).fetch("issues").map { |item| item["id"] }).to eq([multi.id])
   end
 
-  it "paginates issue pages of 25 and clamps page below one" do
-    51.times { |index| create_issue("page-digest-#{index}") }
-
-    get "/api/v1/issues"
-    body = JSON.parse(response.body)
-    expect(body["issues"].length).to eq(25)
-    expect(body.fetch("meta")).to eq("page" => 1, "page_size" => 25, "total" => 51, "total_pages" => 3)
-
-    get "/api/v1/issues", params: { page: 2 }
-    body = JSON.parse(response.body)
-    expect(body["issues"].length).to eq(25)
-    expect(body.fetch("meta", {}).fetch("page")).to eq(2)
-
-    get "/api/v1/issues", params: { page: 0 }
-    expect(JSON.parse(response.body).fetch("meta", {}).fetch("page")).to eq(1)
-
-    get "/api/v1/issues", params: { page: 4 }
-    expect(JSON.parse(response.body).fetch("issues")).to be_empty
-  end
-
   it "lists retained ungroupable events, most recent first, with the host filter" do
     first = create_ungroupable_event("group-host", occurred_at: 2.hours.ago)
     second = create_ungroupable_event("other-host", occurred_at: 1.hour.ago)

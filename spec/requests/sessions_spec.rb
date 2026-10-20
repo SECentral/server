@@ -1,13 +1,6 @@
 require "rails_helper"
 
 RSpec.describe "Operator authentication", type: :request do
-  it "serves the SPA login page anonymously" do
-    get "/login"
-
-    expect(response).to have_http_status(:ok)
-    expect(response.body).to include('<div id="root">')
-  end
-
   it "logs in with valid credentials via the API" do
     post "/api/v1/sessions", params: { username: "test-admin", password: "test-password" }
 

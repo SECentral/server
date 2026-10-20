@@ -45,6 +45,8 @@ RSpec.describe "Operator numbered pagination", type: :request do
     end
     expect(body_for("/api/v1/hosts", host_id: @host.id, limit: 100).dig("meta", "total")).to eq(1)
     expect(body_for("/api/v1/issues", source_type: "other_t", limit: 100).dig("meta", "total")).to eq(0)
+    expect(body_for("/api/v1/issues", page: 0).dig("meta", "page")).to eq(1)
+    expect(body_for("/api/v1/issues", page: 4).fetch("issues")).to be_empty
   end
 
   it "applies full-page defaults to host inventories and numbered global log" do

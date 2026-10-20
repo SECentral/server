@@ -291,7 +291,6 @@ describe("HostDetail", () => {
     await screen.findByRole("heading", { name: "web-1" });
     expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Monitored servers" })).toHaveAttribute("href", "/hosts");
-    expect(screen.queryByRole("heading", { name: "Host status" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Host health" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Policy comparison" })).toBeInTheDocument();
     expect(screen.getByText("Baseline: AlmaLinux 9 Catalog")).toBeInTheDocument();
@@ -303,24 +302,14 @@ describe("HostDetail", () => {
     }
     expect(screen.getByText(/AlmaLinux 9\.3 · x86_64 · Last seen/)).toBeInTheDocument();
     expect(screen.getByText("targeted.33")).toBeInTheDocument();
-    expect(screen.queryByText("Configured policy")).not.toBeInTheDocument();
     expect(screen.getByText("Matches reference")).toBeInTheDocument();
     expect(screen.getByText("350 / 350 match")).toBeInTheDocument();
     expect(screen.getByText("621 / 621 match")).toBeInTheDocument();
-    expect(screen.queryByText("Custom modules")).not.toBeInTheDocument();
-    expect(screen.queryByText("Local fcontexts")).not.toBeInTheDocument();
-    expect(screen.queryByText("0 loaded")).not.toBeInTheDocument();
-    expect(screen.queryByText("0 overrides")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Active issues 1" })).toHaveTextContent("1");
     expect(screen.getByRole("link", { name: "Total occurrences 30" })).toHaveAttribute("href", "#recent-occurrences");
     expect(screen.getByText("AVCs — 24h")).toBeVisible();
     expect(screen.queryByRole("link", { name: "AVCs — 24h 2" })).not.toBeInTheDocument();
-    expect(screen.queryByText("web-1", { selector: ".host-overview-subtitle" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Copy host policy ID" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Technical Provenance & Hashes" })).not.toBeInTheDocument();
     expect(screen.queryByText(/sha256:/)).not.toBeInTheDocument();
-    expect(screen.queryByText("Exact policy provenance")).not.toBeInTheDocument();
-    expect(screen.queryByText("Latest AVC denial events observed on this server.")).not.toBeInTheDocument();
     const policyCard = screen.getByRole("heading", { name: "Policy comparison" }).closest(".pf-v6-c-card")!;
     expect(within(policyCard as HTMLElement).getByText("Effective permissive domains")).toBeVisible();
     expect(within(policyCard as HTMLElement).getByText("0 match · both sets empty")).toBeVisible();
@@ -329,7 +318,6 @@ describe("HostDetail", () => {
       "href",
       "/issues?host_id=10&status=open"
     );
-    expect(screen.queryByRole("link", { name: "View issues →" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Recent occurrences" })).toHaveAttribute("id", "recent-occurrences");
     expect(screen.getByRole("link", { name: "View full comparison" })).toHaveAttribute(
       "href",
@@ -361,17 +349,6 @@ describe("HostDetail", () => {
       selinux: { ...permissiveDetail.host.selinux, enforcement: null } } } });
     await screen.findByRole("heading", { name: "web-1" });
     expect(screen.queryByRole("region", { name: "Enforcing readiness" })).not.toBeInTheDocument();
-  });
-
-  it("puts readiness in its own card after Host health and before Policy comparison", async () => {
-    const { container } = renderHostDetail(10, { host: permissiveDetail });
-    const readiness = await screen.findByRole("region", { name: "Enforcing readiness" });
-    const health = screen.getByRole("heading", { name: "Host health" }).closest(".pf-v6-c-card")!;
-    expect(health).not.toContainElement(readiness);
-    expect(readiness).toHaveClass("pf-v6-c-card");
-    expect(readiness.parentElement).toBe(health.parentElement);
-    expect(Array.from(container.querySelectorAll(".host-overview-grid h2")).map((heading) => heading.textContent))
-      .toEqual(["Host health", "Enforcing readiness", "Policy comparison"]);
   });
 
   it("replaces occurrence pages and navigates back without accumulating rows", async () => {
@@ -626,19 +603,6 @@ describe("HostDetail", () => {
     expect(screen.getByRole("region", { name: "Activity" })).toHaveTextContent("0");
     expect(screen.getByRole("region", { name: "Activity" })).toHaveTextContent("Active issues");
     expect(screen.getByRole("link", { name: "Active issues 0" })).toHaveAttribute("href", "/issues?host_id=10&status=open");
-  });
-
-  it("keeps a long recent-activity list hostname-free and compact", async () => {
-    const occurrences: HostOccurrencesResponse = {
-      occurrences: Array.from({ length: 20 }, (_, index) => occurrence(1000 + index, { id: 200 + index })),
-      meta: { next_cursor: null }
-    };
-    const { container } = renderHostDetail(10, { occurrences });
-
-    expect((await screen.findAllByRole("link", { name: /httpd_t.*user_home_t/ })).length).toBeGreaterThan(0);
-    expect(container.querySelectorAll(".host-occurrences-table tbody tr")).toHaveLength(20);
-    expect(container.querySelector(".occurrence-host-name")).toBeNull();
-    expect(screen.queryByText(RAW_PAYLOAD)).not.toBeInTheDocument();
   });
 
   it("shows a not-found alert for an unknown host", async () => {

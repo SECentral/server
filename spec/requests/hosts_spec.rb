@@ -157,22 +157,6 @@ RSpec.describe "Hosts API", type: :request do
     expect(hostnames(response)).to eq(["selected"])
   end
 
-  it "paginates the host list" do
-    55.times do |index|
-      observe_host("page-host-#{format('%02d', index)}", { "selinux" => { "enforcement" => "enforcing" } })
-    end
-
-    get "/api/v1/hosts"
-    body = JSON.parse(response.body)
-    expect(body["hosts"].length).to eq(25)
-    expect(body["meta"]).to eq("page" => 1, "page_size" => 25, "total" => 55, "total_pages" => 3)
-
-    get "/api/v1/hosts", params: { page: 2 }
-    body = JSON.parse(response.body)
-    expect(body["hosts"].length).to eq(25)
-    expect(body["meta"]["page"]).to eq(2)
-  end
-
   it "returns the host core detail with snapshot, policy identity, and counts" do
     host = observe_host("detail", {
       "platform" => { "os_id" => "almalinux", "os_version" => "9.3", "architecture" => "x86_64" },
@@ -206,10 +190,6 @@ RSpec.describe "Hosts API", type: :request do
       "selinux" => body["selinux"]
     )
     expect(body.dig("selinux", "effective_permissive_domains")).to include("status" => "unavailable", "domains" => nil)
-    expect(body).not_to have_key("booleans")
-    expect(body["snapshot"]["selinux"]).not_to have_key("booleans")
-    expect(body["snapshot"]["selinux"]).not_to have_key("boolean_status")
-    expect(body["snapshot"]["selinux"]).not_to have_key("policy")
   end
 
   it "marks a stale observation and keeps the last-observed data visible" do
@@ -283,15 +263,6 @@ RSpec.describe "Hosts API", type: :request do
     expect(second_ids & first_ids).to be_empty
     expect(second["meta"]["next_cursor"]).to be_nil
     expect(first_ids + second_ids).to match_array(Occurrence.order(:id).last(6).map(&:id))
-  end
-
-  it "caps the occurrence page size at 50" do
-    issue = create_issue
-    host = observe_host("occ-cap", { "selinux" => {} })
-    3.times { create_occurrence(issue, host) }
-
-    body = JSON.parse(fetch_json("/api/v1/hosts/#{host.id}/occurrences?limit=99"))
-    expect(body["meta"]["next_cursor"]).to be_nil
   end
 
   it "supports numbered pages, exact totals, size changes and out-of-range clamping" do

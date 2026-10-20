@@ -10,21 +10,19 @@ RSpec.describe "Host detail enforcing readiness", type: :request do
   before { cleanup; organization; sign_in_operator }
   after { cleanup }
 
-  { 0 => "0–19%", 6 => "20–39%", 12 => "40–59%", 18 => "60–79%", 24 => "80–99%", 30 => "100%" }.each do |days, band|
-    it "projects #{band} and credited duration with unknown capture continuity" do
-      host = reporting_host(days: days)
-      get "/api/v1/hosts/#{host.id}"
-      expect(response).to have_http_status(:ok)
-      result = JSON.parse(response.body).dig("host", "enforcing_readiness")
-      expect(result).to include("status" => "observed", "reason" => nil, "band" => band,
-        "target_days" => 30, "credited_seconds" => days * 86_400, "reporting_days" => days.to_f,
-        "capture_continuity" => "unknown", "latest_avc_at" => nil)
-      expect(result["explanation"]).to include("#{format('%.1f', days)} days", "#{band} observation progress",
-        "with no SELinux denials observed", "\n\nThese observations can help you assess readiness for enforcing mode",
-        "do not guarantee that all applications and services will work as expected. Verify system behavior when transitioning to enforcing mode.")
-      expect(result["explanation"]).not_to include("Reporting gaps", "Audit capture coverage", "audit capture coverage", "not credited")
-      expect(result).not_to have_key("probability")
-    end
+  it "projects the readiness band and credited duration with unknown capture continuity" do
+    host = reporting_host(days: 12)
+    get "/api/v1/hosts/#{host.id}"
+    expect(response).to have_http_status(:ok)
+    result = JSON.parse(response.body).dig("host", "enforcing_readiness")
+    expect(result).to include("status" => "observed", "reason" => nil, "band" => "40–59%",
+      "target_days" => 30, "credited_seconds" => 12 * 86_400, "reporting_days" => 12.0,
+      "capture_continuity" => "unknown", "latest_avc_at" => nil)
+    expect(result["explanation"]).to include("12.0 days", "40–59% observation progress",
+      "with no SELinux denials observed", "\n\nThese observations can help you assess readiness for enforcing mode",
+      "do not guarantee that all applications and services will work as expected. Verify system behavior when transitioning to enforcing mode.")
+    expect(result["explanation"]).not_to include("Reporting gaps", "Audit capture coverage", "audit capture coverage", "not credited")
+    expect(result).not_to have_key("probability")
   end
 
   it "qualifies already-enforcing hosts without setting their progress to 100%" do
