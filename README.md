@@ -16,7 +16,7 @@ See [Contributing](CONTRIBUTING.md) for feedback and contribution guidelines.
 
 ## Self-hosted deployment
 
-The Compose deployment uses the published `quay.io/secentral/server:0.0.1` image
+The Compose deployment uses the published `quay.io/secentral/server:0.0.3` image
 with PostgreSQL and automatic HTTPS. Podman and `podman-compose` are required.
 The server image is currently available for Linux amd64.
 
@@ -31,7 +31,7 @@ The server image is currently available for Linux amd64.
    ```sh
    read -rsp 'Operator password: ' ADMIN_PASSWORD; printf '\n'
    printf '%s' "$ADMIN_PASSWORD" | podman run --rm -i --entrypoint bundle \
-     quay.io/secentral/server:0.0.1 exec ruby -rbcrypt \
+     quay.io/secentral/server:0.0.3 exec ruby -rbcrypt \
      -e 'puts BCrypt::Password.create(STDIN.read)'
    unset ADMIN_PASSWORD
    ```
