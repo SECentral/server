@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -304,6 +304,25 @@ function renderDetail(initialEntry = "/issues/7") {
 }
 
 describe("issue investigation", () => {
+  it("updates the workbench and fleet table when refreshed issue evidence arrives", async () => {
+    const fetchMock = vi.fn();
+    mockApi(fetchMock, "001");
+    vi.stubGlobal("fetch", fetchMock);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={["/issues/7"]}>
+      <Routes><Route path="/issues/:id" element={<IssueDetail />} /></Routes>
+    </MemoryRouter></QueryClientProvider>);
+    await screen.findByRole("heading", { name: "Diagnosis" });
+
+    const updated = detailPayload("001");
+    updated.diagnosis = { ...updated.diagnosis!, title: "Refreshed label diagnosis" };
+    updated.host_explanations = updated.host_explanations.map((host) => ({ ...host, hostname: "refreshed-host" }));
+    act(() => queryClient.setQueryData(["issue", 7], updated));
+
+    expect(await screen.findByRole("heading", { name: "Refreshed label diagnosis" })).toBeVisible();
+    expect(within(screen.getByRole("table", { name: "Finding distribution" })).getByRole("link", { name: "refreshed-host" })).toBeVisible();
+  });
+
   it("consolidates signatures while keeping individual actions and occurrence browsing explicitly scoped", async () => {
     const payload = detailPayload("001");
     const first = payload.issue.signatures[0];

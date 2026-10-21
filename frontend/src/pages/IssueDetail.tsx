@@ -1,6 +1,6 @@
 import { Alert, Breadcrumb, BreadcrumbItem, Button, Card, CardBody, Label, Pagination, Spinner, TextInput, Title, Tooltip } from "@patternfly/react-core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import {
@@ -284,7 +284,7 @@ function MissingExplanation({
   );
 }
 
-function FleetSection({
+const FleetSection = memo(function FleetSection({
   hostExplanations,
   fleet,
   relatedAnalysis,
@@ -340,7 +340,7 @@ function FleetSection({
       </ExpandableSection>}
     </section>
   );
-}
+});
 
 function ActivityTable({ page, onInspect }: { page: OccurrencePage; onInspect: (id: number) => void }) {
   return <>
@@ -364,6 +364,24 @@ function ActivityTable({ page, onInspect }: { page: OccurrencePage; onInspect: (
     </Tbody></Table>
   </>;
 }
+
+const IssueWorkbench = memo(function IssueWorkbench({ detail, updatedAt, onShowTechnicalEvidence }: {
+  detail: IssueDetailResponse;
+  updatedAt: number;
+  onShowTechnicalEvidence: (issueId: number) => void;
+}) {
+  const issueId = detail.issue.id;
+  return <div className="issue-workbench">
+    <div className="issue-workspace">
+      <ResolutionWorkflow issueId={issueId} stage="observed" initialData={detail.resolutions} initialDataUpdatedAt={updatedAt} detail={detail} />
+      <Card isCompact><CardBody><FindingCard detail={detail} /></CardBody></Card>
+      <ResolutionWorkflow issueId={issueId} stage="intent" initialData={detail.resolutions} initialDataUpdatedAt={updatedAt} detail={detail}>
+        {detail.triage_guidance ? <StandardRestoration detail={detail} /> : undefined}
+      </ResolutionWorkflow>
+    </div>
+    <ResolutionWorkflow issueId={issueId} stage="context" initialData={detail.resolutions} initialDataUpdatedAt={updatedAt} detail={detail} onShowTechnicalEvidence={() => onShowTechnicalEvidence(issueId)} />
+  </div>;
+});
 
 export function IssueDetail() {
   const { id } = useParams();
@@ -522,20 +540,7 @@ export function IssueDetail() {
 
       <ResolutionWorkflow issueId={issueId} stage="draft" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} />
 
-      <div className="issue-workbench">
-      <div className="issue-workspace">
-      <ResolutionWorkflow issueId={issueId} stage="observed" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} detail={detailQuery.data} />
-
-      <Card isCompact><CardBody>
-        <FindingCard detail={detailQuery.data} />
-      </CardBody></Card>
-
-      <ResolutionWorkflow issueId={issueId} stage="intent" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} detail={detailQuery.data}>
-        {detailQuery.data.triage_guidance ? <StandardRestoration detail={detailQuery.data} /> : undefined}
-      </ResolutionWorkflow>
-      </div>
-      <ResolutionWorkflow issueId={issueId} stage="context" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} detail={detailQuery.data} onShowTechnicalEvidence={() => setTechnicalEvidenceIssueId(issueId)} />
-      </div>
+      <IssueWorkbench detail={detailQuery.data} updatedAt={detailQuery.dataUpdatedAt} onShowTechnicalEvidence={setTechnicalEvidenceIssueId} />
 
       {((findings?.length ?? 0) > 1 || (issue.target_class === "file" && (intelligence.resource_summary?.without_absolute_path_occurrences ?? 0) > 0) || (additional_finding_count ?? 0) > 0 || policy_analysis.limitations.length > 0) && <ExpandableSection className="workbench-additional" toggleText="Findings & evidence gaps"><section aria-label="Findings & evidence gaps" className="issue-section">
         {findings?.slice(1).map((finding, index) => <ExpandableSection key={index} toggleText={`${finding.diagnosis.title} · ${finding.occurrence_count.toLocaleString()} denials`}><p>{primaryFindingLead(finding.diagnosis) ?? text(row(finding.diagnosis).finding)}</p><DiagnosisEvidence diagnosis={finding.diagnosis} /><p><strong>Check next:</strong> {finding.diagnosis.next_step}</p><p>{primaryLimitation(finding.diagnosis)}</p><EvidenceLink target="policy-evaluation-evidence" occurrenceId={finding.diagnosis.occurrence_id}>Technical evidence for this finding</EvidenceLink></ExpandableSection>)}
