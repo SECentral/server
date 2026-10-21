@@ -89,6 +89,22 @@ RSpec.describe "Configuration API", type: :request do
     expect(payload).to eq("family" => "overview", "families" => %w[overview booleans ports file_contexts modules], "hosts" => { "total" => 2 })
   end
 
+  it "uses only current observation snapshots instead of loading host history" do
+    org = organization
+    host = Host.create!(organization: org, external_id: "snapshot-history", hostname: "snapshot-history")
+    observe(host, { "selinux" => { "booleans" => [{ "name" => "current_boolean", "current" => true, "status" => "observed" }] } })
+    3.times { |index| observe(host, { "id" => "history-#{index}" }, at: (index + 1).hours.ago) }
+    queries = []
+    subscriber = ActiveSupport::Notifications.subscribe("sql.active_record") { |event| queries << event.payload[:sql] }
+
+    get "/api/v1/configuration", params: { family: "booleans" }
+
+    ActiveSupport::Notifications.unsubscribe(subscriber)
+    expect(response).to have_http_status(:ok)
+    expect(queries).not_to include(a_string_matching(/FROM "host_snapshots" WHERE "host_snapshots"\."host_id" IN/))
+    expect(JSON.parse(response.body).dig("booleans", "inventory").map { |item| item["name"] }).to eq(["current_boolean"])
+  end
+
   it "aggregates fleet boolean state without treating missing data as disabled" do
     org = organization
     current = Host.create!(organization: org, external_id: "current", hostname: "current", last_seen_at: Time.current)

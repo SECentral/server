@@ -13,7 +13,7 @@ class ConfigurationQuery
     @page_size = page_size
     @query = query.to_s.strip.downcase
     @protocol = protocol
-    @hosts = Host.includes(:host_snapshots).order(:hostname, :external_id).to_a
+    @hosts = Host.includes(current_state_observation: :host_snapshot).order(:hostname, :external_id).to_a
   end
 
   def call

@@ -76,6 +76,26 @@ RSpec.describe "Hosts API", type: :request do
     expect(body).not_to have_key("boolean_inventory")
   end
 
+  it "does not preload historical snapshots for the host list" do
+    host = observe_host("snapshot-history", { "selinux" => { "enforcement" => "enforcing" } })
+    installation = host.agent_installations.first
+    3.times do |index|
+      at = (index + 1).hours.ago
+      snapshot = HostSnapshot.create!(host: host, details: { "id" => "history-#{index}" })
+      host.host_snapshot_observations.create!(agent_installation: installation, host_snapshot: snapshot,
+        first_observed_at: at, last_observed_at: at, first_received_at: at, last_received_at: at)
+    end
+    queries = []
+    subscriber = ActiveSupport::Notifications.subscribe("sql.active_record") { |event| queries << event.payload[:sql] }
+
+    get "/api/v1/hosts"
+
+    ActiveSupport::Notifications.unsubscribe(subscriber)
+    expect(response).to have_http_status(:ok)
+    expect(queries).not_to include(a_string_matching(/FROM "host_snapshots" WHERE "host_snapshots"\."host_id" IN/))
+    expect(JSON.parse(response.body).dig("hosts", 0, "platform")).to include("os_id" => nil, "os_version" => nil)
+  end
+
   it "filters by os_id, policy_type, kernel_policy_version, and enforcement from the current snapshot" do
     alma = observe_host("filter-alma", {
       "platform" => { "os_id" => "almalinux" },

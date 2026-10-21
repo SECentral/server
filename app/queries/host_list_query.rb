@@ -37,7 +37,7 @@ class HostListQuery
   private
 
   def filtered_hosts
-    hosts = Host.includes(:host_snapshots, :agent_installations, current_state_observation: :host_snapshot).order(:hostname, :external_id)
+    hosts = Host.includes(:agent_installations, current_state_observation: :host_snapshot).order(:hostname, :external_id)
     hosts = hosts.where(id: @filters["host_id"]) if @filters["host_id"].present?
     current_observations = HostSnapshotObservation.where("last_received_at >= ?", stale_after.ago)
       .select("DISTINCT ON (host_id) host_snapshot_id")
