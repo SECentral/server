@@ -44,6 +44,24 @@ export function activeResolutionResource(workflow: ResolutionWorkflow, requested
     ?? resources.find((resource) => resource.candidates.some((candidate) => candidate.id === workflow.intent?.candidate_id)) ?? resources[0];
 }
 
+export function activeResourceFinding(detail: IssueDetailResponse, workflow: ResolutionWorkflow, requested: string | null) {
+  const source = detail.operator_guidance?.source;
+  const active = activeResolutionResource(workflow, requested, source);
+  const candidate = active?.candidates[0];
+  const occurrenceId = active?.port?.occurrence_id ?? active?.source?.occurrence_id ?? candidate?.evidence_basis.occurrence_id ?? source?.occurrence_id ?? workflow.observed_access?.occurrence_id;
+  const hostId = active?.port?.host_id ?? active?.source?.host_id ?? candidate?.host_id ?? source?.host_id ?? workflow.observed_access?.host_id;
+  // Use only an exact diagnosis source; group membership alone does not transfer its evidence.
+  const groups = detail.host_explanations.flatMap((host) => host.diagnosis_groups);
+  const group = groups.find((group) => group.diagnosis?.host_id === hostId && group.diagnosis?.occurrence_id === occurrenceId && occurrenceId != null);
+  const diagnosis = group?.diagnosis ?? (detail.diagnosis?.occurrence_id === occurrenceId && detail.diagnosis?.host_id === hostId ? detail.diagnosis : null);
+  const displayed = diagnosis ?? detail.diagnosis;
+  return {
+    diagnosis: displayed,
+    count: group?.count ?? detail.findings?.find((finding) => finding.diagnosis.occurrence_id === displayed?.occurrence_id && finding.diagnosis.host_id === displayed?.host_id)?.occurrence_count,
+    different: !!detail.diagnosis && !diagnosis && occurrenceId != null && (detail.diagnosis.occurrence_id !== occurrenceId || detail.diagnosis.host_id !== hostId)
+  };
+}
+
 export function fileResourceLabel(resource: ReturnType<typeof resolutionResources>[number], resources: ReturnType<typeof resolutionResources>): string {
   const path = resource.source?.path ?? resource.candidates[0]?.evidence_basis.path;
   if (typeof path !== "string") return resource.label;

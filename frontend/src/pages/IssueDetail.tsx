@@ -20,6 +20,7 @@ import { IssueTechnicalEvidence } from "../components/IssueTechnicalEvidence";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
 import { ResolutionWorkflow } from "../components/ResolutionWorkflow";
 import { StandardRestoration } from "../components/OperatorGuidance";
+import { activeResourceFinding } from "../components/resolutionResources";
 import { EMBEDDED_PAGE_SIZES, pageSize } from "../pagination";
 
 const STATUS_OPTIONS = ["open", "resolved", "ignored"] as const;
@@ -178,7 +179,7 @@ function BooleanCheckpointSummary({ diagnosis }: { diagnosis: Diagnosis }) {
 function DiagnosisEvidence({ diagnosis }: { diagnosis: Diagnosis }) {
   return <>
     {diagnosis.kind === "file_context_mismatch" && <ContextComparison diagnosis={diagnosis} />}
-    {diagnosis.kind === "conditional_allow_inactive" && <ExpandableSection toggleText="Conditional policy paths"><BooleanCheckpointSummary diagnosis={diagnosis} /><EvidenceLink target="policy-evaluation-evidence">Inspect policy evaluation</EvidenceLink></ExpandableSection>}
+    {diagnosis.kind === "conditional_allow_inactive" && <ExpandableSection toggleText="Conditional policy paths"><BooleanCheckpointSummary diagnosis={diagnosis} /><EvidenceLink target="policy-evaluation-evidence" occurrenceId={diagnosis.occurrence_id}>Inspect policy evaluation</EvidenceLink></ExpandableSection>}
   </>;
 }
 
@@ -204,7 +205,10 @@ function diagnosisVariantDetail(diagnosis: Diagnosis | null | undefined): string
 }
 
 function FindingCard({ detail }: { detail: IssueDetailResponse }) {
-  const { issue, intelligence, diagnosis, triage_guidance, findings, policy_analysis } = detail;
+  const [params] = useSearchParams();
+  const { issue, intelligence, triage_guidance, findings, policy_analysis } = detail;
+  const finding = detail.resolutions ? activeResourceFinding(detail, detail.resolutions, params.get("resource")) : { diagnosis: detail.diagnosis, different: false, count: detail.findings?.[0]?.occurrence_count };
+  const { diagnosis } = finding;
   const lead = diagnosis ? primaryFindingLead(diagnosis) : null;
   const conditionalTitle = diagnosis?.kind === "conditional_allow_inactive" ? `${diagnosis.source_domain ?? issue.source_type} was denied ${diagnosis.operation === "name_bind" ? "binding" : diagnosis.operation === "name_connect" ? "connecting to" : diagnosis.operation === "read" ? "reading" : "executing"} ${diagnosis.path ?? (diagnosis.bind_port || diagnosis.destination_port ? `${issue.target_class === "udp_socket" ? "UDP" : "TCP"}/${diagnosis.bind_port ?? diagnosis.destination_port}` : `objects labeled ${diagnosis.target_type ?? issue.target_type}`)}.` : null;
   return <section aria-labelledby="finding-title" className="issue-section issue-primary-finding"><h2 id="finding-title">Diagnosis</h2>
@@ -212,7 +216,7 @@ function FindingCard({ detail }: { detail: IssueDetailResponse }) {
      {triage_guidance && diagnosis?.kind !== "file_context_mismatch" && <LabelMismatchGuidance guidance={triage_guidance} />}
      {diagnosis ? <article>
        <Title headingLevel="h3" size="xl">{conditionalTitle ?? diagnosis.title}</Title>
-       {diagnosis.occurrence_id && diagnosis.host_id && detail.operator_guidance?.source.occurrence_id !== diagnosis.occurrence_id && <p>Finding evidence: <Link to={`/hosts/${diagnosis.host_id}/occurrences/${diagnosis.occurrence_id}`}>{detail.host_explanations.find((host) => host.host_id === diagnosis.host_id)?.hostname ?? `Host ${diagnosis.host_id}`} · occurrence #{diagnosis.occurrence_id}</Link>. Inspection uses a different retained example; this finding does not establish that example's cause.</p>}
+       {finding.different && diagnosis.occurrence_id && diagnosis.host_id && <p>Finding evidence: <Link to={`/hosts/${diagnosis.host_id}/occurrences/${diagnosis.occurrence_id}`}>{detail.host_explanations.find((host) => host.host_id === diagnosis.host_id)?.hostname ?? `Host ${diagnosis.host_id}`} · occurrence #{diagnosis.occurrence_id}</Link>. Inspection uses a different retained example; this finding does not establish that example's cause.</p>}
       {lead && <p className="issue-finding-lead">{lead}</p>}
       {diagnosis.kind === "conditional_allow_inactive" && <p>Recorded target type: <code>{diagnosis.target_type ?? issue.target_type}</code></p>}
       <DiagnosisEvidence diagnosis={diagnosis} />
@@ -534,7 +538,7 @@ export function IssueDetail() {
       </div>
 
       {((findings?.length ?? 0) > 1 || (issue.target_class === "file" && (intelligence.resource_summary?.without_absolute_path_occurrences ?? 0) > 0) || (additional_finding_count ?? 0) > 0 || policy_analysis.limitations.length > 0) && <ExpandableSection className="workbench-additional" toggleText="Findings & evidence gaps"><section aria-label="Findings & evidence gaps" className="issue-section">
-        {findings?.slice(1).map((finding, index) => <ExpandableSection key={index} toggleText={`${finding.diagnosis.title} · ${finding.occurrence_count.toLocaleString()} denials`}><p>{primaryFindingLead(finding.diagnosis) ?? text(row(finding.diagnosis).finding)}</p><DiagnosisEvidence diagnosis={finding.diagnosis} /><p><strong>Check next:</strong> {finding.diagnosis.next_step}</p><p>{primaryLimitation(finding.diagnosis)}</p><EvidenceLink target="policy-evaluation-evidence">Technical evidence for this finding</EvidenceLink></ExpandableSection>)}
+        {findings?.slice(1).map((finding, index) => <ExpandableSection key={index} toggleText={`${finding.diagnosis.title} · ${finding.occurrence_count.toLocaleString()} denials`}><p>{primaryFindingLead(finding.diagnosis) ?? text(row(finding.diagnosis).finding)}</p><DiagnosisEvidence diagnosis={finding.diagnosis} /><p><strong>Check next:</strong> {finding.diagnosis.next_step}</p><p>{primaryLimitation(finding.diagnosis)}</p><EvidenceLink target="policy-evaluation-evidence" occurrenceId={finding.diagnosis.occurrence_id}>Technical evidence for this finding</EvidenceLink></ExpandableSection>)}
         {issue.target_class === "file" && (intelligence.resource_summary?.without_absolute_path_occurrences ?? 0) > 0 && <div><h3>Path-based label check unavailable</h3><p>{intelligence.resource_summary!.without_absolute_path_occurrences.toLocaleString()} of {issue.occurrences_count.toLocaleString()} denials contain filenames but no complete filesystem path. SECentral cannot determine whether <code>{issue.target_type}</code> is the expected label for those files.</p></div>}
         {(additional_finding_count ?? 0) > 0 && <p>{additional_finding_count} finding variant(s) not shown. Inspect host and occurrence evidence for their coverage.</p>}
          {diagnosis && policy_analysis.limitations.length > 0 && <div><p>Some occurrence policy assessments have limitations. These describe occurrence assessments, not the eligibility of a separate reviewed plan.</p><ul>{policy_analysis.limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}</ul><p>Unconfirmed occurrence examples: {host_explanations.flatMap((host) => host.diagnosis_groups.filter((group) => !group.diagnosis).flatMap((group) => group.sample_occurrence_ids.map((id) => <Link key={`${host.host_id}-${id}`} to={`/hosts/${host.host_id}/occurrences/${id}`}>{host.hostname} · #{id} </Link>)))}</p></div>}

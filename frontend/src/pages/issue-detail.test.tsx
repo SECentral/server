@@ -423,7 +423,7 @@ describe("issue investigation", () => {
     expect(diagnosis).not.toHaveTextContent("Limitation:");
   });
 
-  it("keeps Diagnosis command-free and stable while the active workspace owns resource-specific inspection", async () => {
+  it("keeps Diagnosis command-free and identifies unmatched evidence while the active workspace owns inspection", async () => {
     const payload = detailPayload("003");
     payload.operator_guidance = {
       source: { host_id: 10, hostname: "web-1", occurrence_id: 101, occurred_at: "2026-09-30T16:26:25Z", path: null, observed_type: "unreserved_port_t", protocol: "tcp", port: 12345, operation: "name_bind" },
@@ -447,7 +447,6 @@ describe("issue investigation", () => {
     const user = userEvent.setup();
     renderDetail();
     const diagnosis = await screen.findByRole("region", { name: "Diagnosis" });
-    const diagnosisText = diagnosis.textContent;
     expect(within(diagnosis).queryByRole("button", { name: /Copy/ })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Copy command: semanage port -l" })).toHaveLength(1);
     await user.click(screen.getByRole("tab", { name: /TCP\/23451/ }));
@@ -460,7 +459,8 @@ describe("issue investigation", () => {
     expect(context).toHaveTextContent("TCP/23451");
     expect(within(context).getByRole("link", { name: "#202" })).toHaveAttribute("href", "/hosts/10/occurrences/202");
     expect(screen.queryByRole("heading", { name: "Verify the investigation example" })).not.toBeInTheDocument();
-    expect(diagnosis.textContent).toBe(diagnosisText);
+    expect(diagnosis).toHaveTextContent("Inspection uses a different retained example");
+    expect(within(diagnosis).getByRole("link", { name: /occurrence #101/ })).toHaveAttribute("href", "/hosts/10/occurrences/101");
     expect(within(diagnosis).queryByRole("button", { name: /Copy/ })).not.toBeInTheDocument();
   });
 
@@ -645,6 +645,47 @@ describe("issue investigation", () => {
     expect(await screen.findByText("sha256:issue-fingerprint")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Technical details & audit provenance" }));
     expect(screen.queryByText("sha256:issue-fingerprint")).not.toBeInTheDocument();
+  });
+
+  it("aligns the selected metadata denial with its own finding instead of the latest read finding", async () => {
+    const payload = labelingPayload();
+    payload.triage_guidance = null;
+    const metadata = { ...diagnosisFor("004")!, host_id: 10, occurrence_id: 101, source_domain: "httpd_t", target_type: "user_home_t", path: payload.operator_guidance!.source.path! } as NonNullable<IssueDetailResponse["diagnosis"]>;
+    const read = { ...metadata, occurrence_id: 202, permissions: ["read"] };
+    payload.diagnosis = read;
+    payload.findings = [{ diagnosis: read, occurrence_count: 1, observation_count: 0 }];
+    payload.issue.occurrences_count = 4;
+    const host = payload.host_explanations[0];
+    host.occurrence_count = 4;
+    host.unexplained_occurrence_count = 0;
+    host.diagnosis_groups = [
+      { ...host.diagnosis_groups[0], diagnosis: read, count: 1, sample_occurrence_ids: [202] },
+      { ...host.diagnosis_groups[0], diagnosis: metadata, count: 3, sample_occurrence_ids: [101, 102, 103] }
+    ];
+    payload.resolutions = { candidates: [], rejected_candidates: [], intent: null, freshness: null, change_plan: null, history: [],
+      observed_access: { occurrence_id: 202, host_id: 10, hostname: "web-1", actor: "httpd", source_type: "httpd_t",
+        resource: "shadow", target_type: "user_home_t", object_class: "file", permissions: ["read"],
+        operation_label: "read", outcome: "DENIED", observed_at: "2026-10-01T10:00:00Z" } };
+    const occurrence = occurrencePage("001").occurrences[0];
+    occurrence.normalized_denial.permissions = ["getattr"];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => response(200, url.endsWith("/occurrences/101") ? occurrence : payload)));
+    renderDetail("/issues/7?evidence_occurrence=202");
+
+    await waitFor(() => expect(screen.getByRole("region", { name: "Observed access" })).toHaveTextContent("getattr"));
+    const diagnosis = screen.getByRole("region", { name: "Diagnosis" });
+    expect(diagnosis).toHaveTextContent("checking metadata");
+    expect(diagnosis).not.toHaveTextContent("denied file read");
+    expect(diagnosis).not.toHaveTextContent("Inspection uses a different retained example");
+    const context = screen.getByRole("complementary", { name: "Investigation context" });
+    expect(context).toHaveTextContent("Displayed finding: 3");
+    expect(within(context).getByText("Observed access & finding example")).toBeVisible();
+    expect(within(context).getByRole("link", { name: "Policy evidence" })).toHaveAttribute("href", expect.stringContaining("evidence_occurrence=101"));
+    const user = userEvent.setup();
+    await user.click(within(context).getByRole("link", { name: "Policy evidence" }));
+    const policy = screen.getByRole("tabpanel", { name: "Policy evaluation" });
+    expect(within(policy).getByRole("heading", { name: "Policy evaluation · occurrence #101" })).toBeVisible();
+    expect(policy).toHaveTextContent("getattr");
+    expect(policy).not.toHaveTextContent("occurrence #202");
   });
 
   function readFinding() {
@@ -991,7 +1032,7 @@ describe("issue investigation", () => {
     expect(context).not.toHaveTextContent("/var/www/html/z.txt");
     expect(within(context).getByRole("link", { name: "web-1" })).toHaveAttribute("href", "/hosts/10");
     expect(within(context).getByText("Latest access")).toBeVisible();
-    expect(within(context).getByText("Observed access & finding example")).toBeVisible();
+    expect(within(context).getByText("Active resource example")).toBeVisible();
     expect(within(context).getByRole("link", { name: "#101" })).toHaveAttribute("href", "/hosts/10/occurrences/101");
     expect(within(context).getByRole("link", { name: "#202" })).toHaveAttribute("href", "/hosts/20/occurrences/202");
     const observed = await screen.findByRole("region", { name: "Observed access" });

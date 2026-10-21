@@ -13,7 +13,7 @@ import { fetchHost } from "../api/hosts";
 import type { IssueDetailResponse } from "../api/issue";
 import type { ResolutionWorkflow } from "../api/resolution";
 import { osDisplayName } from "../platform";
-import { resolutionResources } from "./resolutionResources";
+import { activeResourceFinding, resolutionResources } from "./resolutionResources";
 import { EvidenceBlock } from "./OccurrenceEvidence";
 import { Disclosure as ExpandableSection } from "./Disclosure";
 import { Disclosure } from "./Disclosure";
@@ -92,12 +92,13 @@ export function ContextSidebar({ detail, workflow, focusedAccess, onShowTechnica
     return `?${next}#plan-${phase}`;
   };
   const access = focusedAccess ?? workflow.observed_access;
-  const diagnosis = detail.diagnosis;
+  const finding = activeResourceFinding(detail, workflow, params.get("resource"));
+  const diagnosis = finding.diagnosis;
   const source = detail.operator_guidance?.source;
   const diagnosisHost = diagnosis && detail.host_explanations.find((host) => host.diagnosis_groups.some((group) => group.sample_occurrence_ids.includes(diagnosis.occurrence_id)));
   const hostId = access?.host_id ?? source?.host_id ?? diagnosisHost?.host_id ?? diagnosis?.host_id;
-  const findingOccurrenceId = source?.occurrence_id ?? diagnosis?.occurrence_id;
-  const findingHostId = source?.host_id ?? diagnosisHost?.host_id ?? diagnosis?.host_id;
+  const findingOccurrenceId = diagnosis?.occurrence_id;
+  const findingHostId = diagnosis?.host_id ?? diagnosisHost?.host_id;
   const resource = access?.resource ?? source?.path ?? diagnosis?.path;
   const host = useQuery({ queryKey: ["host", hostId], queryFn: () => fetchHost(hostId!), enabled: !!hostId, staleTime: 60_000 });
   const platform = host.data?.host?.platform;
@@ -119,7 +120,7 @@ export function ContextSidebar({ detail, workflow, focusedAccess, onShowTechnica
      {diagnosis?.kind === "conditional_allow_inactive" && (!access || diagnosis.occurrence_id === access.occurrence_id) && <section><h3>Policy state at checkpoint</h3><span>{diagnosis.conditional_rules?.length ?? 0} conditional path{(diagnosis.conditional_rules?.length ?? 0) === 1 ? "" : "s"} recorded</span><small>Historical checkpoint evidence</small></section>}
       <section aria-label="Finding coverage"><h3>Finding coverage</h3><Tooltip content="Occurrences with evidence-supported findings, not verified root causes or confirmed remediation. Counts cover the whole issue, not just the selected resource."><strong tabIndex={0}>Supported findings: {detail.issue.occurrences_count - unexplained} of {detail.issue.occurrences_count} occurrences</strong></Tooltip>
        <small>{unexplained} occurrence{unexplained === 1 ? " lacks" : "s lack"} a complete explanation</small>
-        {diagnosis && <small>Displayed finding: {detail.findings?.[0]?.occurrence_count ?? "Not counted"} · <EvidenceLink target="policy-evaluation-evidence" occurrenceId={diagnosis.occurrence_id}>Policy evidence</EvidenceLink></small>}</section>
+         {diagnosis && <small>Displayed finding: {finding.count ?? "Not counted"} · <EvidenceLink target="policy-evaluation-evidence" occurrenceId={diagnosis.occurrence_id}>Policy evidence</EvidenceLink></small>}</section>
      <Button component="a" variant="link" href="#issue-technical-evidence" onClick={onShowTechnicalEvidence}>View technical evidence</Button>
    {(workflow.history.length > 0 || detail.issue.disposition_history.length > 0) && <section aria-label="Operator history"><h3>Operator history</h3>
       {workflow.history.length > 0 && <Disclosure toggleText="Intent history"><ul>{workflow.history.map((change, i) => <li key={i}>{change.created_at} · {change.operator} · {change.action}{change.issue_signature_id ? ` · Historical signature #${change.issue_signature_id}; review required in this workspace` : ""}</li>)}</ul></Disclosure>}

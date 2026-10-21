@@ -95,7 +95,12 @@ export function IssueTechnicalEvidence({ detail, updatedAt }: { detail: IssueDet
   }, [target, tab, occurrenceQuery.dataUpdatedAt, workflowQuery.dataUpdatedAt]);
   const recordState = invalidOccurrence ? <Alert variant="warning" isInline title="Invalid evidence occurrence">Select a retained occurrence from the table.</Alert> : !occurrenceId ? <p>Select a retained occurrence to inspect its audit record and checkpoint.</p> : occurrenceQuery.isError ? <Alert variant="warning" isInline title="Could not load occurrence evidence">No record has been substituted. <Link to={`/issues/${detail.issue.id}?tab=occurrences`}>Browse occurrences</Link></Alert>
     : occurrenceQuery.isPending ? <Spinner aria-label="Loading occurrence evidence" size="md" /> : null;
-  const diagnoses = detail.findings?.length ? detail.findings.map((finding) => finding.diagnosis) : detail.diagnosis ? [detail.diagnosis] : [];
+  const issueDiagnoses = detail.findings?.length ? detail.findings.map((finding) => finding.diagnosis) : detail.diagnosis ? [detail.diagnosis] : [];
+  const diagnoses = invalidOccurrence ? [] : params.has("evidence_occurrence")
+    ? [...new Map([...issueDiagnoses, ...detail.host_explanations.flatMap((host) => host.diagnosis_groups.flatMap((group) => group.diagnosis ? [group.diagnosis] : []))]
+      .filter((diagnosis) => diagnosis.occurrence_id === occurrenceId)
+      .map((diagnosis) => [`${diagnosis.host_id}:${diagnosis.occurrence_id}:${diagnosis.kind}`, diagnosis])).values()]
+    : issueDiagnoses;
   const denial = occurrence?.normalized_denial;
   const syscall = rows(denial?.details.syscall_evidence)[0];
   const network = row(denial?.details.network_evidence);
@@ -109,7 +114,7 @@ export function IssueTechnicalEvidence({ detail, updatedAt }: { detail: IssueDet
     </Tabs>
     <section id={targets[tab]} role="tabpanel" tabIndex={-1} aria-label={tabs[tab]}>
       {tab === "policy" && <Stack hasGutter>
-        {!diagnoses.length && <StackItem><p>No authoritative policy finding is available for this issue.</p></StackItem>}
+        {invalidOccurrence ? <StackItem>{recordState}</StackItem> : !diagnoses.length && <StackItem><p>{params.has("evidence_occurrence") ? `No retained policy finding is available for occurrence #${occurrenceId}. No other occurrence's finding has been substituted.` : "No authoritative policy finding is available for this issue."}</p></StackItem>}
         {diagnoses.map((diagnosis, index) => <StackItem key={index}><Evaluation diagnosis={diagnosis} /></StackItem>)}
         {workflowQuery.isError && <StackItem><Alert variant="warning" isInline title="Resolution evidence could not be refreshed" /></StackItem>}
         {workflow?.change_plan && <StackItem><ResolutionBasis id="reviewed-plan-evidence" title={`Reviewed plan · ${workflow.change_plan.title}`} basis={workflow.change_plan.evidence_basis} /></StackItem>}
