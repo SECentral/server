@@ -462,12 +462,13 @@ describe("issue investigation", () => {
       { reason: "Local overrides", command: "semanage port -l -C", expected: "Check prior state" },
       { reason: "Listener ownership", command: "ss -ltnp 'sport = :23451'", expected: "Check intended owner" }
     ];
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => response(200, url.endsWith("/occurrences/202") ? occurrence : payload)));
+    const primaryOccurrence = { ...occurrence, id: 101, guidance: { ...occurrence.guidance!, checks: payload.operator_guidance.checks.map((check) => ({ reason: check.title, command: check.command, expected: check.interpretation })) } };
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => response(200, url.endsWith("/occurrences/202") ? occurrence : url.endsWith("/occurrences/101") ? primaryOccurrence : payload)));
     const user = userEvent.setup();
     renderDetail();
     const diagnosis = await screen.findByRole("region", { name: "Diagnosis" });
     expect(within(diagnosis).queryByRole("button", { name: /Copy/ })).not.toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Copy command: semanage port -l" })).toHaveLength(1);
+    expect(await screen.findAllByRole("button", { name: "Copy command: semanage port -l" })).toHaveLength(1);
     await user.click(screen.getByRole("tab", { name: /TCP\/23451/ }));
     expect(await screen.findByRole("button", { name: "Copy command: ss -ltnp 'sport = :23451'" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Copy command: ss -ltnp" })).not.toBeInTheDocument();
@@ -645,7 +646,7 @@ describe("issue investigation", () => {
     renderDetail();
     const flow = await screen.findByRole("region", { name: "Observed access" });
     expect(flow).toHaveTextContent("httpd");
-    expect(flow).toHaveTextContent("DENIED");
+    expect(flow).toHaveTextContent("POLICY DENIAL");
     expect(flow).toHaveTextContent("TCP/12345");
     const context = screen.getByRole("complementary", { name: "Investigation context" });
     expect(within(context).getByText("Observed access & finding example")).toBeVisible();

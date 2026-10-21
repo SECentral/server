@@ -171,7 +171,7 @@ RSpec.describe "Configuration API", type: :request do
       } }
     })
 
-    get "/api/v1/configuration", params: { family: "ports" }
+    get "/api/v1/configuration", params: { family: "ports", policy_identity: demo_identity }
     payload = JSON.parse(response.body)
     ports = payload.fetch("ports")
     expect(ports.fetch("coverage")).to eq("observed" => 1, "partial" => 0, "unavailable" => 0, "unknown" => 0, "stale" => 0, "no_heartbeat" => 0)
@@ -273,10 +273,10 @@ RSpec.describe "Configuration API", type: :request do
     observe(stale, inventory.call("observed", mapping), at: 2.hours.ago, received_at: 1.hour.ago)
     HostSnapshot.create!(host: event_only, details: inventory.call("observed", mapping))
 
-    get "/api/v1/configuration", params: { family: "ports" }
+    get "/api/v1/configuration", params: { family: "ports", policy_identity: demo_identity }
 
     ports = JSON.parse(response.body).fetch("ports")
-    expect(ports.fetch("coverage")).to eq("observed" => 2, "partial" => 1, "unavailable" => 1, "unknown" => 1, "stale" => 1, "no_heartbeat" => 2)
+    expect(ports.fetch("coverage")).to eq("observed" => 2, "partial" => 1, "unavailable" => 1, "unknown" => 1, "stale" => 1, "no_heartbeat" => 0)
     expect(ports.dig("catalog_overlay", "observed", "fresh_complete_host_count")).to eq(2)
     expect(ports.dig("catalog_overlay", "observed", "stale_host_count")).to eq(1)
     expect(ports.dig("catalog_overlay", "observed", "outside_cohort_host_count")).to eq(2)
@@ -314,7 +314,7 @@ RSpec.describe "Configuration API", type: :request do
       } } })
     end
 
-    get "/api/v1/configuration", params: { family: "ports" }
+    get "/api/v1/configuration", params: { family: "ports", policy_identity: demo_identity }
 
     segments = JSON.parse(response.body).dig("ports", "catalog_overlay", "observed", "segments")
     expect(segments.map { |segment| segment.fetch("host_count") }).to eq([2, 2, 2])
@@ -369,7 +369,7 @@ RSpec.describe "Configuration API", type: :request do
     expect(observed.fetch("unmatched_observed_names")).to eq(["unlisted_boolean"])
   end
 
-  it "selects the first catalog-backed cohort when no policy identity is requested" do
+  it "defaults to all-host inventory even when a catalog-backed cohort exists" do
     import_demo_catalog
     org = organization
     host = Host.create!(organization: org, external_id: "cohort-pick", hostname: "cohort-pick")
@@ -378,7 +378,82 @@ RSpec.describe "Configuration API", type: :request do
     get "/api/v1/configuration", params: { family: "booleans" }
 
     booleans = JSON.parse(response.body).fetch("booleans")
-    expect(booleans.fetch("selected_policy_identity")).to eq(demo_identity)
-    expect(booleans.dig("catalog", "available")).to be true
+    expect(booleans.fetch("selected_policy_identity")).to be_nil
+    expect(booleans.fetch("selection")).to be_nil
+    expect(booleans.fetch("catalog")).to be_nil
+    expect(booleans.fetch("catalog_overlay")).to be_nil
+  end
+
+  it "includes different policy hashes and unidentified hosts by default and scopes explicit cohorts consistently" do
+    import_demo_catalog
+    org = organization
+    other_identity = "sha256:" + "b" * 64
+    mapping = { "type" => "http_port_t", "protocol" => "tcp", "ports" => [{ "start" => 8080, "end" => 8080, "provenance" => "custom" }] }
+    [demo_identity, other_identity, nil, demo_identity].each_with_index do |identity, index|
+      host = Host.create!(organization: org, external_id: "fleet-#{index}", hostname: "fleet-#{index}")
+      observe(host, { "selinux" => {
+        "policy_identity" => identity, "boolean_status" => "observed",
+        "booleans" => [{ "name" => "shared_boolean", "current" => index.zero?, "status" => "observed" }],
+        "policy" => { "port_inventory" => { "status" => "observed", "local_classification_status" => "observed", "mappings" => [mapping] } }
+      } }, at: index == 3 ? 2.hours.ago : Time.current)
+    end
+
+    get "/api/v1/configuration", params: { family: "booleans", q: "shared", limit: 10 }
+    payload = JSON.parse(response.body)
+    booleans = payload.fetch("booleans")
+    expect(payload.dig("hosts", "total")).to eq(4)
+    expect(booleans.fetch("selected_policy_identity")).to be_nil
+    expect(booleans.fetch("catalog_overlay")).to be_nil
+    expect(booleans.fetch("coverage")).to include("observed" => 3, "stale" => 1)
+    expect(booleans.dig("inventory", 0, "counts")).to include("enabled" => 1, "disabled" => 2, "stale" => 1)
+    expect(booleans.fetch("pagination")).to include("total" => 1, "page_size" => 10)
+
+    get "/api/v1/configuration", params: { family: "booleans", policy_identity: demo_identity }
+    booleans = JSON.parse(response.body).fetch("booleans")
+    expect(booleans.fetch("coverage")).to include("observed" => 1, "stale" => 1)
+    expect(booleans.dig("inventory", 0, "counts")).to include("enabled" => 1, "disabled" => 0, "stale" => 1)
+    counts = booleans.dig("catalog_overlay", "observed", "rows").find { |row| row["name"] == "shared_boolean" }.fetch("counts")
+    expect(counts).to include("on" => 1, "off" => 0, "stale" => 1)
+
+    get "/api/v1/configuration", params: { family: "ports", protocol: "tcp", q: "tcp/8080", limit: 10 }
+    ports = JSON.parse(response.body).fetch("ports")
+    expect(ports.fetch("selected_policy_identity")).to be_nil
+    expect(ports.fetch("catalog_overlay")).to be_nil
+    expect(ports.fetch("coverage")).to include("observed" => 3, "stale" => 1)
+    expect(ports.fetch("rows").size).to eq(1)
+    expect(ports.fetch("rows").first.fetch("host_ids").size).to eq(3)
+    expect(ports.fetch("pagination")).to include("total" => 1, "page_size" => 10)
+
+    get "/api/v1/configuration", params: { family: "ports", policy_identity: demo_identity, q: "tcp/8080" }
+    ports = JSON.parse(response.body).fetch("ports")
+    expect(ports.fetch("coverage")).to include("observed" => 1, "stale" => 1)
+    expect(ports.dig("catalog_overlay", "observed", "segments").map { |row| row["host_count"] }).to eq([1])
+
+    get "/api/v1/configuration", params: { family: "booleans", policy_identity: "sha256:" + "f" * 64 }
+    booleans = JSON.parse(response.body).fetch("booleans")
+    expect(booleans.fetch("coverage").values.sum).to eq(0)
+    expect(booleans.fetch("inventory")).to be_empty
+    expect(booleans.dig("catalog_overlay", "observed", "rows")).to be_empty
+  end
+
+  it "groups individual port ranges across hosts while retaining partial inventory evidence" do
+    org = organization
+    3.times do |index|
+      host = Host.create!(organization: org, external_id: "ranges-#{index}")
+      ranges = [{ "start" => 80, "end" => 80, "provenance" => "custom" }]
+      ranges << { "start" => 8080, "end" => 8080, "provenance" => "custom" } if index.zero?
+      observe(host, { "selinux" => { "policy" => { "port_inventory" => {
+        "status" => index == 2 ? "partial" : "observed", "local_classification_status" => "observed",
+        "mappings" => [{ "type" => "http_port_t", "protocol" => "tcp", "ports" => ranges }]
+      } } } })
+    end
+
+    get "/api/v1/configuration", params: { family: "ports", q: "tcp/80", limit: 10 }
+    ports = JSON.parse(response.body).fetch("ports")
+    expect(ports.fetch("coverage")).to include("observed" => 2, "partial" => 1)
+    expect(ports.fetch("rows").map { |row| [row["ports"].first["start"], row["inventory_status"], row["host_ids"].size] }).to contain_exactly(
+      [80, "observed", 2], [8080, "observed", 1], [80, "partial", 1]
+    )
+    expect(ports.fetch("pagination")).to include("total" => 3)
   end
 end

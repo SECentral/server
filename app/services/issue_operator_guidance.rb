@@ -51,7 +51,10 @@ class IssueOperatorGuidance
     end
     boolean_checks.uniq! { |item| item[:command] }
     checks.concat(boolean_checks) unless permissions.include?("name_bind")
-    if %w[tcp_socket udp_socket].include?(denial.target_class)
+    port_checks = PortInspectionGuidance.call(denial)
+    if port_checks.any?
+      checks.concat(port_checks.map { |item| check(item[:reason], InvestigationCommandRenderer.call(item), item[:expected]) })
+    elsif %w[tcp_socket udp_socket].include?(denial.target_class)
       checks << check("Current listeners", denial.target_class == "udp_socket" ? "ss -lunp" : "ss -ltnp", "Check the intended listening address, port and owner. No listener alone does not establish the cause; a shell connection does not test confined workload access.") if permissions.include?("name_bind")
       checks << check("Configured port classifications", "semanage port -l", "Find the observed protocol/port in the current ranges. Classification alone does not establish which type is appropriate.")
       checks << check("Local port customizations", "semanage port -l -C", "Review local overrides before considering any manual configuration change.")

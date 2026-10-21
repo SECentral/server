@@ -55,14 +55,14 @@ const PORT_COVERAGE: [string, string][] = [
   ["no_heartbeat", "No configuration snapshot"]
 ];
 
-function CoverageCards({ family, items, counts }: { family: "booleans" | "ports"; items: [string, string][]; counts: Record<string, number> }) {
+function CoverageCards({ family, items, counts, scoped }: { family: "booleans" | "ports"; items: [string, string][]; counts: Record<string, number>; scoped: boolean }) {
   return (
-    <section aria-label="Fleet host coverage" className="pf-v6-u-mb-md">
-    <Title headingLevel="h2" size="lg">Fleet coverage</Title>
+    <section aria-label="Host coverage" className="pf-v6-u-mb-md">
+    <Title headingLevel="h2" size="lg">{scoped ? "Selected cohort coverage" : "Fleet coverage"}</Title>
     <Grid hasGutter aria-label="Configuration coverage">
       {items.map(([key, label]) => (
         <GridItem key={key} sm={6} md={4} xl={2}>
-          <MetricCard label={label} value={counts[key] ?? 0} href={`/hosts?configuration_family=${family}&configuration_status=${key}`} />
+          <MetricCard label={label} value={counts[key] ?? 0} href={scoped ? undefined : `/hosts?configuration_family=${family}&configuration_status=${key}`} />
         </GridItem>
       ))}
     </Grid>
@@ -75,11 +75,11 @@ type ListProps = { search: string; onSearch: (query: string) => void; pagination
 type ConfigurationCatalog = NonNullable<NonNullable<ConfigurationFleetResponse["booleans"]>["catalog"]>;
 type ConfigurationSelection = NonNullable<NonNullable<ConfigurationFleetResponse["booleans"]>["selection"]>;
 
-function baselineLabel(catalog: ConfigurationCatalog | null | undefined, selection: ConfigurationSelection | undefined): string {
-  if (catalog?.available) return `Baseline: ${selection?.selected_revision?.display_name ?? "Available"}`;
-  if (selection?.status === "absent" && selection.reason === "no_matching_candidates") return "Baseline: None";
-  if (selection?.status === "ambiguous") return "Baseline: Selection ambiguous";
-  return "Baseline: Unavailable";
+function referenceLabel(catalog: ConfigurationCatalog | null | undefined, selection: ConfigurationSelection | null | undefined): string {
+  if (catalog?.available) return `Distribution reference: ${selection?.selected_revision?.display_name ?? "Available"}`;
+  if (selection?.status === "absent" && selection.reason === "no_matching_candidates") return "Distribution reference: None";
+  if (selection?.status === "ambiguous") return "Distribution reference: Selection ambiguous";
+  return "Distribution reference: Unavailable";
 }
 
 function BooleanStateSummary({ counts }: { counts: Record<string, number> }) {
@@ -144,16 +144,16 @@ function BooleanInventory({ data, search, onSearch, pagination, onPage, onPageSi
     <Card aria-label="Boolean inventory"><CardBody>
       <Title headingLevel="h2" size="lg">Booleans</Title>
       <InventoryToolbar label="Booleans" search={search} total={pagination.total} onSearch={onSearch} />
-      {rows.length === 0 ? <p>{search ? "No matching booleans." : "No observed booleans across the fleet."}</p> : <div className="pf-v6-c-table__responsive-wrapper">
+      {rows.length === 0 ? <p>{search ? "No matching booleans." : "No observed booleans in the selected scope."}</p> : <div className="pf-v6-c-table__responsive-wrapper">
         <table className="pf-v6-c-table pf-m-compact pf-m-grid-md" aria-label="Boolean inventory rows">
           <thead className="pf-v6-c-table__thead"><tr className="pf-v6-c-table__tr">
-              <th className="pf-v6-c-table__th" scope="col">Boolean</th><th className="pf-v6-c-table__th" scope="col">Fleet state</th>{referenceAvailable && <th className="pf-v6-c-table__th" scope="col">Reference</th>}
+              <th className="pf-v6-c-table__th" scope="col">Boolean</th><th className="pf-v6-c-table__th" scope="col">{data.booleans?.selected_policy_identity ? "Cohort state" : "Fleet state"}</th>{referenceAvailable && <th className="pf-v6-c-table__th" scope="col">Reference</th>}
           </tr></thead>
           <tbody className="pf-v6-c-table__tbody">
             {rows.map((row) => (
               <tr className="pf-v6-c-table__tr" key={row.name}>
                 <td className="pf-v6-c-table__td" data-label="Boolean">{row.name}<div className="pf-v6-u-color-200">{("catalog" in row ? row.catalog?.description : row.description) ?? ""}</div></td>
-                <td className="pf-v6-c-table__td" data-label="Fleet states"><BooleanStateSummary counts={"catalog" in row ? row.counts : { on: row.counts.enabled, off: row.counts.disabled, ...row.counts }} /></td>
+                <td className="pf-v6-c-table__td" data-label={data.booleans?.selected_policy_identity ? "Cohort state" : "Fleet state"}><BooleanStateSummary counts={"catalog" in row ? row.counts : { on: row.counts.enabled, off: row.counts.disabled, ...row.counts }} /></td>
                 {referenceAvailable && <td className="pf-v6-c-table__td" data-label="Reference">{"catalog" in row ? <>{row.catalog?.default === true ? "Default on" : row.catalog?.default === false ? "Default off" : row.catalog_status} · {row.counts.reference_match} match · {row.counts.reference_difference} differ</> : "—"}</td>}
               </tr>
             ))}
@@ -174,7 +174,7 @@ function PortInventory({ data, search, onSearch, pagination, onPage, onPageSize,
     ? observed?.observed_mappings ?? []
     : (family?.rows ?? []).flatMap((row) => (row.ports ?? []).map((range) => ({
       protocol: row.protocol ?? "unknown", type: row.type ?? null, start: range.start, end: range.end,
-      provenance: range.provenance, host_count: row.host_ids.length
+      provenance: range.provenance, inventory_status: row.inventory_status, host_count: row.host_ids.length
     })));
   const rows = hasReference ? observed?.segments ?? [] : mappings;
   return <Card aria-label="Port inventory"><CardBody>
@@ -198,7 +198,7 @@ function PortInventory({ data, search, onSearch, pagination, onPage, onPageSize,
             <td className="pf-v6-c-table__td" data-label="Port">{row.protocol}/{row.start === row.end ? row.start : `${row.start}-${row.end}`}</td>
             <td className="pf-v6-c-table__td" data-label="SELinux type">{row.type ?? "—"}</td>
             <td className="pf-v6-c-table__td" data-label="Source">{Array.isArray(row.provenance) ? [...new Set(row.provenance.filter(Boolean))].map((value) => portSourceLabel(value)).join(", ") || "Not recorded" : portSourceLabel(row.provenance)}</td>
-            <td className="pf-v6-c-table__td" data-label="Hosts">{row.host_count} host{row.host_count === 1 ? "" : "s"}</td>
+            <td className="pf-v6-c-table__td" data-label="Hosts">{row.host_count} host{row.host_count === 1 ? "" : "s"}{row.inventory_status === "partial" && <> · <Label color="orange" isCompact>Partial inventory</Label></>}</td>
           </tr>)}
         </tbody>
       </table>
@@ -263,28 +263,28 @@ function CohortSelect({ data, policyIdentity, onSelect }: { data: ConfigurationF
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const cohorts = data.booleans?.cohort_details ?? data.ports?.cohort_details ?? [];
-  const selected = policyIdentity ?? "auto";
+  const selected = policyIdentity ?? "all";
   const active = cohorts.find((cohort) => cohort.policy_identity === selected);
   const visibleCohorts = cohorts.filter((cohort) => cohortLabel(cohort).toLowerCase().includes(filter.toLowerCase()));
   return (
     <Select
       variant={cohorts.length > 5 ? "typeahead" : "default"}
       isOpen={open}
-      selected={selected === "auto" ? "Auto" : selected}
+      selected={selected}
       onOpenChange={setOpen}
       onSelect={(_event, value) => {
         setOpen(false);
         setFilter("");
-        onSelect(value === "Auto" ? null : (value as string));
+        onSelect(value === "all" ? null : (value as string));
       }}
       toggle={(toggleRef) => (
         cohorts.length > 5
-          ? <SearchInput ref={toggleRef} aria-label="Search policy cohorts" placeholder="Search policy cohorts" value={open ? filter : selected === "auto" ? "Auto" : active ? cohortOption(active) : "Selected cohort"} onFocus={() => setOpen(true)} onChange={(_event, value) => { setFilter(value); setOpen(true); }} onClear={() => setFilter("")} />
-          : <Button variant="secondary" isExpanded={open} onClick={() => setOpen(!open)} ref={toggleRef} aria-label={`Policy cohort: ${selected === "auto" ? "Auto" : active ? cohortOption(active) : "Selected cohort"}`}>Policy cohort: {selected === "auto" ? "Auto" : active ? cohortOption(active) : "Selected cohort"}</Button>
+          ? <SearchInput ref={toggleRef} aria-label="Search policy cohorts" placeholder="Search policy cohorts" value={open ? filter : selected === "all" ? "All hosts" : active ? cohortOption(active) : "Selected cohort"} onFocus={() => setOpen(true)} onChange={(_event, value) => { setFilter(value); setOpen(true); }} onClear={() => setFilter("")} />
+          : <Button variant="secondary" isExpanded={open} onClick={() => setOpen(!open)} ref={toggleRef} aria-label={`Policy cohort: ${selected === "all" ? "All hosts" : active ? cohortOption(active) : "Selected cohort"}`}>Policy cohort: {selected === "all" ? "All hosts" : active ? cohortOption(active) : "Selected cohort"}</Button>
       )}
       className="configuration-cohort-select"
     >
-      <SelectOption value="Auto">Auto</SelectOption>
+      <SelectOption value="all">All hosts</SelectOption>
       {visibleCohorts.map((cohort) => (
         <SelectOption key={cohort.policy_identity} value={cohort.policy_identity}>
           {cohortOption(cohort)}
@@ -327,7 +327,7 @@ export function Configuration() {
   const configQuery = useQuery({
     queryKey: ["configuration", family, policyIdentity ?? "", page, limit, search, protocol],
     queryFn: () => fetchConfiguration(family, { policyIdentity: policyIdentity ?? undefined, page, limit, q: search, protocol: family === "ports" && protocol !== "all" ? protocol as "tcp" | "udp" : undefined }),
-    placeholderData: (previous) => previous?.family === family ? previous : undefined,
+    placeholderData: (previous) => previous?.family === family && (!hasCohort || (previous.booleans ?? previous.ports)?.selected_policy_identity === policyIdentity) ? previous : undefined,
   });
 
   const setParams = (updates: Record<string, string | null>) => {
@@ -346,6 +346,8 @@ export function Configuration() {
 
   const data = configQuery.data;
   const cohortFamily = data?.booleans ?? data?.ports;
+  const selectedHostCount = Object.values(cohortFamily?.coverage ?? {}).reduce((sum, count) => sum + count, 0);
+  const scoped = Boolean(cohortFamily?.selected_policy_identity);
   const cohortDetails = data?.booleans?.cohort_details ?? data?.ports?.cohort_details ?? [];
   const activeCohort = cohortDetails.find((cohort) => cohort.policy_identity === cohortFamily?.selected_policy_identity);
   const selection = data?.booleans?.selection ?? data?.ports?.selection;
@@ -380,16 +382,19 @@ export function Configuration() {
           <>
             {hasCohort && <Card className="pf-v6-u-mb-lg"><CardBody><Flex justifyContent={{ default: "justifyContentSpaceBetween" }} alignItems={{ default: "alignItemsCenter" }} flexWrap={{ default: "wrap" }} gap={{ default: "gapMd" }}>
               <FlexItem flex={{ default: "flex_1" }}>
-                <Title headingLevel="h2" size="md">Active policy cohort</Title>
-                {activeCohort ? <>
-                  <p><strong>{cohortLabel(activeCohort)}</strong></p>
-                  <p>{activeCohort.host_count} host{activeCohort.host_count === 1 ? "" : "s"} in this cohort · {data.hosts.total} monitored hosts fleet-wide</p>
-                  <p>{latestObservation(activeCohort.latest_observation_at)}</p>
-                </> : <p>No fresh host observations have a usable policy identity · {data.hosts.total} monitored hosts fleet-wide</p>}
-                <p>{baselineLabel(catalog, selection)}</p>
-                {catalog?.available && catalog.distribution_catalog_revision_id && <p><Link to={`/catalogs/${catalog.distribution_catalog_revision_id}`}>View baseline details</Link></p>}
+                <Title headingLevel="h2" size="md">{scoped ? "Selected policy cohort" : "All hosts"}</Title>
+                {scoped ? <>
+                  {activeCohort && <p><strong>{cohortLabel(activeCohort)}</strong></p>}
+                  <p>{selectedHostCount} of {data.hosts.total} monitored hosts selected</p>
+                  {activeCohort && <p>{latestObservation(activeCohort.latest_observation_at)}</p>}
+                  <p>{referenceLabel(catalog, selection)}</p>
+                </> : <>
+                  <p>{data.hosts.total} monitored hosts fleet-wide</p>
+                  <p>Observed values across policy cohorts; matching names do not imply equivalent policies. Select a policy cohort for distribution-reference comparison.</p>
+                </>}
+                {catalog?.available && catalog.distribution_catalog_revision_id && <p><Link to={`/catalogs/${catalog.distribution_catalog_revision_id}`}>View distribution reference</Link></p>}
               </FlexItem>
-              {cohortDetails.length > 0 && <FlexItem><CohortSelect data={data} policyIdentity={policyIdentity} onSelect={(identity) => setParams({ policy_identity: identity, page: null })} /></FlexItem>}
+              {(cohortDetails.length > 0 || policyIdentity) && <FlexItem><CohortSelect data={data} policyIdentity={policyIdentity} onSelect={(identity) => setParams({ policy_identity: identity, page: null })} /></FlexItem>}
             </Flex></CardBody></Card>}
             <Tabs
               activeKey={family}
@@ -403,13 +408,13 @@ export function Configuration() {
             </Tabs>
             {family === "booleans" && data.booleans && (
               <>
-                <CoverageCards family="booleans" items={BOOLEAN_COVERAGE} counts={data.booleans.coverage} />
+                <CoverageCards family="booleans" items={BOOLEAN_COVERAGE} counts={data.booleans.coverage} scoped={scoped} />
                 <BooleanInventory data={data} search={search} onSearch={setSearch} pagination={data.booleans.pagination} onPage={setPage} onPageSize={setPageSize} />
               </>
             )}
             {family === "ports" && data.ports && (
               <>
-                <CoverageCards family="ports" items={PORT_COVERAGE} counts={data.ports.coverage} />
+                <CoverageCards family="ports" items={PORT_COVERAGE} counts={data.ports.coverage} scoped={scoped} />
                 <PortInventory data={data} search={search} onSearch={setSearch} pagination={data.ports.pagination} onPage={setPage} onPageSize={setPageSize} protocol={protocol} onProtocolChange={setProtocol} />
               </>
             )}

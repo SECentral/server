@@ -76,7 +76,7 @@ export function ObservedAccessFlow({ access }: { access: NonNullable<ResolutionW
   return <section className="workbench-observed" aria-label="Observed access"><h2>What happened</h2>
     <div className="access-flow">
       <div className="access-node access-subject"><span className="entity-label"><CogsIcon aria-hidden="true" /> Subject</span><strong>{access.actor}</strong><code>{access.source_type}</code></div>
-      <div className="access-edge"><span className="access-action">{access.operation_label}</span><span className="access-line" aria-hidden="true" /><span className="access-denied"><TimesCircleIcon aria-hidden="true" /> DENIED</span></div>
+      <div className="access-edge"><span className="access-action">{access.operation_label}</span><span className="access-line" aria-hidden="true" /><span className="access-denied"><TimesCircleIcon aria-hidden="true" /> POLICY DENIAL</span></div>
       <div className="access-node access-target"><span className="entity-label"><ResourceIcon objectClass={access.object_class} /> Target</span><strong title={access.resource}>{access.resource}</strong><code>{access.target_type}</code></div>
     </div>
   </section>;

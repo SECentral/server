@@ -745,9 +745,12 @@ export type ConfigurationBooleanOverlay = {
 
 export type ConfigurationBooleanFamily = {
     /**
-     * Shared exact-only cohort reference selection. Host-family usability is not_evaluated here; the overlay preserves per-host evidence states.
+     * Null for all-host inventory; otherwise exact-only cohort reference selection. The overlay preserves per-host evidence states.
      */
-    selection?: CatalogReferenceSelection;
+    selection?: CatalogReferenceSelection | null;
+    /**
+     * Host counts in the selected scope, independent of search and pagination.
+     */
     coverage: {
         observed: number;
         unavailable: number;
@@ -755,7 +758,7 @@ export type ConfigurationBooleanFamily = {
         unknown: number;
     };
     /**
-     * Fleet-wide observed boolean inventory, independent of any catalog.
+     * Observed boolean inventory in the selected scope, independent of any catalog. Missing values remain unknown, not disabled or assumed absent from policy.
      */
     inventory: Array<{
         name: string;
@@ -771,6 +774,9 @@ export type ConfigurationBooleanFamily = {
     }>;
     policy_cohorts: Array<string>;
     cohort_details: Array<ConfigurationPolicyCohort>;
+    /**
+     * Explicit cohort identity, or null for all hosts.
+     */
     selected_policy_identity: string | null;
     catalog: ConfigurationCatalog | null;
     catalog_overlay: ConfigurationBooleanOverlay | null;
@@ -852,9 +858,12 @@ export type ConfigurationPortOverlay = {
 
 export type ConfigurationPortFamily = {
     /**
-     * Shared exact-only cohort reference selection. Host-family usability is not_evaluated here; the overlay preserves per-host evidence states.
+     * Null for all-host inventory; otherwise exact-only cohort reference selection. The overlay preserves per-host evidence states.
      */
-    selection?: CatalogReferenceSelection;
+    selection?: CatalogReferenceSelection | null;
+    /**
+     * Host counts in the selected scope, independent of search and pagination.
+     */
     coverage: {
         observed: number;
         partial: number;
@@ -865,12 +874,15 @@ export type ConfigurationPortFamily = {
     };
     policy_cohorts: Array<string>;
     cohort_details: Array<ConfigurationPolicyCohort>;
+    /**
+     * Explicit cohort identity, or null for all hosts.
+     */
     selected_policy_identity: string | null;
     catalog: ConfigurationCatalog | null;
     catalog_overlay: ConfigurationPortOverlay | null;
     pagination: PageMeta;
     /**
-     * Observed mappings when there is no usable loaded-policy cohort.
+     * All-host observed mappings when no policy identity is requested, grouped by individual range, type, source, and inventory status. Counts do not assert policy equivalence or absence on other hosts.
      */
     rows?: Array<ConfigurationRow>;
 };
@@ -892,6 +904,10 @@ export type ConfigurationPolicyCohort = {
  * Deduplicated observed row for Ports without a cohort overlay, File contexts, or Modules.
  */
 export type ConfigurationRow = {
+    /**
+     * Port inventory completeness for these observed mappings; partial inventory cannot prove absence.
+     */
+    inventory_status?: 'observed' | 'partial';
     pattern?: string | null;
     file_type?: string | null;
     context?: string | null;
@@ -3191,7 +3207,7 @@ export type GetConfigurationData = {
     query?: {
         family?: ConfigurationFamily;
         /**
-         * Loaded-policy cohort to compare against, `sha256:<64 hex>`.
+         * Explicit Boolean/port loaded-policy cohort, `sha256:<64 hex>`. Omit for all-host observed inventory; no cohort is selected automatically.
          */
         policy_identity?: string;
         /**

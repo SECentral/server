@@ -64,7 +64,7 @@ RSpec.describe InvestigationGuidance do
   end
 
   it "reports only captured network evidence" do
-    denial = double(target_class: "tcp_socket", details: { "target_evidence" => { "filesystem_paths" => [], "object_names" => [] }, "network_evidence" => { "dest_fields" => ["10.0.0.8"], "dport_fields" => ["443"], "lport_fields" => [], "proto_fields" => ["tcp"], "operations" => ["name_connect"] } }, target_paths: [], permissions: [ "name_connect" ], executable: nil)
+    denial = double(target_class: "tcp_socket", source_type: "httpd_t", details: { "target_evidence" => { "filesystem_paths" => [], "object_names" => [] }, "network_evidence" => { "dest_fields" => ["10.0.0.8"], "dport_fields" => ["443"], "lport_fields" => [], "proto_fields" => ["tcp"], "operations" => ["name_connect"] } }, target_paths: [], permissions: [ "name_connect" ], executable: nil)
     occurrence = double(normalized_denial: denial, occurred_at: Time.utc(2026, 9, 1, 14, 20))
     issue = double(permissions: [ "name_connect" ], target_class: "tcp_socket")
 
@@ -181,7 +181,7 @@ RSpec.describe InvestigationGuidance do
 
   it "scopes read-only port checks to a single retained bind endpoint" do
     %w[tcp_socket udp_socket].each do |target_class|
-      denial = double(target_class: target_class, details: { "network_evidence" => { "bind_port_fields" => ["12345"] } }, target_paths: [], permissions: ["name_bind"], executable: nil)
+      denial = double(target_class: target_class, source_type: "httpd_t", details: { "network_evidence" => { "bind_port_fields" => ["12345"] } }, target_paths: [], permissions: ["name_bind"], executable: nil)
       occurrence = double(normalized_denial: denial)
       issue = double(target_class: target_class)
 

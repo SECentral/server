@@ -71,23 +71,27 @@ class ConfigurationQuery
 
   private
 
-  def select_identity
-    @requested_identity || policy_cohorts.find { |identity| yield identity } || policy_cohorts.first
+  def scoped_hosts
+    @scoped_hosts ||= if @requested_identity && %w[booleans ports].include?(@family)
+      @hosts.select { |host| host.policy_identity_for(host.current_state_observation) == @requested_identity }
+    else
+      @hosts
+    end
   end
 
   def booleans_family
-    identity = select_identity { |candidate| BooleanCatalog.for(candidate) }
+    identity = @requested_identity
     overlay = identity ? BooleanCatalogOverlay.call(hosts: @hosts, policy_identity: identity) : nil
     inventory, inventory_page = paginate(boolean_inventory)
     overlay = paginate_overlay(overlay)
     {
-      coverage: @hosts.map { |host| boolean_configuration_state(host) }.tally.merge(observed: 0, unavailable: 0, stale: 0, unknown: 0) { |_key, counted, _zero| counted },
+      coverage: scoped_hosts.map { |host| boolean_configuration_state(host) }.tally.merge(observed: 0, unavailable: 0, stale: 0, unknown: 0) { |_key, counted, _zero| counted },
       inventory: inventory,
       pagination: overlay ? overlay[:pagination] : inventory_page,
       policy_cohorts: policy_cohorts,
       cohort_details: policy_cohort_details,
       selected_policy_identity: identity,
-      selection: CatalogReferenceSelection.for_policy_identity(identity).as_json,
+      selection: identity ? CatalogReferenceSelection.for_policy_identity(identity).as_json : nil,
       catalog: overlay && overlay.dig(:catalog),
       catalog_overlay: overlay
     }
@@ -109,7 +113,7 @@ class ConfigurationQuery
   end
 
   def ports_family
-    identity = select_identity { |candidate| PortCatalog.for(candidate) }
+    identity = @requested_identity
     overlay = identity ? PortCatalogOverlay.call(hosts: @hosts, policy_identity: identity) : nil
     if overlay
       observed = overlay[:observed]
@@ -123,11 +127,11 @@ class ConfigurationQuery
       rows, pagination = paginate(configuration_rows.select { |row| protocol_matches?(row) })
     end
     {
-      coverage: @hosts.map { |host| port_inventory_state(host) }.tally.merge(observed: 0, partial: 0, unavailable: 0, unknown: 0, stale: 0, no_heartbeat: 0) { |_key, counted, _zero| counted },
+      coverage: scoped_hosts.map { |host| port_inventory_state(host) }.tally.merge(observed: 0, partial: 0, unavailable: 0, unknown: 0, stale: 0, no_heartbeat: 0) { |_key, counted, _zero| counted },
       policy_cohorts: policy_cohorts,
       cohort_details: policy_cohort_details,
       selected_policy_identity: identity,
-      selection: CatalogReferenceSelection.for_policy_identity(identity).as_json,
+      selection: identity ? CatalogReferenceSelection.for_policy_identity(identity).as_json : nil,
       catalog: overlay && overlay.dig(:catalog),
       catalog_overlay: overlay,
       pagination: overlay ? overlay[:pagination] : pagination
@@ -136,12 +140,15 @@ class ConfigurationQuery
 
   def configuration_rows
     grouped = {}
-    @hosts.each do |host|
+    scoped_hosts.each do |host|
       observation = host.current_state_observation
       selinux = observation&.host_snapshot&.details&.dig("selinux") || {}
       inventory = host.port_inventory_for(observation)
       values = case @family
-      when "ports" then inventory&.fetch("mappings", [])
+      when "ports"
+        Array(inventory&.fetch("mappings", [])).flat_map do |mapping|
+          Array(mapping["ports"]).map { |range| mapping.merge("ports" => [range], "inventory_status" => inventory["status"]) }
+        end
       when "file_contexts" then host.file_context_mappings_for(observation)["mappings"]
       when "modules" then selinux.dig("policy", "modules").presence || selinux.dig("policy", "custom_modules")
       end
@@ -152,7 +159,7 @@ class ConfigurationQuery
         normalized = normalize_configuration_value(value)
         key = normalized.except(:host_ids)
         row = grouped[key] ||= normalized.merge(host_ids: [])
-        row[:host_ids] << host.id
+        row[:host_ids] |= [host.id]
       end
     end
     grouped.values.sort_by { |row| row.values_at(:type, :pattern, :name, :protocol, :ports).compact.join(" ") }
@@ -184,6 +191,7 @@ class ConfigurationQuery
       {
         type: value["type"],
         protocol: value["protocol"],
+        inventory_status: value["inventory_status"],
         ports: Array(value["ports"]).map { |range| { start: range["start"], end: range["end"], provenance: range["provenance"] } },
         provenance: Array(value["ports"]).map { |range| range["provenance"] }.compact.uniq
       }
@@ -209,11 +217,11 @@ class ConfigurationQuery
   end
 
   def boolean_inventory
-    names = @hosts.flat_map { |host| Array(selinux_state(host)["booleans"]).filter_map { |boolean| boolean["name"] } }.uniq.sort
+    names = scoped_hosts.flat_map { |host| Array(selinux_state(host)["booleans"]).filter_map { |boolean| boolean["name"] } }.uniq.sort
     names.map do |name|
       counts = { enabled: 0, disabled: 0, unknown: 0, unavailable: 0, stale: 0, drift: 0 }
       description = nil
-      @hosts.each do |host|
+      scoped_hosts.each do |host|
         observation = host.current_state_observation
         if observation.nil?
           counts[:unknown] += 1

@@ -28,7 +28,7 @@ const booleansPayload: ConfigurationFleetResponse = {
   families: ["overview", "booleans", "ports", "file_contexts", "modules"],
   hosts: { total: 2 },
   booleans: {
-    coverage: { observed: 1, unavailable: 1, stale: 0, unknown: 0 },
+    coverage: { observed: 1, unavailable: 0, stale: 0, unknown: 0 },
     pagination: { total: 1, page: 1, page_size: 25, total_pages: 1 },
     inventory: [
       { name: "virt_use_nfs", description: null, counts: { enabled: 1, disabled: 0, unknown: 0, unavailable: 1, stale: 0, drift: 1 } }
@@ -156,6 +156,13 @@ function renderConfiguration(initialEntry = "/configuration?family=booleans", ov
     } else {
       payload = overviewPayload;
     }
+    if (!identityParam && payload.booleans) {
+      payload = { ...payload, booleans: { ...payload.booleans, coverage: { observed: 1, unavailable: 1, stale: 0, unknown: 0 }, selected_policy_identity: null, selection: null, catalog: null, catalog_overlay: null } };
+    }
+    if (!identityParam && payload.ports) {
+      payload = { ...payload, ports: { ...payload.ports, selected_policy_identity: null, selection: null, catalog: null, catalog_overlay: null,
+        rows: [{ type: "http_port_t", protocol: "tcp", inventory_status: "observed", ports: [{ start: 8080, end: 8080, provenance: "not_confirmed_custom" }], provenance: ["not_confirmed_custom"], host_ids: [1] }] } };
+    }
     return Promise.resolve(jsonResponse(200, override ?? payload));
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -174,19 +181,21 @@ function renderConfiguration(initialEntry = "/configuration?family=booleans", ov
 
 describe("Configuration", () => {
   it("shows one paginated Boolean inventory with its reference comparison", async () => {
-    renderConfiguration();
+    renderConfiguration(`/configuration?policy_identity=${identity}`);
 
     await screen.findByRole("table", { name: "Boolean inventory rows" });
     expect((await screen.findAllByText("virt_use_nfs")).length).toBe(1);
-    expect(screen.getByText(/2 monitored hosts fleet-wide/)).toBeInTheDocument();
+    expect(screen.getByText(/1 of 2 monitored hosts selected/)).toBeInTheDocument();
     expect(screen.queryByText("sha256:" + "d".repeat(64))).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "View baseline details" })).toHaveAttribute("href", "/catalogs/1");
+    expect(screen.getByRole("link", { name: "View distribution reference" })).toHaveAttribute("href", "/catalogs/1");
     expect(screen.getByText("1 On")).toBeInTheDocument();
     expect(screen.getByText(/not_defined/)).toBeInTheDocument();
     expect(screen.getByText("AlmaLinux 9 · targeted · x86_64")).toBeInTheDocument();
     expect(screen.getByText(/Latest observation:/)).toBeInTheDocument();
-    expect(screen.getByText("Baseline: Available")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Stale host snapshots 0" })).toHaveAttribute("href", "/hosts?configuration_family=booleans&configuration_status=stale");
+    expect(screen.getByText("Distribution reference: Available")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Selected cohort coverage" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Stale host snapshots 0" })).not.toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Cohort state" })).toBeInTheDocument();
     expect(screen.queryByText(/0 Off/)).not.toBeInTheDocument();
     expect(screen.queryByText("No catalog baseline")).not.toBeInTheDocument();
     expect(screen.queryByRole("table", { name: "Catalog booleans" })).not.toBeInTheDocument();
@@ -224,11 +233,11 @@ describe("Configuration", () => {
       candidates: [], candidate_count: 0, candidates_truncated: false, context: { distribution: "", major_version: "", architecture: "", policy_type: "" }, policy_identity_match: null,
       equivalence_asserted: false, families: { booleans: family, ports: family, effective_permissive_domains: family } };
     const noCatalog: ConfigurationFleetResponse = { ...booleansPayload, booleans: { ...booleansPayload.booleans!, selection, catalog: { ...booleansCatalog, available: false }, catalog_overlay: null } };
-    renderConfiguration("/configuration", noCatalog);
+    renderConfiguration(`/configuration?policy_identity=${identity}`, noCatalog);
     expect(await screen.findByRole("table", { name: "Boolean inventory rows" })).toBeVisible();
     if (status === "absent") expect(screen.getByRole("button", { name: "Import catalog" })).toBeInTheDocument();
     else expect(screen.queryByRole("button", { name: "Import catalog" })).not.toBeInTheDocument();
-    if (status === "absent") expect(screen.getByText("Baseline: None")).toBeInTheDocument();
+    if (status === "absent") expect(screen.getByText("Distribution reference: None")).toBeInTheDocument();
     expect(screen.queryByText("No catalog baseline")).not.toBeInTheDocument();
     expect(screen.queryByText("unknown version")).not.toBeInTheDocument();
     expect(screen.queryByRole("table", { name: "Catalog booleans" })).not.toBeInTheDocument();
@@ -290,7 +299,7 @@ describe("Configuration", () => {
     expect(await screen.findByRole("table", { name: "Port inventory rows" })).toBeVisible();
     expect(screen.getByText("http_port_t")).toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Reference" })).not.toBeInTheDocument();
-    expect(screen.getByText("Baseline: None")).toBeInTheDocument();
+    expect(screen.queryByText(/Distribution reference:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Import a catalog/)).not.toBeInTheDocument();
   });
 
@@ -322,7 +331,7 @@ describe("Configuration", () => {
 
     await screen.findByRole("table", { name: "Boolean inventory rows" });
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /Policy cohort: Auto/ }));
+    await user.click(screen.getByRole("button", { name: /Policy cohort: All hosts/ }));
     await user.click(screen.getByRole("option", { name: "RHEL 9 · targeted · x86_64 — 1 host" }));
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
@@ -330,6 +339,36 @@ describe("Configuration", () => {
         expect.objectContaining({ method: "GET" })
       )
     );
+    await user.click(screen.getByRole("button", { name: /Policy cohort: RHEL/ }));
+    await user.click(screen.getByRole("option", { name: "All hosts" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Fleet coverage" })).toBeInTheDocument());
+    expect(fetchMock.mock.calls.at(-1)?.[0]).not.toContain("policy_identity");
+  });
+
+  it("defaults to all-host observed counts with fleet coverage and no cohort reference", async () => {
+    renderConfiguration();
+    await screen.findByRole("table", { name: "Boolean inventory rows" });
+    expect(screen.getByRole("button", { name: "Policy cohort: All hosts" })).toBeInTheDocument();
+    expect(screen.getByText("1 On")).toBeInTheDocument();
+    expect(screen.getByText("1 Unavailable")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Fleet state" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Reference" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "View distribution reference" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Observed hosts 1" })).toHaveAttribute("href", "/hosts?configuration_family=booleans&configuration_status=observed");
+    expect(screen.getByText(/matching names do not imply equivalent policies/)).toBeInTheDocument();
+  });
+
+  it("labels partial fleet port mappings without claiming a reference comparison", async () => {
+    renderConfiguration("/configuration?family=ports", {
+      ...portsPayload,
+      hosts: { total: 3 },
+      ports: { ...portsPayload.ports!, selected_policy_identity: null, catalog: null, catalog_overlay: null,
+        coverage: { observed: 2, partial: 1, unavailable: 0, unknown: 0, stale: 0, no_heartbeat: 0 },
+        rows: [{ type: "http_port_t", protocol: "tcp", inventory_status: "partial", ports: [{ start: 8080, end: 8080, provenance: "custom" }], provenance: ["custom"], host_ids: [3] }] }
+    });
+    await screen.findByRole("table", { name: "Port inventory rows" });
+    expect(screen.getByText("Partial inventory")).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Comparison" })).not.toBeInTheDocument();
   });
 
   it("searches a family through URL-backed API state and resets pagination", async () => {

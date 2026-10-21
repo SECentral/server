@@ -12,6 +12,12 @@ export function ReadOnlyCommands({ checks }: { checks: NonNullable<IssueDetailRe
   </div>)}</div>;
 }
 
+export function InspectionCommands({ primary, secondary }: { primary: NonNullable<IssueDetailResponse["operator_guidance"]>["checks"]; secondary: NonNullable<IssueDetailResponse["operator_guidance"]>["checks"] }) {
+  return <><ReadOnlyCommands checks={primary} />
+    {secondary.length > 0 && <Disclosure className="pf-v6-u-mt-sm" toggleText="Policy inspection"><ReadOnlyCommands checks={secondary} /></Disclosure>}
+  </>;
+}
+
 export function OperatorChecks({ detail, runbookCommands = [], supplemental = false }: { detail: IssueDetailResponse; runbookCommands?: string[]; supplemental?: boolean }) {
   const guidance = detail.operator_guidance;
   if (!guidance) return null;
@@ -32,10 +38,7 @@ export function OperatorChecks({ detail, runbookCommands = [], supplemental = fa
     {source.path && <p>Historical AVC label: <code>{source.observed_type ?? "Not recorded"}</code>. Current object label: inspect on host; local results have not been observed by SECentral. Host-configured context: {expected?.expected_context ? <><code>{expected.expected_context}</code> · checked after denial at {expected.expected_context_observed_at ?? "retained inspection time"}; recheck current configuration.</> : "Look up on host; not established by a convention."}</p>}
     {!source.path && ["file", "dir"].includes(detail.issue?.target_class) ? <Alert variant="info" isInline isPlain title="Complete target path not recorded">Identify the files this workload is accessing before considering a labeling or Boolean change.</Alert> : <p>{guidance.manual_check}</p>}
     </>}
-    {primary.length > 0 && <ReadOnlyCommands checks={primary} />}
-    {secondary.length > 0 && <Disclosure className="pf-v6-u-mt-sm" toggleText="Policy inspection">
-      <ReadOnlyCommands checks={secondary} />
-    </Disclosure>}
+    <InspectionCommands primary={primary} secondary={secondary} />
     {!supplemental && <small>A failed check is not a successful comparison; resolve missing tooling or failures with the host operator.</small>}
   </section>;
 }

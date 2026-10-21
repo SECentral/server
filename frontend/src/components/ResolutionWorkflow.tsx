@@ -11,7 +11,7 @@ import { ContextSidebar, EvidenceLink, ObservedAccessFlow, TechnicalEvidenceDisc
 import { clearIntent, createDraft, exportDraft, fetchDrafts, fetchResolutions, removeEntry, selectIntent, stagePermission,
   type ChangePlan as PlanData, type HomeContentReview, type PolicyDraftExport, type ResolutionWorkflow as Workflow } from "../api/resolution";
 import { activeResolutionResource, fileResourceLabel, resolutionResources } from "./resolutionResources";
-import { OperatorChecks, OperatorVerification, ReadOnlyCommands } from "./OperatorGuidance";
+import { InspectionCommands, OperatorChecks, OperatorVerification, ReadOnlyCommands } from "./OperatorGuidance";
 import { Disclosure as ExpandableSection } from "./Disclosure";
 
 function download(filename: string, content: string) {
@@ -142,13 +142,21 @@ function PriorPortMappings({ basis }: { basis: Record<string, unknown> }) {
 
 type PortInvestigationData = NonNullable<Workflow["port_investigations"]>[number];
 
-function ResourceInspection({ issueId, occurrenceId }: { issueId: number; occurrenceId: number }) {
+function ResourceInspection({ issueId, occurrenceId, hostId, policyChecks = [] }: { issueId: number; occurrenceId: number; hostId?: number; policyChecks?: NonNullable<IssueDetailResponse["operator_guidance"]>["checks"] }) {
   const query = useQuery({ queryKey: ["issue-occurrence", issueId, occurrenceId], queryFn: () => fetchIssueOccurrence(issueId, occurrenceId) });
-  if (query.isSuccess && (!query.data || typeof query.data !== "object" || !query.data.host || !query.data.guidance)) return <section aria-label="Inspect active resource"><h3>Inspect host baseline</h3><p>Scoped checks are unavailable for this occurrence. Review its source record before continuing.</p></section>;
+  if (query.isSuccess && (!query.data || typeof query.data !== "object" || query.data.id !== occurrenceId || !query.data.host || hostId != null && query.data.host.id !== hostId || !query.data.guidance)) return <section aria-label="Inspect active resource"><h3>Inspect host baseline</h3><p>Scoped checks are unavailable for this occurrence. Review its source record before continuing.</p></section>;
+  const checks = query.data?.guidance?.checks ?? [];
+  const commands = (policy: boolean) => checks.flatMap((check) => typeof check.command === "string" && (check.kind === "port_policy_alternatives") === policy ? [{ title: typeof check.reason === "string" ? check.reason : "Inspect current host state", command: check.command, interpretation: typeof check.expected === "string" ? check.expected : "" }] : []);
+  const details = query.data?.normalized_denial?.details;
+  const syscalls = Array.isArray(details?.syscall_evidence) ? details.syscall_evidence.map(evidenceRecord) : [];
+  const syscallOutcome = syscalls.some((item) => ["no", "false", "0"].includes(String(item.success))) ? "Failed"
+    : syscalls.length > 0 && syscalls.every((item) => ["yes", "true", "1"].includes(String(item.success))) ? "Succeeded" : "Not established";
   return <section aria-label="Inspect active resource"><h3>Inspect host baseline</h3>
     {query.isPending ? <Spinner aria-label="Loading resource inspection" size="md" /> : query.isError ? <Alert variant="warning" isInline title="Could not load resource inspection"><Button variant="link" onClick={() => void query.refetch()}>Retry inspection</Button></Alert>
       : <><p>Investigation example: <Link to={`/hosts/${query.data.host.id}/occurrences/${occurrenceId}`}>{query.data.host.hostname} · #{occurrenceId}</Link>. Inspect current state; a failed check is not a successful comparison.</p>
-        {query.data.guidance ? <><ReadOnlyCommands checks={query.data.guidance.checks.flatMap((check) => typeof check.command === "string" ? [{ title: typeof check.reason === "string" ? check.reason : "Inspect current host state", command: check.command, interpretation: typeof check.expected === "string" ? check.expected : "" }] : [])} />
+        {details && <p><strong>Recorded AVC enforcement:</strong> {details.permissive === true ? "Non-enforced (permissive=1)" : details.permissive === false ? "Enforcing (permissive=0)" : "Not recorded"}. <strong>Recorded syscall result:</strong> {syscallOutcome}. This is event-time evidence, not current listener or application health.</p>}
+        {query.data.guidance ? <>{query.data.normalized_denial?.target_class?.endsWith("_socket") && <p>Confirm the service's intended endpoint and inspect its actual configuration; neither the service role nor the desired endpoint is established by this denial.</p>}
+          <InspectionCommands primary={commands(false)} secondary={[...commands(true), ...policyChecks]} />
           {query.data.guidance.checks.filter((check) => !check.command && typeof check.reason === "string").map((check, index) => <p key={index}>{String(check.reason)}</p>)}</>
           : <p>No scoped inspection guidance is available. Review the occurrence record and identify the intended workload.</p>}
       </>}
@@ -396,7 +404,9 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
     : nextCandidate ? candidateNextStep(nextCandidate)
     : (!active || inspectionElsewhere) && source?.path ? "Inspect the current file label and host-configured labeling before considering restoration." : null;
   const resourceOccurrenceId = active?.port?.occurrence_id ?? active?.source?.occurrence_id ?? active?.candidates[0]?.evidence_basis.occurrence_id;
-  const inspection = !plan && ((inspectionElsewhere || !active) && detail?.operator_guidance ? <OperatorChecks detail={detail} />
+  const inspection = !plan && (active?.port ? <ResourceInspection key={active.key} issueId={issueId} occurrenceId={active.port.occurrence_id} hostId={active.port.host_id}
+      policyChecks={source?.occurrence_id === active.port.occurrence_id && source.host_id === active.port.host_id ? detail?.operator_guidance?.checks.filter((check) => check.command.startsWith("getsebool ")) : undefined} />
+    : (inspectionElsewhere || !active) && detail?.operator_guidance ? <OperatorChecks detail={detail} />
     : active && typeof resourceOccurrenceId === "number" && Number.isSafeInteger(resourceOccurrenceId) && resourceOccurrenceId > 0 ? <ResourceInspection key={active.key} issueId={issueId} occurrenceId={resourceOccurrenceId} /> : null);
   const compactPorts = resources.length > 0 && resources.every((resource) => resource.port && resource.port.host_id === resources[0].port?.host_id && resource.port.operation === resources[0].port?.operation);
   const resourceName = (resource: typeof resources[number]) => {

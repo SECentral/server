@@ -59,12 +59,7 @@ class InvestigationGuidance
       if @occurrence
         endpoint = PortMappingGuidance.endpoint(denials.first) if %w[tcp_socket udp_socket].include?(@issue.target_class)
         if endpoint && endpoint[:port]
-          target = "#{endpoint[:protocol]}/#{endpoint[:port]}"
-          checks << check(:port_classification, target, "Inspect the current SELinux port classification for #{target}.", "Find the port within the protocol's individual entries or ranges. Compare its type with the recorded AVC target type; classification alone does not establish the correct service type.", :current_state_only, endpoint)
-          checks << check(:port_local_classification, target, "Inspect local SELinux port overrides for #{target}.", "Compare local overrides and record boundaries with the effective listing. No local override does not mean no effective mapping; stop for conflicting ownership or changed prior state.", :current_state_only, endpoint)
-          if endpoint[:operation] == "name_bind"
-            checks << check(:socket_listeners, target, "Inspect current listeners and ownership for #{target}.", "Compare the listening address and owner with the intended service. No listener does not establish the cause; process details may require additional privileges.", :current_state_only, endpoint)
-          end
+          checks.concat(PortInspectionGuidance.call(denials.first))
         else
           checks << check(:socket_context, nil, "Inspect the service and socket relationship using the captured domains and operation.", "The current service/socket state may explain whether the interaction is still present.", :current_state_only)
         end

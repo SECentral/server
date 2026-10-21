@@ -17,6 +17,14 @@ RSpec.describe InvestigationCommandRenderer do
     expect(described_class.call(kind: :socket_listeners, protocol: "tcp", port: 443, operation: "name_connect")).to be_nil
   end
 
+  it "validates policy query fields before rendering a read-only search" do
+    check = { kind: :port_policy_alternatives, source_type: "httpd_t", object_class: "tcp_socket", operation: "name_bind" }
+    expect(described_class.call(check)).to eq("sesearch -A -s httpd_t -c tcp_socket -p name_bind -C")
+    [{ source_type: "httpd_t;id" }, { object_class: "file" }, { operation: "name_bind;id" }].each do |invalid|
+      expect(described_class.call(check.merge(invalid))).to be_nil
+    end
+  end
+
   it "rejects invalid endpoint fields before rendering commands" do
     [{ protocol: "sctp", port: 12345 }, { protocol: "tcp;id", port: 12345 },
      { protocol: "tcp", port: "12345;id" }, { protocol: "tcp", port: 0 },

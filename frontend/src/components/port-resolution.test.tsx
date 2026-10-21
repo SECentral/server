@@ -153,8 +153,9 @@ describe("Port troubleshooting", () => {
     const detail = { operator_guidance: { source: { host_id: 1, occurrence_id: 11, protocol: "tcp", port: 12345, operation: "name_bind", path: null },
       checks: [{ title: "Inspect local overrides", command: "semanage port -l -C", interpretation: "Stop for a changed range." }],
       manual_check: "Confirm ownership", possible_fix: "Compare approaches", verification: "Retry the actual application request", verification_limit: "Silence alone is not success", restriction: "Keep unwanted access denied" } } as IssueDetailResponse;
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: 11, host: { id: 1, hostname: "web-1" }, guidance: { checks: [{ reason: "Inspect local overrides", command: "semanage port -l -C", expected: "Stop for a changed range." }] } }), { status: 200 })));
     const view = mount(state, detail);
-    expect(screen.getByRole("region", { name: "Check" })).toHaveTextContent("semanage port -l -C");
+    expect(await screen.findByRole("button", { name: "Copy command: semanage port -l -C" })).toBeVisible();
     view.unmount();
     state.intent = { candidate_id: candidate.id, candidate_kind: candidate.kind, selected_intent: candidate.intent_prompt,
       operator: "test", selected_at: "2026-10-17T11:00:00Z", evidence_version: "port-v1", status: "selected" };
@@ -171,6 +172,46 @@ describe("Port troubleshooting", () => {
     state.change_plan.preview_steps[0].command = "semanage port -l";
     mount(state, detail);
     expect(screen.getAllByRole("button", { name: "Copy command: semanage port -l -C" })).toHaveLength(2);
+  });
+
+  it("shares baseline and optional policy checks across hosts while retaining each occurrence's enforcement and syscall result", async () => {
+    const state = { ...workflow(), candidates: [], port_investigations: [investigation, { ...investigation, host_id: 2, hostname: "web-2", occurrence_id: 22 }] };
+    const checks = [
+      { kind: "socket_listeners", command: "ss -ltnp 'sport = :12345'", reason: "Inspect listeners", expected: "Confirm owner" },
+      { kind: "port_classification", command: "semanage port -l", reason: "Inspect classification", expected: "Compare ranges" },
+      { kind: "port_local_classification", command: "semanage port -l -C", reason: "Inspect overrides", expected: "Check local changes" },
+      { kind: "port_policy_alternatives", command: "sesearch -A -s httpd_t -c tcp_socket -p name_bind -C", reason: "Inspect policy", expected: "Current policy is not historical evidence" }
+    ];
+    const fetchMock = vi.fn(async (url: string) => {
+      const permissive = url.endsWith("/22");
+      return new Response(JSON.stringify({ id: permissive ? 22 : 11, host: { id: permissive ? 2 : 1, hostname: permissive ? "web-2" : "web-1" },
+        normalized_denial: { target_class: "tcp_socket", details: { permissive, syscall_evidence: [{ success: permissive ? "yes" : "no", exit: permissive ? "0" : "-13" }] } },
+        guidance: { checks } }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    mount(state);
+    const user = userEvent.setup();
+    expect(await screen.findByText(/Enforcing \(permissive=0\)/)).toHaveTextContent("Failed");
+    for (const check of checks.slice(0, 3)) expect(screen.getByRole("button", { name: `Copy command: ${check.command}` })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Policy inspection" }));
+    expect(screen.getByRole("button", { name: `Copy command: ${checks[3].command}` })).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: /web-2/ }));
+    expect(await screen.findByText(/Non-enforced \(permissive=1\)/)).toHaveTextContent("Succeeded");
+    expect(screen.queryByText(/Enforcing \(permissive=0\)/)).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "web-2 · #22" })).toHaveAttribute("href", "/hosts/2/occurrences/22");
+    for (const check of checks.slice(0, 3)) expect(screen.getByRole("button", { name: `Copy command: ${check.command}` })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Policy inspection" })).toHaveAttribute("aria-expanded", "false");
+    await user.click(screen.getByRole("button", { name: "Policy inspection" }));
+    expect(screen.getByRole("button", { name: `Copy command: ${checks[3].command}` })).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Selected change plan" })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/v1/issues/7/occurrences/11", "/api/v1/issues/7/occurrences/22"]);
+  });
+
+  it("does not infer syscall success from a permissive AVC", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: 11, host: { id: 1, hostname: "web-1" },
+      normalized_denial: { details: { permissive: true } }, guidance: { checks: [] } }), { status: 200 })));
+    mount(workflow());
+    expect(await screen.findByText(/Non-enforced \(permissive=1\)/)).toHaveTextContent("Recorded syscall result: Not established");
   });
 
   it("opens rollback from a phase deep link and retains prior-state warnings before its mutation Copy", async () => {

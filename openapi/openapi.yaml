@@ -1044,6 +1044,10 @@ paths:
         as `tcp/80`.
         Reference catalog data never fills missing host observations; missing
         data stays in its own coverage bucket.
+        Without `policy_identity`, Boolean and port inventories and coverage include
+        all monitored hosts, with no catalog selection or comparison. With an explicit
+        identity, coverage and inventory use only that exact cohort (including its
+        stale observations); `hosts.total` remains the fleet-wide denominator.
       security:
         - session: []
       parameters:
@@ -1054,7 +1058,7 @@ paths:
           default: overview
         - name: policy_identity
           in: query
-          description: Loaded-policy cohort to compare against, `sha256:<64 hex>`.
+          description: Explicit Boolean/port loaded-policy cohort, `sha256:<64 hex>`. Omit for all-host observed inventory; no cohort is selected automatically.
           schema:
             type: string
             pattern: '\Asha256:[0-9a-f]{64}\z'
@@ -2767,9 +2771,12 @@ components:
         - catalog_overlay
       properties:
         selection:
-          description: Shared exact-only cohort reference selection. Host-family usability is not_evaluated here; the overlay preserves per-host evidence states.
-          $ref: "#/components/schemas/CatalogReferenceSelection"
+          description: Null for all-host inventory; otherwise exact-only cohort reference selection. The overlay preserves per-host evidence states.
+          oneOf:
+            - $ref: "#/components/schemas/CatalogReferenceSelection"
+            - type: "null"
         coverage:
+          description: Host counts in the selected scope, independent of search and pagination.
           type: object
           required: [observed, unavailable, stale, unknown]
           properties:
@@ -2782,7 +2789,7 @@ components:
             unknown:
               type: integer
         inventory:
-          description: Fleet-wide observed boolean inventory, independent of any catalog.
+          description: Observed boolean inventory in the selected scope, independent of any catalog. Missing values remain unknown, not disabled or assumed absent from policy.
           type: array
           items:
             type: object
@@ -2819,6 +2826,7 @@ components:
           items:
             $ref: "#/components/schemas/ConfigurationPolicyCohort"
         selected_policy_identity:
+          description: Explicit cohort identity, or null for all hosts.
           type:
             - string
             - "null"
@@ -2975,9 +2983,12 @@ components:
         - pagination
       properties:
         selection:
-          description: Shared exact-only cohort reference selection. Host-family usability is not_evaluated here; the overlay preserves per-host evidence states.
-          $ref: "#/components/schemas/CatalogReferenceSelection"
+          description: Null for all-host inventory; otherwise exact-only cohort reference selection. The overlay preserves per-host evidence states.
+          oneOf:
+            - $ref: "#/components/schemas/CatalogReferenceSelection"
+            - type: "null"
         coverage:
+          description: Host counts in the selected scope, independent of search and pagination.
           type: object
           required: [observed, partial, unavailable, unknown, stale, no_heartbeat]
           properties:
@@ -3002,6 +3013,7 @@ components:
           items:
             $ref: "#/components/schemas/ConfigurationPolicyCohort"
         selected_policy_identity:
+          description: Explicit cohort identity, or null for all hosts.
           type:
             - string
             - "null"
@@ -3016,7 +3028,7 @@ components:
         pagination:
           $ref: "#/components/schemas/PageMeta"
         rows:
-          description: Observed mappings when there is no usable loaded-policy cohort.
+          description: All-host observed mappings when no policy identity is requested, grouped by individual range, type, source, and inventory status. Counts do not assert policy equivalence or absence on other hosts.
           type: array
           items:
             $ref: "#/components/schemas/ConfigurationRow"
@@ -3050,6 +3062,10 @@ components:
         - provenance
         - host_ids
       properties:
+        inventory_status:
+          description: Port inventory completeness for these observed mappings; partial inventory cannot prove absence.
+          type: string
+          enum: [observed, partial]
         pattern:
           type:
             - string

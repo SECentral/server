@@ -100,4 +100,19 @@ RSpec.describe IssueOperatorGuidance do
       expect(result[:checks].last[:interpretation]).to include("not a recommendation")
     end
   end
+
+  it "shares scoped port checks for enforcing and non-enforced AVCs without sharing findings" do
+    %w[tcp_socket udp_socket].each do |object_class|
+      commands = [false, true].map do |permissive|
+        item = occurrence(path: nil, permissions: ["name_bind"], object_class: object_class)
+        allow(item.normalized_denial).to receive(:details).and_return({ "permissive" => permissive, "network_evidence" => { "bind_port_fields" => ["9090"] } })
+        result = described_class.call(issue_with(item), occurrence: item)
+        expect(result[:source]).to include(host_id: item.host_id, occurrence_id: item.id, port: 9090)
+        result[:checks].map { |check| check[:command] }
+      end
+      expect(commands.first).to eq(commands.last)
+      expect(Shellwords.split(commands.first.first)).to eq(["ss", object_class == "tcp_socket" ? "-ltnp" : "-lunp", "sport = :9090"])
+      expect(commands.first.last).to eq("sesearch -A -s httpd_t -c #{object_class} -p name_bind -C")
+    end
+  end
 end
