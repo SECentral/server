@@ -16,47 +16,10 @@ See [Contributing](CONTRIBUTING.md) for feedback and contribution guidelines.
 
 ## Self-hosted deployment
 
-The Compose deployment uses the published `quay.io/secentral/server:0.0.4` image
-with PostgreSQL and automatic HTTPS. Podman and `podman-compose` are required.
-The server image is currently available for Linux amd64.
-
-1. Point a public DNS name at the host and allow inbound TCP ports 80 and 443
-   (and UDP 443 for HTTP/3).
-2. Copy `.env.example` to `.env`, then set `DOMAIN`, `SECRET_KEY_BASE`,
-   `SECENTRAL_SERVER_DATABASE_PASSWORD`, and `SECENTRAL_INGESTION_KEY` to
-   unique generated values. For random values, use `openssl rand -hex 32`.
-3. Set `ADMIN_USERNAME` and `ADMIN_PASSWORD_DIGEST`. Generate a bcrypt digest
-   for your chosen operator password with the published image:
-
-   ```sh
-   read -rsp 'Operator password: ' ADMIN_PASSWORD; printf '\n'
-   printf '%s' "$ADMIN_PASSWORD" | podman run --rm -i --entrypoint bundle \
-     quay.io/secentral/server:0.0.4 exec ruby -rbcrypt \
-     -e 'puts BCrypt::Password.create(STDIN.read)'
-   unset ADMIN_PASSWORD
-   ```
-
-   Put the printed digest in `.env` as `ADMIN_PASSWORD_DIGEST`, enclosed in single
-   quotes so Compose preserves its `$` characters.
-4. Start the services with `podman-compose up -d`.
-5. Open `https://<DOMAIN>` and sign in with the configured operator account.
-
-Keep `.env` private and back up the PostgreSQL volume. The Compose deployment
-uses Caddy to obtain and renew HTTPS certificates. It publishes the Rails app
-through Caddy only; PostgreSQL is not published to the host. `podman-compose down`
-preserves the database volume; `podman-compose down -v` deletes it.
-
-Agent hosts must use the same `SECENTRAL_INGESTION_KEY` value for bearer
-authentication.
-
-To upgrade, back up the database, update the server image version in
-`compose.yaml`, then run `podman-compose pull server` and `podman-compose up -d`.
-The application entrypoint prepares the database and applies migrations; reverting
-the image does not undo those migrations. For a database backup:
-
-```sh
-podman-compose exec -T db pg_dump -U secentral_server secentral_server_production > secentral-backup.sql
-```
+Follow the [Quick Start](docs/quick-start.md) to deploy the published Quay image
+with Podman/Compose, PostgreSQL and automatic HTTPS, install an agent from COPR,
+and investigate a real denial. It also covers backups, upgrades, troubleshooting
+and evaluation cleanup. The server image is available for Linux amd64.
 
 ## Current capabilities
 
@@ -86,7 +49,7 @@ RBAC, OIDC, and tenant authorization are not currently provided.
 
 Set `ADMIN_USERNAME` and `ADMIN_PASSWORD_DIGEST` to enable the human-facing
 login. The password value is never configured directly; create a bcrypt digest
-for the chosen password as described in the self-hosted deployment instructions.
+for the chosen password as described in the [Quick Start](docs/quick-start.md).
 
 Production must provide both operator variables. Missing or invalid credentials fail
 closed and do not expose operator routes. Agent bearer authentication remains
@@ -98,9 +61,9 @@ Production must set `SECENTRAL_INGESTION_KEY`. Every agent uses that same value
 as `Authorization: Bearer <key>` for events, heartbeats, expected-context
 observations, and requested policy artifacts. It authorizes only those agent
 ingestion endpoints, not operator or read APIs. The deployment has exactly one
-organization; ingestion fails clearly if that invariant is absent. Provision
-that organization explicitly before agents start; ingestion never creates or
-selects an organization.
+organization; ingestion fails clearly if that invariant is absent. First startup
+prepares the database and seeds that organization before agents connect;
+ingestion itself never creates or selects an organization.
 
 ## Licensing
 
