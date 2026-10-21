@@ -6,8 +6,8 @@ import react from "@vitejs/plugin-react";
 // Single product version, shared with the server (server/VERSION).
 const appVersion = readFileSync(new URL("../VERSION", import.meta.url), "utf8").trim();
 
-export default defineConfig({
-  base: "/spa/",
+export default defineConfig(({ command }) => ({
+  base: command === "serve" ? "/" : "/spa/",
   define: { __APP_VERSION__: JSON.stringify(appVersion) },
   plugins: [react()],
   build: {
@@ -16,11 +16,11 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/api": "http://localhost:3000"
+      "/api": process.env.API_PROXY_TARGET ?? "http://localhost:3000"
     }
   },
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"]
   }
-});
+}));

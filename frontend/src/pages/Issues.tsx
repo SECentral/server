@@ -26,7 +26,7 @@ import {
 } from "@patternfly/react-core";
 import { ExpandableRowContent, Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { fetchIssues, fetchUngroupableEvents } from "../api/issues";
 import { MetricCard } from "../components/MetricCard";
@@ -77,7 +77,7 @@ function formatUtc(iso: string): string {
 export function Issues() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [attribute, setAttribute] = useState<string>("q");
-  const [filterValue, setFilterValue] = useState(() => searchParams.get("q") ?? "");
+  const filterInput = useRef<HTMLInputElement>(null);
   const [hostMenuOpen, setHostMenuOpen] = useState(false);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const [expandedIssue, setExpandedIssue] = useState<number | null>(null);
@@ -112,7 +112,7 @@ export function Issues() {
   };
 
   const clearFilters = () => {
-    setFilterValue("");
+    if (filterInput.current) filterInput.current.value = "";
     setExpandedIssue(null);
     setSearchParams(new URLSearchParams());
   };
@@ -143,16 +143,16 @@ export function Issues() {
         {eventsQuery.data && !eventsQuery.isError && <GridItem sm={12} md={6}><MetricCard label="Unclassified events" value={eventsQuery.data.total_count} detail={hostId ? "On the selected server" : "Across the fleet"} href={events.length > 0 ? "#unclassified-events" : undefined} /></GridItem>}
       </Grid>}
 
-      <form onSubmit={(event) => { event.preventDefault(); setParams({ [attribute]: filterValue || null }); }}>
+      <form onSubmit={(event) => { event.preventDefault(); setParams({ [attribute]: filterInput.current?.value || null }); }}>
       <Toolbar id="issues-filter-toolbar" aria-label="Issue filters" hasNoPadding>
         <ToolbarContent>
           <ToolbarGroup gap={{ default: "gapMd" }} rowWrap={{ default: "wrap" }}>
           <ToolbarItem>
-            <FormSelect aria-label="Filter attribute" value={attribute} onChange={(_event, value) => { setAttribute(value); setFilterValue(searchParams.get(value) ?? ""); }}>
+            <FormSelect aria-label="Filter attribute" value={attribute} onChange={(_event, value) => { setAttribute(value); if (filterInput.current) filterInput.current.value = searchParams.get(value) ?? ""; }}>
               {ATTRIBUTE_FILTERS.map((filter) => <FormSelectOption key={filter.key} value={filter.key} label={filter.label} />)}
             </FormSelect>
           </ToolbarItem>
-          <ToolbarItem><TextInput aria-label="Filter value" placeholder={selectedAttribute.placeholder} value={filterValue} onChange={(_event, value) => setFilterValue(value)} /></ToolbarItem>
+          <ToolbarItem><TextInput ref={filterInput} aria-label="Filter value" placeholder={selectedAttribute.placeholder} defaultValue={searchParams.get("q") ?? ""} /></ToolbarItem>
           <ToolbarItem><Button type="submit" variant="secondary">Apply filter</Button>
           </ToolbarItem>
           <ToolbarItem>
@@ -223,7 +223,7 @@ export function Issues() {
         </ToolbarContent>
         {hasFilters && <ToolbarContent aria-label="Active issue filters">
           <ToolbarGroup gap={{ default: "gapSm" }} rowWrap={{ default: "wrap" }}>
-          {activeAttributes.map((filter) => <ToolbarItem key={filter.key}><Label isCompact closeBtnAriaLabel={`Remove ${filter.label} filter`} onClose={() => { setParams({ [filter.key]: null }); if (attribute === filter.key) setFilterValue(""); }}>{filter.label}: {searchParams.get(filter.key)}</Label></ToolbarItem>)}
+          {activeAttributes.map((filter) => <ToolbarItem key={filter.key}><Label isCompact closeBtnAriaLabel={`Remove ${filter.label} filter`} onClose={() => { setParams({ [filter.key]: null }); if (attribute === filter.key && filterInput.current) filterInput.current.value = ""; }}>{filter.label}: {searchParams.get(filter.key)}</Label></ToolbarItem>)}
           {hostId && <ToolbarItem><Label isCompact closeBtnAriaLabel="Remove server filter" onClose={() => setParams({ host_id: null })}>Server: {selectedHostLabel}</Label></ToolbarItem>}
           {status && <ToolbarItem><Label isCompact closeBtnAriaLabel="Remove status filter" onClose={() => setParams({ status: null })}>Status: {selectedStatusLabel}</Label></ToolbarItem>}
           {newOnly && <ToolbarItem><Label isCompact closeBtnAriaLabel="Remove new filter" onClose={() => setParams({ new: null })}>New</Label></ToolbarItem>}

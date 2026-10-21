@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
+import { Profiler } from "react";
 import type { IssueListResponse, UngroupableEventsResponse } from "../api/issues";
 import { Issues } from "./Issues";
 
@@ -90,6 +91,25 @@ function renderIssues(initialEntry = "/issues") {
 }
 
 describe("Issues", () => {
+  it("keeps typing local to the draft input and applies it on submit", async () => {
+    const fetchMock = vi.fn();
+    mockApi(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
+    const onRender = vi.fn();
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={["/issues"]}>
+      <Profiler id="issues" onRender={onRender}><Issues /></Profiler>
+    </MemoryRouter></QueryClientProvider>);
+    await screen.findByText("httpd_t");
+    await user.click(screen.getByRole("textbox", { name: "Filter value" }));
+    onRender.mockClear();
+    await user.keyboard("httpd");
+    expect(onRender).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Apply filter" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues?q=httpd", expect.anything()));
+  });
+
   it("lists issues with summary counts and unclassified events", async () => {
     const fetchMock = vi.fn();
     mockApi(fetchMock);
