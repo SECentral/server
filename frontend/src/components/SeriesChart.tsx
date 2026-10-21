@@ -10,7 +10,9 @@ function dayLabel(date: string): string {
 
 export function SeriesChart({ title, points }: { title: string; points: OverviewSeriesPoint[] }) {
   const plotRef = useRef<HTMLDivElement>(null);
-  const [chartSize, setChartSize] = useState({ width: 420, height: 240 });
+  const [chartSize, setChartSize] = useState<{ width: number; height: number } | null>(() =>
+    typeof ResizeObserver === "undefined" ? { width: 420, height: 240 } : null
+  );
   const total = points.reduce((sum, point) => sum + point.value, 0);
   const max = Math.max(1, ...points.map((point) => Math.ceil(point.value)));
   const data = points.map((point) => ({ x: dayLabel(point.date), y: point.value }));
@@ -25,7 +27,7 @@ export function SeriesChart({ title, points }: { title: string; points: Overview
       const width = Math.round(entry.contentRect.width);
       const height = Math.round(entry.contentRect.height);
       if (width > 0 && height > 0) {
-        setChartSize((current) => current.width === width && current.height === height ? current : { width, height });
+        setChartSize((current) => current?.width === width && current.height === height ? current : { width, height });
       }
     });
     observer.observe(plot);
@@ -42,7 +44,7 @@ export function SeriesChart({ title, points }: { title: string; points: Overview
         </div>
         {points.length > 0 && total === 0 && <p className="pf-v6-u-color-200">No activity recorded in this period.</p>}
         <div className="overview-chart-plot" ref={plotRef}>
-          <Chart
+          {chartSize && <Chart
             ariaTitle={title}
             ariaDesc={description}
             containerComponent={<ChartContainer responsive role="img" aria-label={title} />}
@@ -76,7 +78,7 @@ export function SeriesChart({ title, points }: { title: string; points: Overview
               labels={({ datum }) => datum.y === 0 ? "" : String(datum.y)}
               style={{ labels: { fill: "var(--pf-t--global--text--color--regular)", fontSize: 18 } }}
             />
-          </Chart>
+          </Chart>}
         </div>
       </CardBody>
     </Card>
