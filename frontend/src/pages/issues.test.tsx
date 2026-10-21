@@ -160,6 +160,23 @@ describe("Issues", () => {
     expect(screen.getAllByRole("link", { name: "web-1" })[0]).toHaveAttribute("href", "/hosts?host_id=10");
   });
 
+  it("keeps only the selected issue expanded when switching between rows", async () => {
+    const fetchMock = vi.fn();
+    mockApi(fetchMock, { ...issuesPayload, issues: [issuesPayload.issues[0], { ...issuesPayload.issues[0], id: 2, source_type: "sshd_t" }] });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderIssues();
+    await screen.findByText("sshd_t");
+
+    await user.click(screen.getAllByRole("button", { name: "Details" })[0]);
+    expect(screen.getByRole("link", { name: "Investigate issue" })).toHaveAttribute("href", "/issues/1");
+    await user.click(screen.getByRole("button", { name: "Details" }));
+    expect(screen.getByRole("link", { name: "Investigate issue" })).toHaveAttribute("href", "/issues/2");
+    expect(screen.getAllByRole("button", { name: "Hide details" })).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "Hide details" }));
+    expect(screen.queryByRole("link", { name: "Investigate issue" })).not.toBeInTheDocument();
+  });
+
   it("sends status values rather than display labels to the issues API", async () => {
     const fetchMock = vi.fn();
     mockApi(fetchMock);

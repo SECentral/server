@@ -26,9 +26,9 @@ import {
 } from "@patternfly/react-core";
 import { ExpandableRowContent, Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
 import { useQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { fetchIssues, fetchUngroupableEvents } from "../api/issues";
+import { fetchIssues, fetchUngroupableEvents, type IssueListItem } from "../api/issues";
 import { MetricCard } from "../components/MetricCard";
 import { PAGE_SIZES } from "../pagination";
 
@@ -73,6 +73,80 @@ function timeAgo(iso: string): string {
 function formatUtc(iso: string): string {
   return `${new Date(iso).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
+
+const IssueRow = memo(function IssueRow({ issue, isExpanded, onExpand }: {
+  issue: IssueListItem;
+  isExpanded: boolean;
+  onExpand: (id: number | null) => void;
+}) {
+  const visibleHosts = issue.hosts.slice(0, 3);
+  return (
+    <Tbody isExpanded={isExpanded}>
+      <Tr isContentExpanded={isExpanded}>
+        <Td width={40} dataLabel="Issue" modifier="wrap">
+          <a className="issue-primary-link" href={`/issues/${issue.id}`}>
+            <span><code>{issue.source_type}</code><span aria-hidden="true"> → </span><code>{issue.target_type}</code></span>
+          </a>
+          <div className="issue-secondary-line pf-v6-u-color-200"><code>{issue.target_class}</code> · {issue.permissions.join(", ")}{(issue.signatures_count ?? 0) > 1 && ` · ${issue.signatures_count} signatures`}</div>
+        </Td>
+        <Td width={10} dataLabel="Hosts" modifier="fitContent" className="pf-v6-u-text-align-right"><strong>{issue.hosts_count}</strong></Td>
+        <Td width={10} dataLabel="Occurrences" modifier="fitContent" className="pf-v6-u-text-align-right"><strong>{issue.occurrences_count}</strong></Td>
+        <Td width={15} dataLabel="Last seen" modifier="nowrap">
+          <time dateTime={issue.last_seen_at} title={formatUtc(issue.last_seen_at)}>{timeAgo(issue.last_seen_at)} ago</time>
+        </Td>
+        <Td width={15} dataLabel="Status" modifier="fitContent">
+          {issue.display_status === "ignored" ? (
+            <Label color="grey" isCompact>{issue.display_status}</Label>
+          ) : (
+            <Label status={STATUS_STATUS[issue.display_status] ?? "info"} isCompact>{issue.display_status}</Label>
+          )}
+        </Td>
+        <Td width={10} dataLabel="Details" hasAction>
+          <Button
+            variant="secondary"
+            size="sm"
+            aria-expanded={isExpanded}
+            aria-controls={`issue-details-${issue.id}`}
+            onClick={() => onExpand(isExpanded ? null : issue.id)}
+          >
+            {isExpanded ? "Hide details" : "Details"}
+          </Button>
+        </Td>
+      </Tr>
+      <Tr isExpanded={isExpanded} id={`issue-details-${issue.id}`}>
+        <Td colSpan={6} dataLabel="Issue details">
+          <ExpandableRowContent>
+            <dl className="issue-expanded-details">
+              <div>
+                <dt>Affected hosts ({issue.hosts_count})</dt>
+                <dd>
+                  {visibleHosts.map((host, index) => (
+                    <span key={host.id}>
+                      {index > 0 && " · "}<a href={`/hosts?host_id=${host.id}`}>{host.hostname ?? `Host ${host.id}`}</a>
+                    </span>
+                  ))}
+                  {issue.hosts.length > 3 && <span> · +{issue.hosts.length - 3} more</span>}
+                </dd>
+              </div>
+              <div>
+                <dt>Observed paths</dt>
+                <dd>{issue.observed_paths.length > 0 ? issue.observed_paths.slice(0, 3).map((path, index) => (
+                  <span key={path}>{index > 0 && ", "}<code>{path}</code></span>
+                )) : "None recorded"}</dd>
+              </div>
+              <div><dt>First seen</dt><dd><time dateTime={issue.first_seen_at}>{formatUtc(issue.first_seen_at)}</time></dd></div>
+              <div><dt>Last seen</dt><dd><time dateTime={issue.last_seen_at}>{formatUtc(issue.last_seen_at)}</time></dd></div>
+            </dl>
+            <div className="pf-v6-u-mt-md">
+              <Button component="a" href={`/issues/${issue.id}`} variant="primary" size="sm">Investigate issue</Button>{" "}
+              <Button component="a" href={`/issues/${issue.id}?tab=occurrences`} variant="secondary" size="sm">View AVC evidence</Button>
+            </div>
+          </ExpandableRowContent>
+        </Td>
+      </Tr>
+    </Tbody>
+  );
+});
 
 export function Issues() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -260,76 +334,7 @@ export function Issues() {
                     <Th width={10} screenReaderText="Actions" />
                   </Tr>
                 </Thead>
-                {issues.map((issue) => {
-                  const isExpanded = expandedIssue === issue.id;
-                  const visibleHosts = issue.hosts.slice(0, 3);
-                  return (
-                    <Tbody key={issue.id} isExpanded={isExpanded}>
-                      <Tr isContentExpanded={isExpanded}>
-                        <Td width={40} dataLabel="Issue" modifier="wrap">
-                          <a className="issue-primary-link" href={`/issues/${issue.id}`}>
-                            <span><code>{issue.source_type}</code><span aria-hidden="true"> → </span><code>{issue.target_type}</code></span>
-                          </a>
-                          <div className="issue-secondary-line pf-v6-u-color-200"><code>{issue.target_class}</code> · {issue.permissions.join(", ")}{(issue.signatures_count ?? 0) > 1 && ` · ${issue.signatures_count} signatures`}</div>
-                        </Td>
-                         <Td width={10} dataLabel="Hosts" modifier="fitContent" className="pf-v6-u-text-align-right"><strong>{issue.hosts_count}</strong></Td>
-                         <Td width={10} dataLabel="Occurrences" modifier="fitContent" className="pf-v6-u-text-align-right"><strong>{issue.occurrences_count}</strong></Td>
-                        <Td width={15} dataLabel="Last seen" modifier="nowrap">
-                          <time dateTime={issue.last_seen_at} title={formatUtc(issue.last_seen_at)}>{timeAgo(issue.last_seen_at)} ago</time>
-                        </Td>
-                        <Td width={15} dataLabel="Status" modifier="fitContent">
-                          {issue.display_status === "ignored" ? (
-                            <Label color="grey" isCompact>{issue.display_status}</Label>
-                          ) : (
-                            <Label status={STATUS_STATUS[issue.display_status] ?? "info"} isCompact>{issue.display_status}</Label>
-                          )}
-                        </Td>
-                        <Td width={10} dataLabel="Details" hasAction>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            aria-expanded={isExpanded}
-                            aria-controls={`issue-details-${issue.id}`}
-                            onClick={() => setExpandedIssue(isExpanded ? null : issue.id)}
-                          >
-                            {isExpanded ? "Hide details" : "Details"}
-                          </Button>
-                        </Td>
-                      </Tr>
-                      <Tr isExpanded={isExpanded} id={`issue-details-${issue.id}`}>
-                        <Td colSpan={6} dataLabel="Issue details">
-                          <ExpandableRowContent>
-                            <dl className="issue-expanded-details">
-                              <div>
-                                <dt>Affected hosts ({issue.hosts_count})</dt>
-                                <dd>
-                                  {visibleHosts.map((host, index) => (
-                                    <span key={host.id}>
-                                      {index > 0 && " · "}<a href={`/hosts?host_id=${host.id}`}>{host.hostname ?? `Host ${host.id}`}</a>
-                                    </span>
-                                  ))}
-                                  {issue.hosts.length > 3 && <span> · +{issue.hosts.length - 3} more</span>}
-                                </dd>
-                              </div>
-                              <div>
-                                <dt>Observed paths</dt>
-                                <dd>{issue.observed_paths.length > 0 ? issue.observed_paths.slice(0, 3).map((path, index) => (
-                                  <span key={path}>{index > 0 && ", "}<code>{path}</code></span>
-                                )) : "None recorded"}</dd>
-                              </div>
-                              <div><dt>First seen</dt><dd><time dateTime={issue.first_seen_at}>{formatUtc(issue.first_seen_at)}</time></dd></div>
-                              <div><dt>Last seen</dt><dd><time dateTime={issue.last_seen_at}>{formatUtc(issue.last_seen_at)}</time></dd></div>
-                            </dl>
-                            <div className="pf-v6-u-mt-md">
-                              <Button component="a" href={`/issues/${issue.id}`} variant="primary" size="sm">Investigate issue</Button>{" "}
-                              <Button component="a" href={`/issues/${issue.id}?tab=occurrences`} variant="secondary" size="sm">View AVC evidence</Button>
-                            </div>
-                          </ExpandableRowContent>
-                        </Td>
-                      </Tr>
-                    </Tbody>
-                  );
-                })}
+                {issues.map((issue) => <IssueRow key={issue.id} issue={issue} isExpanded={expandedIssue === issue.id} onExpand={setExpandedIssue} />)}
               </Table>
                 <div className="table-pagination">
                   <Pagination itemCount={data.meta.total} page={data.meta.page} perPage={data.meta.page_size}
