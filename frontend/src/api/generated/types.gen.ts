@@ -162,11 +162,24 @@ export type ResolutionCandidate = {
      * Retained path when unambiguous; otherwise the operator must identify it before review
      */
     home_content_path?: string | null;
+    /**
+     * Signature of the representative occurrence; shared support is listed separately
+     */
     issue_signature_id?: number | null;
     /**
-     * Exact denied permission set supporting this candidate
+     * Exact denied permission set of the representative occurrence
      */
     permissions?: Array<string>;
+    /**
+     * Independently eligible observations with equivalent file-remedy mechanics. One latest example per exact signature/permission set; counts and modes describe support, not resolved coverage. Representative permissions and evidence_basis remain exact, never a union. Support growth does not replace a reviewed plan snapshot.
+     */
+    supporting_observations?: Array<{
+        issue_signature_id: number | null;
+        permissions: Array<string>;
+        occurrence_id: number;
+        occurrence_count: number;
+        enforcement_modes: Array<'enforcing' | 'permissive' | 'unknown'>;
+    }>;
     /**
      * Conservative display priority; direct workload-source conditional rules or path-evidenced restoration are primary
      */
@@ -1625,6 +1638,10 @@ export type Diagnosis = {
     target_type?: string;
     target_class?: string;
     permissions?: Array<string>;
+    /**
+     * Permissions explained by this finding only; permissions retains the complete exact observed set. Other permissions need independent assessment.
+     */
+    explained_permissions?: Array<string>;
     path?: string;
     /**
      * SELinux type from the AVC tcontext at denial time T1.

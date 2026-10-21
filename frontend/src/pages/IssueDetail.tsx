@@ -210,6 +210,8 @@ function FindingCard({ detail }: { detail: IssueDetailResponse }) {
   const finding = detail.resolutions ? activeResourceFinding(detail, detail.resolutions, params.get("resource")) : { diagnosis: detail.diagnosis, different: false, count: detail.findings?.[0]?.occurrence_count };
   const { diagnosis } = finding;
   const lead = diagnosis ? primaryFindingLead(diagnosis) : null;
+  const explainedPermissions = diagnosis?.explained_permissions ?? [];
+  const otherPermissions = explainedPermissions.length ? (diagnosis?.permissions ?? []).filter((permission) => !explainedPermissions.includes(permission)) : [];
   const conditionalTitle = diagnosis?.kind === "conditional_allow_inactive" ? `${diagnosis.source_domain ?? issue.source_type} was denied ${diagnosis.operation === "name_bind" ? "binding" : diagnosis.operation === "name_connect" ? "connecting to" : diagnosis.operation === "read" ? "reading" : "executing"} ${diagnosis.path ?? (diagnosis.bind_port || diagnosis.destination_port ? `${issue.target_class === "udp_socket" ? "UDP" : "TCP"}/${diagnosis.bind_port ?? diagnosis.destination_port}` : `objects labeled ${diagnosis.target_type ?? issue.target_type}`)}.` : null;
   return <section aria-labelledby="finding-title" className="issue-section issue-primary-finding"><h2 id="finding-title">Diagnosis</h2>
     {policy_analysis.status !== "evaluated" && <p role="status">Policy analysis: {displayState(policy_analysis.status)}. Retained facts and local checks remain available; this is not a completed policy assessment.</p>}
@@ -217,7 +219,8 @@ function FindingCard({ detail }: { detail: IssueDetailResponse }) {
      {diagnosis ? <article>
        <Title headingLevel="h3" size="xl">{conditionalTitle ?? diagnosis.title}</Title>
        {finding.different && diagnosis.occurrence_id && diagnosis.host_id && <p>Finding evidence: <Link to={`/hosts/${diagnosis.host_id}/occurrences/${diagnosis.occurrence_id}`}>{detail.host_explanations.find((host) => host.host_id === diagnosis.host_id)?.hostname ?? `Host ${diagnosis.host_id}`} · occurrence #{diagnosis.occurrence_id}</Link>. Inspection uses a different retained example; this finding does not establish that example's cause.</p>}
-      {lead && <p className="issue-finding-lead">{lead}</p>}
+       {lead && <p className="issue-finding-lead">{lead}</p>}
+       {otherPermissions.length > 0 && <p>This finding explains <code>{explainedPermissions.join(", ")}</code> only. Other permissions recorded in this event (<code>{otherPermissions.join(", ")}</code>) need independent assessment.</p>}
       {diagnosis.kind === "conditional_allow_inactive" && <p>Recorded target type: <code>{diagnosis.target_type ?? issue.target_type}</code></p>}
       <DiagnosisEvidence diagnosis={diagnosis} />
       {diagnosis.kind === "no_matching_allow" && ["name_bind", "name_connect"].includes(diagnosis.operation ?? "") && <p><strong>Investigate:</strong> {diagnosis.next_step}</p>}

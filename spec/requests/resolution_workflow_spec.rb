@@ -109,7 +109,7 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
   end
 
   # Real ingestion/normalization and, for files, the authoritative observation boundary.
-  def ingest_equivalent(issue, reference, path: nil, expected_context: "system_u:object_r:httpd_sys_content_t:s0")
+  def ingest_equivalent(issue, reference, path: nil, expected_context: "system_u:object_r:httpd_sys_content_t:s0", permissions: issue.permissions, permissive: false)
     issue.update!(fingerprint_digest: FingerprintV4.call(issue.attributes.symbolize_keys).fetch(:digest))
     host = reference.host
     observed = reference.raw_event.host_observed_at
@@ -117,7 +117,7 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
     sequence = host.raw_events.maximum(:audit_sequence) + 1
     timestamp = issue.last_seen_at + 5.seconds
     target = path ? "path=\"#{path}\"" : "dest=12345"
-    avc = "type=AVC msg=audit(#{timestamp.to_f}:#{sequence}): avc: denied { #{issue.permissions.join(' ')} } for pid=42 comm=\"#{path ? 'runcon' : 'httpd'}\" #{target} scontext=system_u:system_r:#{issue.source_type}:s0 tcontext=#{reference.normalized_denial.target_context} tclass=#{issue.target_class} permissive=0"
+    avc = "type=AVC msg=audit(#{timestamp.to_f}:#{sequence}): avc: denied { #{permissions.join(' ')} } for pid=42 comm=\"#{path ? 'runcon' : 'httpd'}\" #{target} scontext=system_u:system_r:#{issue.source_type}:s0 tcontext=#{reference.normalized_denial.target_context} tclass=#{issue.target_class} permissive=#{permissive ? 1 : 0}"
     payload = { "schema_version" => 4, "agent" => { "version" => "semantic-test" }, "host_id" => host.external_id,
       "boot_id" => reference.raw_event.boot_id, "host_observed_at" => observed.iso8601(6), "events" => [{ "category" => "avc",
         "audit_event" => { "timestamp" => timestamp.iso8601(6), "sequence" => sequence }, "agent_received_at" => timestamp.iso8601(6),
@@ -128,7 +128,7 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
     occurrence = raw.occurrences.sole
     expect(occurrence.issue_id).to eq(issue.id)
     expect(occurrence.host_snapshot_id).to eq(reference.host_snapshot_id)
-    if path
+    if path && expected_context
       PersistExpectedContextObservation.call(organization: issue.organization, payload: {
         "schema_version" => 1, "agent" => { "version" => "semantic-test" }, "host_id" => host.external_id,
         "boot_id" => raw.boot_id, "host_observed_at" => observed.iso8601(6),
@@ -138,6 +138,142 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
       })
     end
     occurrence
+  end
+
+  def attach_signature(occurrence)
+    fingerprint = FingerprintV3.call(occurrence.normalized_denial.attributes.symbolize_keys)
+    signature = occurrence.issue.signatures.create!(fingerprint_version: 3, fingerprint_digest: fingerprint.fetch(:digest),
+      permissions: occurrence.normalized_denial.permissions, first_seen_at: occurrence.occurred_at, last_seen_at: occurrence.occurred_at)
+    occurrence.update!(issue_signature: signature)
+    signature
+  end
+
+  context "equivalent file remedy support" do
+    it "shares read mechanics across modes without claiming sibling permissions or replacing a reviewed snapshot" do
+      path = "/home/alice/report.html"
+      issue, first, = home_content_fixture(path: path)
+      signature = attach_signature(first)
+      original = workflow(issue).fetch("candidates").sole
+      mutate("/api/v1/issues/#{issue.id}/resolution-intent", candidate_id: original["id"], evidence_version: original["evidence_version"],
+        home_content_review: { path: path, confirmed: true })
+      expect(response).to have_http_status(:ok)
+      intent = ResolutionIntent.find_by!(issue: issue)
+      reviewed = intent.attributes.deep_dup
+      richer = ingest_equivalent(issue, first, path: path, expected_context: nil, permissions: %w[open read], permissive: true)
+      body = workflow(issue)
+      candidate = body.fetch("candidates").sole
+
+      expect(candidate).to include("id" => original["id"], "evidence_version" => original["evidence_version"], "permissions" => %w[open read])
+      support = candidate.fetch("supporting_observations")
+      expect(support.map { |item| item["permissions"] }).to contain_exactly(["read"], %w[open read])
+      expect(support).to include(include("issue_signature_id" => signature.id, "occurrence_id" => first.id, "enforcement_modes" => ["enforcing"]))
+      expect(support).to include(include("issue_signature_id" => richer.issue_signature_id, "occurrence_id" => richer.id, "enforcement_modes" => ["permissive"]))
+      expect(body).to include("freshness" => "current", "change_plan" => reviewed.fetch("plan_snapshot"))
+      expect(intent.reload.attributes).to eq(reviewed)
+      expect(ResolutionIntentChange.where(issue: issue).count).to eq(1)
+
+      get "/api/v1/issues/#{issue.id}"
+      diagnosis = JSON.parse(response.body).fetch("host_explanations").flat_map { |host| host["diagnosis_groups"] }
+        .map { |group| group["diagnosis"] }.find { |finding| finding["occurrence_id"] == richer.id }
+      expect(diagnosis).to include("explained_permissions" => ["read"], "permissions" => %w[open read], "enforcement_mode" => "permissive")
+      expect(richer.normalized_denial.reload.permissions).to eq(%w[open read])
+
+      draft = PolicyDraft.create!(organization: issue.organization, operator: "admin", name: "review")
+      PolicyDraftWorkspace.stage!(draft, issue, first)
+      PolicyDraftWorkspace.stage!(draft, issue, richer)
+      expect(draft.policy_draft_entries.flat_map(&:provenance)).to all(include("known_alternatives" => include(include("kind" => "enable_boolean"))))
+
+      ingest_equivalent(issue, first, path: path, expected_context: nil, permissions: ["map"], permissive: true)
+      repeated = ingest_equivalent(issue, first, path: path, expected_context: nil, permissions: ["read"], permissive: true)
+      body = workflow(issue)
+      support = body.fetch("candidates").sole.fetch("supporting_observations")
+      expect(support.map { |item| item["permissions"] }).not_to include(["map"])
+      expect(support.find { |item| item["permissions"] == ["read"] }).to include("occurrence_id" => repeated.id, "occurrence_count" => 2, "enforcement_modes" => %w[enforcing permissive])
+      expect(body).to include("freshness" => "current", "change_plan" => reviewed.fetch("plan_snapshot"))
+      expect(intent.reload.attributes).to eq(reviewed)
+    end
+
+    it "shares independently supported read/open/map restoration while keeping write and execute decisions separate" do
+      path = "/var/www/a"
+      issue, first, = fixture(network: false, path: path)
+      issue.update!(permissions: ["read"])
+      first.normalized_denial.update!(permissions: ["read"])
+      signature = attach_signature(first)
+      intent = select_candidate(issue, path: path)
+      reviewed = intent.attributes.deep_dup
+      richer = ingest_equivalent(issue, first, path: path, permissions: %w[open read], permissive: true)
+      mapped = ingest_equivalent(issue, first, path: path, permissions: ["map"], permissive: true)
+      candidate = workflow(issue).fetch("candidates").sole
+      expect(candidate.fetch("supporting_observations").map { |item| item["permissions"] }).to contain_exactly(["read"], %w[open read], ["map"])
+      expect(workflow(issue)).to include("freshness" => "current", "change_plan" => reviewed.fetch("plan_snapshot"))
+      expect(intent.reload.attributes).to eq(reviewed)
+      expect(signature.reload.status).to eq("open")
+      expect(issue.signatures.count).to eq(3)
+      expect([first, richer, mapped].map { |item| item.normalized_denial.permissions }).to eq([["read"], %w[open read], ["map"]])
+
+      %w[write execute].each { |permission| ingest_equivalent(issue, first, path: path, permissions: [permission]) }
+      candidates = workflow(issue).fetch("candidates")
+      expect(candidates.size).to eq(3)
+      expect(candidates.reject { |item| item["supporting_observations"] }.map { |item| item["permissions"] }).to contain_exactly(["write"], ["execute"])
+      expect(workflow(issue)["freshness"]).to eq("current")
+    end
+
+    it "separates file remedies across paths, hosts and full target contexts" do
+      issue, first, = fixture(network: false, path: "/var/www/a")
+      issue.update!(permissions: ["read"])
+      first.normalized_denial.update!(permissions: ["read"])
+      attach_signature(first)
+      ingest_equivalent(issue, first, path: "/var/www/b", permissions: %w[open read], permissive: true)
+      conflicting = ingest_equivalent(issue, first, path: "/var/www/a", permissions: ["map"], permissive: true)
+      conflicting.normalized_denial.update!(target_context: "unconfined_u:object_r:user_home_t:s0")
+      _, other, = fixture(network: false, path: "/var/www/a", issue: issue)
+      candidates = workflow(issue).fetch("candidates")
+      expect(candidates.size).to eq(4)
+      expect(candidates.map { |item| item["id"] }.uniq.size).to eq(4)
+      expect(candidates.find { |item| item["host_id"] == other.host_id }.fetch("supporting_observations").sole["occurrence_id"]).to eq(other.id)
+    end
+
+    it "requires a new review for material changes to a shared remedy" do
+      issue, first, = fixture(network: false, path: "/var/www/a")
+      issue.update!(permissions: ["read"])
+      first.normalized_denial.update!(permissions: ["read"])
+      attach_signature(first)
+      intent = select_candidate(issue, path: "/var/www/a")
+      reviewed = intent.attributes.deep_dup
+      ingest_equivalent(issue, first, path: "/var/www/a", permissions: %w[open read], permissive: true, expected_context: "system_u:object_r:var_t:s0")
+      body = workflow(issue)
+      expect(body).to include("freshness" => "no_longer_supported", "change_plan" => nil)
+      expect(body["candidates"].sole["id"]).not_to eq(intent.candidate_id)
+      expect(intent.reload.attributes).to eq(reviewed)
+    end
+
+    it "keeps basename-only conditional evidence separate until the file is identified" do
+      issue, first, = home_content_fixture
+      attach_signature(first)
+      ingest_equivalent(issue, first, expected_context: nil, permissions: %w[open read], permissive: true)
+      candidates = workflow(issue).fetch("candidates")
+      expect(candidates.size).to eq(2)
+      expect(candidates.map { |candidate| candidate["permissions"] }).to contain_exactly(["read"], %w[open read])
+      expect(candidates).to all(include("requires_home_content_review" => true, "home_content_path" => nil))
+      candidates.each { |candidate| expect(candidate).not_to have_key("supporting_observations") }
+    end
+
+    it "preserves a permission-specific legacy review without authorizing the new shared candidate" do
+      issue, first, = fixture(network: false, path: "/var/www/a")
+      issue.update!(permissions: ["read"])
+      first.normalized_denial.update!(permissions: ["read"])
+      attach_signature(first)
+      intent = select_candidate(issue, path: "/var/www/a")
+      legacy_id = Digest::SHA256.hexdigest([issue.id, first.host_id, "restore_configured_label", "/var/www/a", ["read"]].to_json)
+      intent.update!(candidate_id: legacy_id, plan_semantics_version: 1)
+      reviewed = intent.attributes.deep_dup
+      body = workflow(issue)
+      expect(body).to include("freshness" => "no_longer_supported", "change_plan" => nil)
+      expect(intent.reload.attributes).to eq(reviewed)
+      select_candidate(issue, path: "/var/www/a")
+      expect(workflow(issue)["freshness"]).to eq("current")
+      expect(ResolutionIntentChange.where(issue: issue).count).to eq(2)
+    end
   end
 
   context "candidate-semantic reviewed-plan freshness" do

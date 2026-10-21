@@ -286,6 +286,61 @@ RSpec.describe IssueDiagnosis do
     expect(described_class.call(file_policy_issue(permissions: %w[read open]), intelligence: policy_intelligence(item))).to be_nil
   end
 
+  %w[enforcing permissive].each do |mode|
+    it "explains only read within a richer #{mode} file event despite pending sibling facts" do
+      item = conditional_read_evaluation.merge(status: "pending", rule_state: "pending", enforcement_mode: mode)
+      result = described_class.call(file_policy_issue(permissions: %w[open read map]), intelligence: policy_intelligence(item))
+
+      expect(result).to include(kind: "conditional_allow_inactive", operation: "read", explained_permissions: ["read"], permissions: %w[open read map], enforcement_mode: mode)
+      expect(result[:evidence].first[:fact]).to include("denied read access")
+      expect(result[:finding]).not_to include("open", "map")
+      expect(result[:syscall_failed]).to be false
+    end
+  end
+
+  it "does not turn map alone into a conditional read finding" do
+    expect(described_class.call(file_policy_issue(permissions: ["map"]), intelligence: policy_intelligence(conditional_read_evaluation))).to be_nil
+  end
+
+  it "preserves the execution finding when read and execute are observed together" do
+    result = described_class.call(execute_policy_issue(permissions: %w[read execute]), intelligence: policy_intelligence(execute_evaluation("conditional_inactive")))
+    expect(result).to include(operation: "execute", permissions: %w[read execute], explained_permissions: ["execute"])
+  end
+
+  it "keeps a read explanation independent of a sibling no-match or active condition" do
+    ["no_match", "matched"].each do |result|
+      item = conditional_read_evaluation.merge(rule_state: result == "matched" ? "conditional_active" : "unknown")
+      item[:evaluations] << { "permissions" => ["open"], "result" => result, "matching_rules" => [] }
+      item[:conditional_rule_states] << { rule: "allow mysqld_t var_t:file open; [ other_boolean ]:True", state: "active" }
+      expect(described_class.call(file_policy_issue(permissions: %w[read open]), intelligence: policy_intelligence(item))).to include(explained_permissions: ["read"])
+    end
+  end
+
+  it "requires the read permission's own fully inactive conditional support" do
+    %w[active unknown].each do |state|
+      item = conditional_read_evaluation
+      item[:conditional_rule_states].first[:state] = state
+      expect(described_class.call(file_policy_issue, intelligence: policy_intelligence(item))).to be_nil
+    end
+    item = conditional_read_evaluation
+    item[:evaluations].first["matching_rules"] << "allow mysqld_t var_t:file read;"
+    expect(described_class.call(file_policy_issue, intelligence: policy_intelligence(item))).to be_nil
+    item = conditional_read_evaluation
+    item[:conditional_rule_states] = []
+    expect(described_class.call(file_policy_issue, intelligence: policy_intelligence(item))).to be_nil
+    item = conditional_read_evaluation
+    item[:booleans].first["status"] = "unavailable"
+    expect(described_class.call(file_policy_issue, intelligence: policy_intelligence(item))).to be_nil
+  end
+
+  def conditional_read_evaluation
+    rule = "allow mysqld_t var_t:file read; [ my_read ]:True"
+    { status: "evaluated", occurrence_id: 12282, policy_identity: ["sha256:policy"], rule_state: "conditional_inactive",
+      evaluations: [{ "permissions" => ["read"], "result" => "matched", "matching_rules" => [rule] }],
+      conditional_rule_states: [{ rule: rule, expression: "my_read", state: "inactive" }],
+      booleans: [{ "name" => "my_read", "status" => "observed", "current" => false }] }
+  end
+
   it "prefers the enforcing occurrence when an issue has mixed enforcement states" do
     permissive = policy_evaluation_item("conditional_inactive", true, 12265)
     enforcing = policy_evaluation_item("conditional_inactive", false, 12266)
@@ -300,10 +355,10 @@ RSpec.describe IssueDiagnosis do
     instance_double(Issue, source_type: source_type, target_type: "unreserved_port_t", target_class: "tcp_socket", permissions: permissions, occurrences: [occurrence])
   end
 
-  def execute_policy_issue(permissive: false, paths: ["/var/www/cgi-bin/secentral-s005-helper.sh"], names: [])
-    denial = instance_double(NormalizedDenial, source_type: "httpd_t", target_type: "httpd_sys_content_t", target_class: "file", permissions: ["execute"], details: { "target_evidence" => { "filesystem_paths" => paths, "object_names" => names }, "process_evidence" => { "commands" => ["httpd"], "executables" => ["/usr/sbin/httpd"] }, "syscall_evidence" => [{ "syscall" => "execve", "success" => permissive ? "false" : "false", "exit" => "-13" }], "enforcement_mode" => permissive ? "permissive" : "enforcing" })
+  def execute_policy_issue(permissive: false, paths: ["/var/www/cgi-bin/secentral-s005-helper.sh"], names: [], permissions: ["execute"])
+    denial = instance_double(NormalizedDenial, source_type: "httpd_t", target_type: "httpd_sys_content_t", target_class: "file", permissions: permissions, details: { "target_evidence" => { "filesystem_paths" => paths, "object_names" => names }, "process_evidence" => { "commands" => ["httpd"], "executables" => ["/usr/sbin/httpd"] }, "syscall_evidence" => [{ "syscall" => "execve", "success" => permissive ? "false" : "false", "exit" => "-13" }], "enforcement_mode" => permissive ? "permissive" : "enforcing" })
     occurrence = instance_double(Occurrence, id: 12267, normalized_denial: denial)
-    instance_double(Issue, source_type: "httpd_t", target_type: "httpd_sys_content_t", target_class: "file", permissions: ["execute"], occurrences: [occurrence])
+    instance_double(Issue, source_type: "httpd_t", target_type: "httpd_sys_content_t", target_class: "file", permissions: permissions, occurrences: [occurrence])
   end
 
   def execute_evaluation(state, permissive: false, result: "matched")
@@ -314,7 +369,7 @@ RSpec.describe IssueDiagnosis do
   def file_policy_issue(permissions: ["read"], paths: [], command: nil)
     target_evidence = { "object_names" => ["plugin.frm"], "filesystem_paths" => paths }
     denial = instance_double(NormalizedDenial, source_type: "mysqld_t", target_type: "var_t", target_class: "file", permissions: permissions,
-      command: command, details: { "target_evidence" => target_evidence, "process_evidence" => { "commands" => ["mariadbd"], "executables" => ["/usr/libexec/mariadbd"] }, "enforcement_mode" => "enforcing" })
+      command: command, executable: nil, details: { "target_evidence" => target_evidence, "process_evidence" => { "commands" => ["mariadbd"], "executables" => ["/usr/libexec/mariadbd"] }, "enforcement_mode" => "enforcing" })
     occurrence = instance_double(Occurrence, id: 12282, normalized_denial: denial)
     instance_double(Issue, source_type: "mysqld_t", target_type: "var_t", target_class: "file", permissions: permissions, occurrences: [occurrence])
   end

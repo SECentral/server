@@ -714,6 +714,18 @@ describe("issue investigation", () => {
     return { ...conditionalDiagnosis("002"), title: "A matching SELinux read rule was inactive", operation: "read", permission: "read", permissions: ["read"], target_class: "file", target_type: "user_home_t", destination_port: undefined, next_step: "Confirm whether this workload is intended to read files labeled user_home_t before considering a change.", conditional_rules: [{ rule, expression: "httpd_read_user_content", state: "inactive" }], condition_boolean_states: [{ rule, expression: "httpd_read_user_content", state: "inactive", booleans }] };
   }
 
+  it("limits a richer permissive event's conditional-read explanation to the assessed permission", async () => {
+    const payload = detailPayload("basename");
+    const finding = { ...readFinding(), permissions: ["open", "read", "map"], explained_permissions: ["read"], enforcement_mode: "permissive", syscall_failed: false };
+    payload.diagnosis = finding;
+    payload.findings = [{ diagnosis: finding, occurrence_count: 1, observation_count: 0 }];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    renderDetail();
+    const diagnosis = await screen.findByRole("region", { name: "Diagnosis" });
+    expect(diagnosis).toHaveTextContent("This finding explains read only. Other permissions recorded in this event (open, map) need independent assessment.");
+    expect(diagnosis).not.toHaveTextContent("blocked");
+  });
+
   it("001-A shows conditional-read evidence and the independent missing-path limitation without exposing provenance", async () => {
     const payload = detailPayload("basename");
     const finding = readFinding();

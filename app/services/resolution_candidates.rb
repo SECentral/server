@@ -1,4 +1,5 @@
 require "digest"
+require "pathname"
 require "shellwords"
 
 # Eligibility and commands live together on the server. No policy subprocesses.
@@ -6,15 +7,16 @@ class ResolutionCandidates
   VERSION = 1
   PLAN_SEMANTICS_VERSION = 1
   EXPECTED_CONTEXT_SEMANTICS_VERSION = 1
+  FILE_REMEDY_SEMANTICS_VERSION = 2
 
   def initialize(issue, intelligence: nil, analyzer: nil)
     @issue = issue
     @intelligence = intelligence || IssueIntelligence.call(issue)
     @analyzer = analyzer || IssueDiagnosis.new(issue, @intelligence)
     @plans = {}
-    @built_candidates = {}
     @current_states = {}
     @facts = {}
+    @occurrence_candidates = Hash.new { |hash, id| hash[id] = [] }
   end
 
   def call
@@ -40,8 +42,19 @@ class ResolutionCandidates
       candidate = base(occurrence, { kind: "port_policy_alternative" }, "set_port_mapping", proposal[:resource]).merge(proposal[:candidate])
       finish(candidate, proposal[:basis], proposal[:semantic_basis], proposal[:plan], semantics_version: PortMappingGuidance::PLAN_SEMANTICS_VERSION)
     end)
-    # ponytail: one latest candidate per host/mechanism/resource; inspect occurrences for other historical variants.
-    candidates = candidates.uniq { |candidate| candidate[:id] }
+    # Non-shared candidates retain their latest permission-specific example.
+    candidates = candidates.group_by { |candidate| candidate[:id] }.values.map do |group|
+      candidate = group.first
+      if candidate[:supporting_observations]
+        observations = group.flat_map { |item| item[:supporting_observations] }.uniq { |item| item[:occurrence_id] }
+        candidate[:supporting_observations] = observations.group_by { |item| item.values_at(:issue_signature_id, :permissions) }.values.map do |items|
+          items.first.merge(occurrence_count: items.size, enforcement_modes: items.flat_map { |item| item[:enforcement_modes] }.uniq.sort)
+        end
+        candidate[:evidence_basis] = candidate[:evidence_basis].merge(supporting_observations: candidate[:supporting_observations])
+        @plans[candidate[:id]] = @plans.fetch(candidate[:id]).merge(evidence_basis: candidate[:evidence_basis])
+      end
+      candidate
+    end
     @result = { candidates: candidates, rejected_candidates: @rejected.uniq, observed_access: observed_access,
       port_investigations: ports[:investigations] }
   end
@@ -49,6 +62,11 @@ class ResolutionCandidates
   def plan(id)
     call
     @plans[id]
+  end
+
+  def for_occurrence(id)
+    call
+    @occurrence_candidates[id]
   end
 
   private
@@ -93,10 +111,33 @@ class ResolutionCandidates
     if plan[:verification_steps]
       candidate[:semantic_plan_basis][:plan_inputs][:verification_steps] = plan[:verification_steps].map { |step| step.slice(:command, :persistence, :explanation) }
     end
+    share_file_remedy(candidate)
+    @occurrence_candidates[basis[:occurrence_id]] << candidate
     # Keep the first (newest) basis, not a later iteration over older occurrences.
     @plans[candidate[:id]] ||= plan.merge(candidate.slice(:id, :title, :explanation, :scope_kind, :scope_description,
       :scope_warning, :expected_effect, :limitations, :evidence_basis, :plan_semantics_version))
-    @built_candidates[candidate[:id]] = candidate
+    candidate
+  end
+
+  def share_file_remedy(candidate)
+    return unless @issue.target_class == "file" && candidate[:kind].in?(%w[restore_configured_label enable_boolean])
+    return unless candidate[:permissions].present? && (candidate[:permissions] - %w[getattr open read map]).empty?
+
+    occurrence = occurrences.fetch(candidate[:evidence_basis][:occurrence_id])
+    denial = occurrence.normalized_denial
+    paths = Array(denial.details.dig("target_evidence", "filesystem_paths")).uniq
+    path = paths.first
+    return unless paths.one? && path.is_a?(String) && path.start_with?("/") && !path.match?(/[\0\r\n]/) && Pathname.new(path).cleanpath.to_s == path
+    return if denial.target_context.blank? || occurrence.raw_event.boot_id.blank?
+
+    candidate[:semantic_plan_basis] = candidate[:semantic_plan_basis].except(:permissions).merge(
+      observation_scope: { path: path, target_context: denial.target_context, boot_id: occurrence.raw_event.boot_id })
+    candidate[:plan_semantics_version] = FILE_REMEDY_SEMANTICS_VERSION
+    candidate[:id] = ResolutionPlanBasis.digest(issue_id: @issue.id, plan_semantics_version: candidate[:plan_semantics_version],
+      semantic_plan_basis: candidate[:semantic_plan_basis])
+    candidate[:supporting_observations] = [{ issue_signature_id: occurrence.issue_signature_id,
+      permissions: denial.permissions.uniq.sort, occurrence_id: occurrence.id, occurrence_count: 1,
+      enforcement_modes: [denial.details.fetch("enforcement_mode", "unknown")] }]
   end
 
   def label_configuration_digest(occurrence, state)
@@ -124,7 +165,6 @@ class ResolutionCandidates
     return if latest && (latest["status"] != "resolved" || latest["expected_context"] != finding[:expected_context])
 
     candidate = base(occurrence, finding, "restore_configured_label", path)
-    return @built_candidates[candidate[:id]] if @built_candidates.key?(candidate[:id])
     state = current_state(occurrence)
     candidate.merge!(title: "Restore the host-configured label for this path",
       explanation: "The AVC recorded #{finding[:observed_type]}; a later host matchpathcon inspection resolved #{finding[:expected_type]} for the same event-evidenced path.",
@@ -184,7 +224,6 @@ class ResolutionCandidates
       next unless original
 
       candidate = base(occurrence, finding, "enable_boolean", name)
-      next @built_candidates[candidate[:id]] if @built_candidates.key?(candidate[:id])
       current = Array(state[:selinux]["booleans"]).find { |b| b["name"] == name }
       identity = state[:policy_identity]
       # Reuse a current exact fact where available; queue through the existing architecture otherwise.
@@ -267,7 +306,7 @@ class ResolutionCandidates
         basis[:home_content_path] = candidate[:home_content_path]
         semantic_basis[:home_content_review_required] = true
         semantic_basis[:home_content_path] = candidate[:home_content_path]
-        semantic_basis[:home_content_names] = basis[:home_content_names].sort
+        semantic_basis[:home_content_names] = (basis[:home_content_names].presence || [candidate[:home_content_path]].compact.map { |path| File.basename(path) }).sort
       end
       finish(candidate, basis, semantic_basis, {
         preview_steps: [step("Inspect runtime boolean", "getsebool #{name}", "Stop and re-review if runtime state is no longer Off."),

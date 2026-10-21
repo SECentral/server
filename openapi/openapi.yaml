@@ -1815,8 +1815,20 @@ components:
       properties:
         requires_home_content_review: {type: boolean}
         home_content_path: {type: [string, 'null'], description: Retained path when unambiguous; otherwise the operator must identify it before review}
-        issue_signature_id: {type: [integer, 'null']}
-        permissions: {type: array, items: {type: string}, description: Exact denied permission set supporting this candidate, not the issue-wide union}
+        issue_signature_id: {type: [integer, 'null'], description: Signature of the representative occurrence; shared support is listed separately}
+        permissions: {type: array, items: {type: string}, description: Exact denied permission set of the representative occurrence, never a union of shared support or issue permissions}
+        supporting_observations:
+          type: array
+          description: Independently eligible observations with equivalent file-remedy mechanics. One latest example per exact signature/permission set; counts and modes describe support, not resolved coverage. Representative permissions and evidence_basis remain exact, never a union. Support growth does not replace a reviewed plan snapshot.
+          items:
+            type: object
+            required: [issue_signature_id, permissions, occurrence_id, occurrence_count, enforcement_modes]
+            properties:
+              issue_signature_id: {type: [integer, 'null']}
+              permissions: {type: array, items: {type: string}}
+              occurrence_id: {type: integer}
+              occurrence_count: {type: integer, minimum: 1}
+              enforcement_modes: {type: array, items: {type: string, enum: [enforcing, permissive, unknown]}}
         presentation: {type: string, enum: [primary, technical_alternative], description: Conservative display priority; direct workload-source conditional rules or path-evidenced restoration are primary, not proof of intent}
         presentation_reason: {type: string}
         unavailable_reason: {type: string, description: Specific prerequisite preventing an actionable plan}
@@ -4491,6 +4503,10 @@ components:
           type: array
           items:
             type: string
+        explained_permissions:
+          type: array
+          items: {type: string}
+          description: Permissions explained by this finding only; permissions retains the complete exact observed set. Other permissions need independent assessment.
         path:
           type: string
         observed_type:

@@ -42,6 +42,31 @@ function mount() {
 }
 
 describe("Evidence-driven resolution UI", () => {
+  it("shows exact supporting permission sets and scoped examples before reviewing one shared remedy", async () => {
+    const state = initial();
+    state.candidates = [{ ...candidate, id: "shared-read", permissions: ["open", "read"], supporting_observations: [
+      { issue_signature_id: 11, permissions: ["read"], occurrence_id: 101, occurrence_count: 2, enforcement_modes: ["enforcing"] },
+      { issue_signature_id: 12, permissions: ["open", "read"], occurrence_id: 102, occurrence_count: 1, enforcement_modes: ["permissive"] }
+    ] }];
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(state), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    mount();
+    const support = await screen.findByRole("region", { name: "Remedy support" });
+    expect(support).toHaveTextContent("Supporting permission sets: read · open, read");
+    expect(support).toHaveTextContent("Shared mechanics do not establish that every permission becomes allowed or that the workload succeeds");
+    expect(screen.getAllByRole("button", { name: "Review Boolean change" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /Copy command:.*setsebool/ })).not.toBeInTheDocument();
+    await user.click(within(support).getByRole("button", { name: "Supporting observations" }));
+    expect(within(support).getByRole("link", { name: "Example #101" })).toHaveAttribute("href", "/hosts/1/occurrences/101");
+    expect(within(support).getByRole("link", { name: "Example #102" })).toHaveAttribute("href", "/hosts/1/occurrences/102");
+    expect(support).toHaveTextContent("enforcing · 2 supporting occurrences");
+    expect(support).toHaveTextContent("permissive · 1 supporting occurrence");
+    await user.click(screen.getByRole("button", { name: "Review Boolean change" }));
+    await user.click(screen.getByRole("button", { name: "Confirm intent" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/1939/resolution-intent", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ candidate_id: "shared-read", evidence_version: "v1" }) })));
+  });
+
   it("requires identified file and home-content confirmation before submitting a Boolean review", async () => {
     const state = initial();
     state.candidates = [{ ...candidate, id: "home-content", requires_home_content_review: true, home_content_path: null, presentation: "technical_alternative",

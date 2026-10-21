@@ -243,7 +243,7 @@ class IssueDiagnosis
     operation = candidate[:operation]
     if operation == "read"
       paths = Array(denial.details.to_h.dig("target_evidence", "filesystem_paths"))
-      key = [ item[:evaluations], item[:booleans], candidate[:conditional_rules], item[:enforcement_mode], paths,
+      key = [ item[:evaluations], item[:booleans], candidate[:conditional_rules], item[:enforcement_mode], paths, denial.permissions,
         denial.command, denial.executable, failed_syscall?(denial.details.to_h["syscall_evidence"]) ]
       @read_findings ||= {}
       template = @read_findings[key] ||= file_access_diagnosis(candidate).except(:occurrence_id, :checkpoint_observed_at)
@@ -298,7 +298,7 @@ class IssueDiagnosis
   end
 
   def conditional_operation(denial, item)
-    return "read" if denial.target_class == "file" && Array(denial.permissions) == [ "read" ]
+    return "read" if denial.target_class == "file" && Array(denial.permissions).include?("read") && !Array(denial.permissions).include?("execute")
 
     operation = Array(denial.permissions).intersection(%w[name_connect name_bind execute])
     return unless operation.one?
@@ -337,6 +337,7 @@ class IssueDiagnosis
       source_description: @issue.source_type,
       permission: candidate[:operation],
       permissions: denial.permissions,
+      explained_permissions: [candidate[:operation]],
       target_type: @issue.target_type,
       target_class: @issue.target_class,
       path: path,
@@ -475,15 +476,16 @@ class IssueDiagnosis
   end
 
   def conditional_allow_candidate_for(occurrence, item)
-    return unless occurrence && item[:status] == "evaluated" && item[:policy_identity].is_a?(Array) && item[:policy_identity].one?
-    return unless Array(item[:booleans]).all? { |boolean| boolean["status"] == "observed" && boolean["current"].in?([true, false]) }
+    return unless occurrence && item[:policy_identity].is_a?(Array) && item[:policy_identity].one?
 
     denial = occurrence.normalized_denial
     return unless denial && denial.source_type == @issue.source_type && denial.target_type == @issue.target_type && denial.target_class == @issue.target_class
 
     operation = conditional_operation(denial, item)
     return unless operation
-    return if operation != "execute" && item[:rule_state] != "conditional_inactive"
+    return unless operation == "read" || item[:status] == "evaluated"
+    return unless operation == "read" || Array(item[:booleans]).all? { |boolean| boolean["status"] == "observed" && boolean["current"].in?([true, false]) }
+    return if !%w[execute read].include?(operation) && item[:rule_state] != "conditional_inactive"
     if operation == "read"
       facts = Array(item[:evaluations]).select { |fact| Array(fact["permissions"]).include?("read") }
       return unless facts.present? && facts.all? { |fact| fact["result"] == "matched" && Array(fact["matching_rules"]).present? && Array(fact["matching_rules"]).all? { |rule| rule.include?("[") } }
@@ -491,6 +493,10 @@ class IssueDiagnosis
 
     conditional_rules = operation_conditional_rules(item, operation)
     return unless conditional_rules.present? && conditional_rules.all? { |rule| rule[:state] == "inactive" }
+    if operation == "read"
+      return unless (facts.flat_map { |fact| fact["matching_rules"] } - conditional_rules.map { |rule| rule[:rule] }).empty?
+      return unless condition_boolean_states(item, conditional_rules).flat_map { |rule| rule[:booleans] }.all? { |boolean| boolean["status"] == "observed" && boolean["current"].in?([true, false]) }
+    end
 
     { item: item, occurrence: occurrence, denial: denial, operation: operation, conditional_rules: conditional_rules }
   end
