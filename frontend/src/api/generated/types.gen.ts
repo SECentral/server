@@ -301,6 +301,26 @@ export type PortInvestigation = {
     port: number | null;
     operation: 'name_bind' | 'name_connect';
     observed_type: string;
+    /**
+     * Audit time of the representative occurrence; not the latest inventory observation time
+     */
+    occurred_at?: string;
+    /**
+     * Trusted exact policy identity associated with the representative occurrence; missing or invalidated historical identity remains null
+     */
+    historical_policy_identity?: string | null;
+    /**
+     * Exact policy identity from the latest retained host state
+     */
+    current_policy_identity?: string | null;
+    /**
+     * Whether the AVC target type differs from the unambiguous effective classification in complete latest inventory. Null means the comparison is unavailable or ambiguous. No timing or causal attribution is implied.
+     */
+    classification_differs?: boolean | null;
+    /**
+     * Whether trusted historical and latest retained exact policy identities differ. Null means one identity is missing or invalidated. Neither equality nor difference proves workload success.
+     */
+    policy_differs?: boolean | null;
     state: 'ready' | 'blocked' | 'pending' | 'error' | 'unavailable' | 'no_change';
     reason: string;
     latest_observed_at?: string | null;

@@ -379,7 +379,7 @@ RSpec.describe "Issues API", type: :request do
       expect(checks).to include(include("kind" => "port_local_classification", "command" => "semanage port -l -C", "target" => "tcp/12345"))
       listener = checks.find { |item| item["kind"] == "socket_listeners" }
       expect(Shellwords.split(listener.fetch("command"))).to eq(["ss", "-ltnp", "sport = :12345"])
-      expect(checks).to include(include("kind" => "port_policy_alternatives", "command" => "sesearch -A -s httpd_t -c tcp_socket -p name_bind -C"))
+      expect(checks).to include(include("kind" => "port_policy_alternatives", "command" => "sesearch -A -s httpd_t -c tcp_socket -p name_bind"))
       shared = checks.select { |check| check["command"] }.map { |check| { title: check["reason"], command: check["command"], interpretation: check["expected"] } }
       expect(IssueOperatorGuidance.call(issue, occurrence: occurrence)[:checks]).to eq(shared)
     end

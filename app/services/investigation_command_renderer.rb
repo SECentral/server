@@ -23,7 +23,7 @@ class InvestigationCommandRenderer
       operation = @check[:operation]
       return unless source.to_s.match?(/\A[A-Za-z][A-Za-z0-9_]*\z/) && %w[tcp_socket udp_socket].include?(object_class) && %w[name_bind name_connect].include?(operation)
 
-      Shellwords.join([ "sesearch", "-A", "-s", source, "-c", object_class, "-p", operation, "-C" ])
+      Shellwords.join([ "sesearch", "-A", "-s", source, "-c", object_class, "-p", operation ])
     when :port_classification, :port_local_classification, :socket_listeners
       protocol = @check[:protocol]
       port = @check[:port]

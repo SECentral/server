@@ -60,7 +60,7 @@ class IssueOperatorGuidance
       checks << check("Local port customizations", "semanage port -l -C", "Review local overrides before considering any manual configuration change.")
       endpoint = PortMappingGuidance.endpoint(denial)
       if endpoint && denial.source_type.to_s.match?(/\A[A-Za-z][A-Za-z0-9_]*\z/)
-        checks << check("Current local policy alternatives", "sesearch -A -s #{Shellwords.escape(denial.source_type)} -c #{denial.target_class} -p #{endpoint[:operation]} -C",
+        checks << check("Current local policy alternatives", InvestigationCommandRenderer.call(kind: :port_policy_alternatives, source_type: denial.source_type, object_class: denial.target_class, operation: endpoint[:operation]),
           "Queries the host's currently loaded policy, not the stored checkpoint. Inspect target attributes and conditions; a matching rule does not establish service intent or an appropriate replacement classification. Use this when central evaluation is pending or failed.")
       end
     end

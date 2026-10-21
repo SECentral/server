@@ -1943,6 +1943,11 @@ components:
         port: {type: [integer, 'null'], minimum: 1, maximum: 65535}
         operation: {type: string, enum: [name_bind, name_connect]}
         observed_type: {type: string}
+        occurred_at: {type: string, format: date-time, description: Audit time of the representative occurrence; not the latest inventory observation time}
+        historical_policy_identity: {type: [string, 'null'], description: Trusted exact policy identity associated with the representative occurrence; missing or invalidated historical identity remains null}
+        current_policy_identity: {type: [string, 'null'], description: Exact policy identity from the latest retained host state, not a fresh host inspection}
+        classification_differs: {type: [boolean, 'null'], description: Whether the AVC target type differs from the unambiguous effective classification in complete latest inventory. Null means the comparison is unavailable or ambiguous. No timing or causal attribution is implied.}
+        policy_differs: {type: [boolean, 'null'], description: Whether trusted historical and latest retained exact policy identities differ. Null means one identity is missing or invalidated. Neither equality nor difference proves workload success.}
         state: {type: string, enum: [ready, blocked, pending, error, unavailable, no_change]}
         reason: {type: string}
         latest_observed_at: {type: [string, 'null'], format: date-time}

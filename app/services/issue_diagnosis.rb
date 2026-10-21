@@ -221,7 +221,7 @@ class IssueDiagnosis
       bind_port: bind ? endpoint[:port]&.to_s : nil,
       destination_port: bind ? nil : endpoint[:port]&.to_s,
       title: "#{actor} was denied #{bind ? 'binding' : 'connecting'} to #{resource}",
-      lead: "The port was labeled #{@issue.target_type}. The evaluated policy does not allow #{@issue.source_type} to #{action} ports with that label.",
+      lead: "At the denial, the port was labeled #{@issue.target_type}. The evaluated historical policy does not allow #{@issue.source_type} to #{action} ports with that label.",
       next_step: "Confirm whether #{command.presence || @issue.source_type} is intended to #{bind ? 'listen on' : 'connect to'} #{resource}. If so, check whether the service configuration and SELinux port mapping agree; this does not establish that the port label should change."
     }
   end

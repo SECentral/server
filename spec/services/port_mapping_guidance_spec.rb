@@ -25,6 +25,33 @@ RSpec.describe PortMappingGuidance do
     expect(proposal[:candidate][:expected_effect]).to include("other workloads", "opens no firewall")
   end
 
+  it "compares matching known state without treating missing or invalidated history as agreement" do
+    issue, occurrence, host, snapshot, = port_fixture
+    comparison = result(issue)[:investigations].sole
+    expect(comparison).to include(occurred_at: occurrence.occurred_at, historical_policy_identity: occurrence.policy_identity,
+      classification_differs: false, policy_differs: false)
+    occurrence.raw_event.update!(checkpoint_invalidated_fields: ["policy_identity"])
+    replace_port_snapshot(host, snapshot, {})
+    expect(result(issue)[:investigations].sole).to include(historical_policy_identity: nil, classification_differs: false, policy_differs: nil)
+  end
+
+  it "does not compare a missing, partial or ambiguous latest classification as a match" do
+    issue, _, host, snapshot, = port_fixture
+    replace_port_snapshot(host, snapshot, "selinux" => { "policy" => { "port_inventory" => { "status" => "partial" } } })
+    expect(result(issue)[:investigations].sole[:classification_differs]).to be_nil
+    replace_port_snapshot(host, snapshot, "selinux" => { "policy" => { "port_inventory" => { "mappings" => [] } } })
+    expect(result(issue)[:investigations].sole[:classification_differs]).to be_nil
+    replace_port_snapshot(host, snapshot, "selinux" => { "policy" => { "port_inventory" => { "mappings" => [port_range("unreserved_port_t", 1024, 32767), port_range("reserved_port_t", 12345)] } } })
+    expect(result(issue)[:investigations].sole[:classification_differs]).to be_nil
+  end
+
+  it "compares complete retained inventory even while alternative-policy evaluation is pending" do
+    issue, occurrence, _, _, fact = port_fixture
+    occurrence.normalized_denial.update!(target_type: "ssh_port_t")
+    fact.update!(status: "pending")
+    expect(result(issue)[:investigations].sole).to include(state: "pending", observed_type: "ssh_port_t", classification_differs: true)
+  end
+
   it "counts all retained endpoint occurrences separately for each host without changing proposal semantics" do
     issue, occurrence, host, = port_fixture
     original = result(issue)[:proposals].sole

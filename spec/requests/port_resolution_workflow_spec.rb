@@ -23,6 +23,33 @@ RSpec.describe "Reviewed port mapping workflow", type: :request do
       headers: { "Content-Type" => "application/json", "X-CSRF-Token" => response.headers["X-CSRF-Token"] }
   end
 
+  it "distinguishes a historical SSH classification from latest generic inventory and plans against the latter" do
+    issue, occurrence, host, snapshot, fact = port_fixture(port: 23451)
+    issue.update!(target_type: "ssh_port_t")
+    occurrence.normalized_denial.update!(target_type: "ssh_port_t")
+    historical_identity = occurrence.policy_identity
+    current_identity = "sha256:#{SecureRandom.hex(32)}"
+    replace_port_snapshot(host, snapshot, "selinux" => { "policy_identity" => current_identity })
+    fact.update!(policy_identity: current_identity)
+
+    body = workflow(issue)
+    comparison = body.fetch("port_investigations").sole
+    expect(comparison).to include("occurrence_id" => occurrence.id, "occurred_at" => occurrence.occurred_at.iso8601(3),
+      "historical_policy_identity" => historical_identity, "current_policy_identity" => current_identity,
+      "classification_differs" => true, "policy_differs" => true, "observed_type" => "ssh_port_t")
+    expect(comparison.fetch("current_mappings").sole).to include("type" => "unreserved_port_t")
+    get "/api/v1/issues/#{issue.id}"
+    expect(JSON.parse(response.body).dig("resolutions", "port_investigations").sole).to eq(comparison)
+    expect(ResolutionIntentChange.where(issue: issue)).to be_empty
+
+    choose(issue, body.fetch("candidates").sole)
+    expect(response).to have_http_status(:ok)
+    plan = workflow(issue).fetch("change_plan")
+    expect(plan.fetch("apply_steps").sole["command"]).to eq("sudo semanage port -a -p tcp -t http_port_t 23451")
+    expect(plan.fetch("rollback_steps").sole["command"]).to eq("sudo semanage port -d -p tcp 23451")
+    expect(occurrence.normalized_denial.reload.target_type).to eq("ssh_port_t")
+  end
+
   it "requires reviewed intent for concrete add/verify/rollback commands and preserves equivalent growth" do
     issue, occurrence, host, snapshot, = port_fixture
     body = workflow(issue)

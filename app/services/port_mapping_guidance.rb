@@ -37,6 +37,8 @@ class PortMappingGuidance
 
       investigation = { host_id: occurrence.host_id, hostname: occurrence.host.hostname, occurrence_id: occurrence.id,
         protocol: protocol, port: port, operation: operation, observed_type: denial.target_type,
+        occurred_at: occurrence.occurred_at, historical_policy_identity: occurrence.policy_identity,
+        classification_differs: nil, policy_differs: nil,
         occurrence_count: 1, state: "unavailable", types: [], type_count: 0 }
       seen[key] = investigation
       investigations << investigation
@@ -64,11 +66,21 @@ class PortMappingGuidance
     unless identity.to_s.match?(PolicyArtifact::IDENTITY_FORMAT)
       return blocked(investigation, "Current exact policy identity is missing or invalidated. Refresh the host checkpoint and policy artifact before evaluating alternative types.")
     end
+    investigation[:current_policy_identity] = identity
+    historical_identity = investigation[:historical_policy_identity]
+    investigation[:policy_differs] = historical_identity != identity if historical_identity.to_s.match?(PolicyArtifact::IDENTITY_FORMAT)
     unless inventory["status"] == "observed" && inventory["local_classification_status"] == "observed"
       return blocked(investigation, "Effective port inventory is #{investigation[:inventory_status]}; local override classification is #{investigation[:local_status]}. Inspect semanage port -l and semanage port -l -C on this host and refresh complete inventory; absence is not established.")
     end
     ranges = ranges_for(inventory, investigation[:protocol])
     return blocked(investigation, "The retained protocol/range inventory is malformed. Inspect effective/local listings and refresh collection before review.") unless ranges
+    covering = ranges.select { |range| range[:start] <= investigation[:port] && range[:end] >= investigation[:port] }
+    investigation[:current_mappings] = covering
+    local = covering.select { |range| range[:provenance] == "custom" }
+    specific = covering.reject { |range| GENERIC_TYPES.include?(range[:type]) }
+    current = local.presence || specific.presence || covering
+    current_types = current.map { |range| range[:type] }.uniq
+    investigation[:classification_differs] = current_types.first != investigation[:observed_type] if current_types.one?
 
     fact_key = [identity, investigation[:operation]]
     fact = @facts.fetch(fact_key) do
@@ -82,8 +94,6 @@ class PortMappingGuidance
       end
       return blocked(investigation, "Alternative port-type policy evaluation is #{fact&.status || 'pending'} for this host's exact policy. Wait for artifact evaluation or investigate its reported failure; no service type is inferred.", fact&.status == "error" ? "error" : "pending")
     end
-    covering = ranges.select { |range| range[:start] <= investigation[:port] && range[:end] >= investigation[:port] }
-    investigation[:current_mappings] = covering
     records = Array(fact.rule_details).find { |detail| detail["kind"] == "port_contexts" && detail["protocol"] == investigation[:protocol] }&.dig("mappings")
     return blocked(investigation, "Exact-policy port-record boundaries are missing. Refresh the port policy evaluation and inspect uncoalesced semanage listings before deciding add versus modify.") unless records.is_a?(Array)
 
@@ -91,9 +101,6 @@ class PortMappingGuidance
     unless policy_covering.map { |record| record["type"] }.uniq.sort == covering.map { |range| range[:type] }.uniq.sort
       return blocked(investigation, "The exact-policy port records and observed effective inventory conflict for this endpoint. Recheck loaded policy and effective/local mappings, then refresh evidence; no change is generated.")
     end
-    local = covering.select { |range| range[:provenance] == "custom" }
-    specific = covering.reject { |range| GENERIC_TYPES.include?(range[:type]) }
-    current = local.presence || specific.presence || covering
     rules = Array(fact.rule_details).select { |detail| detail["target_types"].is_a?(Array) && detail["rule"].in?(fact.matching_rules) }
     options = rules.flat_map { |rule| rule["target_types"] }.uniq.sort.filter_map do |type|
       next unless type.match?(/\A[A-Za-z][A-Za-z0-9_]*\z/)

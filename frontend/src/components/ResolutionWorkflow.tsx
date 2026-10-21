@@ -228,9 +228,15 @@ function PortInvestigation({ investigation, workflow, busy, onSelect, children }
   const reviewedPort = workflow.freshness === "current" && candidates.some((item) => item.id === workflow.intent?.candidate_id);
   return <article className="pf-v6-u-mt-md" aria-label="Port investigation">
     <h3>{investigation.protocol.toUpperCase()}/{investigation.port ?? "port not recorded"} · {bind ? "Local bind" : "Outbound connect"} · {investigation.hostname ?? `Host ${investigation.host_id}`}</h3>
-    <p><Link to={`/hosts/${investigation.host_id}/occurrences/${investigation.occurrence_id}`}>Occurrence #{investigation.occurrence_id}</Link> · AVC label <code>{investigation.observed_type}</code></p>
+    <p><Link to={`/hosts/${investigation.host_id}/occurrences/${investigation.occurrence_id}`}>Occurrence #{investigation.occurrence_id}</Link> · AVC label <code>{investigation.observed_type}</code>{investigation.occurred_at && <> · recorded <time dateTime={investigation.occurred_at}>{new Date(investigation.occurred_at).toUTCString()}</time></>}</p>
     {!reviewedPort && !["ready", "unavailable"].includes(investigation.state) && <p>{investigation.reason}</p>}
-    {investigation.inventory_status === "observed" && investigation.local_status === "observed" && investigation.current_mappings && <p><strong>Recorded classification:</strong> {priorPortState({ prior_mappings: investigation.current_mappings })}</p>}
+    {investigation.inventory_status === "observed" && investigation.local_status === "observed" && investigation.current_mappings && <p><strong>Latest retained classification:</strong> {priorPortState({ prior_mappings: investigation.current_mappings })}{investigation.latest_observed_at && <> · observed <time dateTime={investigation.latest_observed_at}>{new Date(investigation.latest_observed_at).toUTCString()}</time></>}. Recheck on the host; this is not a fresh inspection.</p>}
+    {(investigation.classification_differs === true || investigation.policy_differs === true) && <Alert isInline isPlain variant="info" title="Historical and latest evidence differ">
+      {investigation.classification_differs === true && <p>The AVC target type differs from the latest retained port classification.</p>}
+      {investigation.policy_differs === true && <p>The trusted historical and latest retained policy identities differ.</p>}
+      {investigation.policy_differs == null && <p>A trusted historical-to-latest policy comparison is unavailable.</p>}
+      <p>These observations do not establish when or why configuration changed, that the denial still occurs, or that it is fixed. Recheck effective/local mappings and retry the intended confined workload before deciding whether a new mapping is needed.</p>
+    </Alert>}
     {(investigation.inventory_status !== "observed" || investigation.local_status !== "observed") && investigation.inventory_status && <p>Inventory coverage: effective {investigation.inventory_status} · local overrides {investigation.local_status ?? "unknown"}</p>}
     {children}
     {investigation.types.length > 0 && <>{!reviewedPort && <p>Before any mapping change, inspect current effective/local ranges and ownership. A port mapping persists on this host and can affect other workloads using this protocol/port; it is not a per-process exception or firewall rule.</p>}
@@ -410,6 +416,7 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
     : selectedHere && workflow.freshness && workflow.freshness !== "current" ? "Review the changed evidence and prerequisites below before confirming updated intent."
     : missingPath ? "Identify the complete target path before considering a file-label modification."
     : nextCandidate && candidatePresentation(nextCandidate).state !== "review" ? candidateNextStep(nextCandidate)
+    : active?.port && ["ready", "no_change"].includes(active.port.state) && (active.port.classification_differs === true || active.port.policy_differs === true) ? "Recheck effective/local mappings and retry the intended confined workload; the historical denial and latest retained state differ."
     : active?.port?.operation === "name_bind" ? "Confirm the intended listener and existing port classification before selecting an SELinux port type."
     : active?.port?.operation === "name_connect" ? "Confirm the intended remote service, inspect runtime Boolean state and check port policy classification."
     : nextCandidate ? candidateNextStep(nextCandidate)

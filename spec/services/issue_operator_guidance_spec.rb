@@ -86,7 +86,7 @@ RSpec.describe IssueOperatorGuidance do
       { rule: "allow httpd_t port_type:tcp_socket name_connect;", booleans: [{ name: "httpd_can_network_connect" }] }
     ] }
     result = described_class.call(issue_with(occurrence(path: nil, permissions: ["name_connect"], object_class: "tcp_socket")), diagnosis: diagnosis)
-    expect(result[:checks].map { |item| item[:command] }).to eq(["getsebool httpd_can_network_connect", "getsebool nis_enabled", "semanage port -l", "semanage port -l -C", "sesearch -A -s httpd_t -c tcp_socket -p name_connect -C"])
+    expect(result[:checks].map { |item| item[:command] }).to eq(["getsebool httpd_can_network_connect", "getsebool nis_enabled", "semanage port -l", "semanage port -l -C", "sesearch -A -s httpd_t -c tcp_socket -p name_connect"])
     expect(result[:possible_fix]).to include("already observed On")
   end
 
@@ -112,7 +112,7 @@ RSpec.describe IssueOperatorGuidance do
       end
       expect(commands.first).to eq(commands.last)
       expect(Shellwords.split(commands.first.first)).to eq(["ss", object_class == "tcp_socket" ? "-ltnp" : "-lunp", "sport = :9090"])
-      expect(commands.first.last).to eq("sesearch -A -s httpd_t -c #{object_class} -p name_bind -C")
+      expect(commands.first.last).to eq("sesearch -A -s httpd_t -c #{object_class} -p name_bind")
     end
   end
 end

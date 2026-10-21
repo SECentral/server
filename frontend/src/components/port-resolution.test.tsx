@@ -52,6 +52,50 @@ function HistoryControls() {
 }
 
 describe("Port troubleshooting", () => {
+  it("separates historical AVC classification and policy from latest retained evidence before choosing a change", async () => {
+    const historicalTime = "2026-10-06T11:36:09.495Z";
+    const latestTime = "2026-10-21T18:37:02.255Z";
+    const state = { ...workflow(), port_investigations: [{ ...investigation, observed_type: "ssh_port_t", occurred_at: historicalTime,
+      latest_observed_at: latestTime, historical_policy_identity: "sha256:historical", current_policy_identity: "sha256:latest",
+      classification_differs: true, policy_differs: true }] };
+    const fetchMock = vi.fn(async (_url: string, options?: RequestInit) => {
+      expect(options?.method ?? "GET").toBe("GET");
+      return new Response(JSON.stringify({ id: 11, host: { id: 1, hostname: "web-1" }, guidance: { checks: [] } }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    mount(state);
+    const resource = screen.getByRole("article", { name: "Port investigation" });
+    expect(resource).toHaveTextContent("AVC label ssh_port_t");
+    expect(resource).toHaveTextContent("Latest retained classification: unreserved_port_t 1024–32767");
+    expect(resource.querySelector(`time[datetime="${historicalTime}"]`)).toHaveTextContent("06 Oct 2026");
+    expect(resource.querySelector(`time[datetime="${latestTime}"]`)).toHaveTextContent("21 Oct 2026");
+    expect(within(resource).getByText("Historical and latest evidence differ")).toBeVisible();
+    expect(resource).toHaveTextContent("policy identities differ");
+    expect(resource).toHaveTextContent("do not establish when or why configuration changed, that the denial still occurs, or that it is fixed");
+    expect(screen.getByLabelText("Suggested next step")).toHaveTextContent("retry the intended confined workload");
+    expect(document.body.textContent).not.toContain("sha256:");
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("Policy-supported port type"), "http_port_t");
+    expect(screen.getByRole("button", { name: "Choose intent" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Copy command: sudo semanage/ })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.every((call) => call[1]?.method == null || call[1]?.method === "GET")).toBe(true);
+  });
+
+  it("does not invent policy drift when historical identity is missing or carry another resource's comparison", async () => {
+    const state = { ...workflow(), candidates: [], port_investigations: [
+      { ...investigation, classification_differs: true, policy_differs: null },
+      { ...investigation, port: 23456, occurrence_id: 22, classification_differs: false, policy_differs: false }
+    ] };
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify({ id: url.endsWith("/22") ? 22 : 11, host: { id: 1, hostname: "web-1" }, guidance: { checks: [] } }), { status: 200 })));
+    mount(state);
+    expect(screen.getByText("A trusted historical-to-latest policy comparison is unavailable.")).toBeVisible();
+    expect(screen.queryByText(/policy identities differ/)).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("tab", { name: /TCP\/23456/ }));
+    expect(screen.queryByText("Historical and latest evidence differ")).not.toBeInTheDocument();
+    expect(screen.queryByText(/policy comparison is unavailable/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Suggested next step")).not.toHaveTextContent("historical denial and latest retained state differ");
+  });
+
   it("compares policy and endpoint evidence, requires intent and labels persistent mapping mutations before Copy", async () => {
     let state = workflow();
     vi.stubGlobal("fetch", vi.fn(async (_url: string, options?: RequestInit) => {
@@ -65,7 +109,7 @@ describe("Port troubleshooting", () => {
     const user = userEvent.setup();
     mount(state);
     expect(screen.getByRole("article", { name: "Port investigation" })).toHaveTextContent("Local bind");
-    expect(screen.getByRole("article", { name: "Port investigation" })).toHaveTextContent("Recorded classification: unreserved_port_t 1024–32767");
+    expect(screen.getByRole("article", { name: "Port investigation" })).toHaveTextContent("Latest retained classification: unreserved_port_t 1024–32767");
     expect(screen.queryByRole("button", { name: /Copy sudo semanage/ })).not.toBeInTheDocument();
     expect(document.querySelectorAll(".resolution-candidate-card")).toHaveLength(0);
     expect(screen.getByLabelText("What service should listen on this port?")).toHaveValue("");
@@ -180,7 +224,7 @@ describe("Port troubleshooting", () => {
       { kind: "socket_listeners", command: "ss -ltnp 'sport = :12345'", reason: "Inspect listeners", expected: "Confirm owner" },
       { kind: "port_classification", command: "semanage port -l", reason: "Inspect classification", expected: "Compare ranges" },
       { kind: "port_local_classification", command: "semanage port -l -C", reason: "Inspect overrides", expected: "Check local changes" },
-      { kind: "port_policy_alternatives", command: "sesearch -A -s httpd_t -c tcp_socket -p name_bind -C", reason: "Inspect policy", expected: "Current policy is not historical evidence" }
+      { kind: "port_policy_alternatives", command: "sesearch -A -s httpd_t -c tcp_socket -p name_bind", reason: "Inspect policy", expected: "Current policy is not historical evidence" }
     ];
     const fetchMock = vi.fn(async (url: string) => {
       const permissive = url.endsWith("/22");

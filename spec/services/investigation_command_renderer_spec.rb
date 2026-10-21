@@ -1,4 +1,5 @@
 require "rails_helper"
+require "open3"
 
 RSpec.describe InvestigationCommandRenderer do
   it "keeps the full policy listing so range entries are not missed" do
@@ -19,9 +20,19 @@ RSpec.describe InvestigationCommandRenderer do
 
   it "validates policy query fields before rendering a read-only search" do
     check = { kind: :port_policy_alternatives, source_type: "httpd_t", object_class: "tcp_socket", operation: "name_bind" }
-    expect(described_class.call(check)).to eq("sesearch -A -s httpd_t -c tcp_socket -p name_bind -C")
+    expect(described_class.call(check)).to eq("sesearch -A -s httpd_t -c tcp_socket -p name_bind")
     [{ source_type: "httpd_t;id" }, { object_class: "file" }, { operation: "name_bind;id" }].each do |invalid|
       expect(described_class.call(check.merge(invalid))).to be_nil
+    end
+  end
+
+  it "passes generated policy-search arguments through the real SETools CLI parser" do
+    [["tcp_socket", "name_bind"], ["udp_socket", "name_bind"], ["tcp_socket", "name_connect"]].each do |object_class, operation|
+      command = described_class.call(kind: :port_policy_alternatives, source_type: "httpd_t", object_class: object_class, operation: operation)
+      # Reach policy loading without reading the host policy or needing a binary fixture.
+      output, status = Open3.capture2e(*Shellwords.split(command), "/dev/null")
+      expect(status).not_to be_success
+      expect(output).to include("Invalid policy: /dev/null")
     end
   end
 
