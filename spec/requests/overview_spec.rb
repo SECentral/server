@@ -90,6 +90,32 @@ RSpec.describe "Overview API", type: :request do
     )
   end
 
+  it "loads agent installations once for metrics and attention as the fleet grows" do
+    sign_in_operator
+    organization = Organization.create!(name: "overview-query-count")
+    [1, 4].each do |additional_hosts|
+      additional_hosts.times do
+        host = organization.hosts.create!(external_id: SecureRandom.uuid)
+        organization.agent_installations.create!(name: host.external_id, bound_host: host, last_seen_at: 30.minutes.ago)
+      end
+      queries = []
+      subscriber = ActiveSupport::Notifications.subscribe("sql.active_record") do |event|
+        queries << event.payload[:sql] if event.payload[:sql].include?('FROM "agent_installations"')
+      end
+      begin
+        get "/api/v1/overview"
+      ensure
+        ActiveSupport::Notifications.unsubscribe(subscriber)
+      end
+
+      expect(response).to have_http_status(:ok)
+      expect(queries.size).to eq(1)
+      body = JSON.parse(response.body)
+      expect(body.dig("metrics", "agent_states", "stale")).to eq(organization.hosts.count)
+      expect(body.dig("attention", "agent_states", 0, "host_count")).to eq(organization.hosts.count)
+    end
+  end
+
   it "does not present stale permissive configuration as current despite recent host activity" do
     sign_in_operator
     organization = Organization.create!(name: "stale-permissive-overview")

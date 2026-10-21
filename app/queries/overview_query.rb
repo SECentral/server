@@ -15,7 +15,7 @@ class OverviewQuery
       affected_hosts: Occurrence.joins(:issue).where(issues: { status: "open" }).distinct.count(:host_id),
       avcs_24h: Occurrence.where(occurred_at: 24.hours.ago..now).count,
       monitored_hosts: Host.count,
-      agent_states: HostListQuery.agent_state_counts(Host.all.to_a)
+      agent_states: HostListQuery.agent_state_counts(hosts)
     }
   end
 
@@ -27,13 +27,16 @@ class OverviewQuery
   end
 
   def attention
-    hosts = Host.includes(:agent_installations, current_state_observation: :host_snapshot).to_a
     {
       agent_states: agent_state_groups(hosts),
       permissive: permissive_attention(hosts),
       new_issues: new_issue_attention,
       multi_host_issues: multi_host_attention
     }
+  end
+
+  def hosts
+    @hosts ||= Host.includes(:agent_installations, current_state_observation: :host_snapshot).to_a
   end
 
   def agent_state_groups(hosts)
