@@ -5,7 +5,7 @@ class Api::V1::IssuesController < Api::V1::BaseController
       host_id: params[:host_id].presence,
       page: params[:page], limit: params[:limit]
     ).call
-    hosts = Host.includes(:host_snapshots).order(:hostname, :external_id).to_a
+    hosts = Host.includes(current_state_observation: :host_snapshot).order(:hostname, :external_id).to_a
     enforcing = hosts.count { |host| enforcing?(host) }
 
     render json: {

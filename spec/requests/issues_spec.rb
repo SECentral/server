@@ -71,6 +71,28 @@ RSpec.describe "Issues API", type: :request do
     )
   end
 
+  it "uses current host observations for the list summary without loading snapshot history" do
+    host = observe_host("summary-history", { "selinux" => { "enforcement" => "enforcing" } })
+    installation = host.agent_installations.first
+    snapshot = host.host_snapshots.create!(details: { "selinux" => { "enforcement" => "permissive" } })
+    at = 1.hour.ago
+    host.host_snapshot_observations.create!(agent_installation: installation, host_snapshot: snapshot,
+      first_observed_at: at, last_observed_at: at, first_received_at: at, last_received_at: at)
+    queries = []
+    subscriber = ActiveSupport::Notifications.subscribe("sql.active_record") { |event| queries << event.payload[:sql] }
+    begin
+      get "/api/v1/issues"
+    ensure
+      ActiveSupport::Notifications.unsubscribe(subscriber)
+    end
+
+    expect(response).to have_http_status(:ok)
+    body = JSON.parse(response.body)
+    expect(body.fetch("host_options")).to eq([{ "id" => host.id, "hostname" => "summary-history" }])
+    expect(body.fetch("summary")).to include("monitored_hosts" => 1, "enforcing_hosts" => 1, "enforcement_percent" => 100)
+    expect(queries).not_to include(a_string_matching(/FROM "host_snapshots" WHERE "host_snapshots"\."host_id" IN/))
+  end
+
   it "excludes resolved issues by default and includes them under status=all" do
     open_issue = create_issue
     resolved_issue = create_issue("resolved-digest")
