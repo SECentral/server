@@ -5,22 +5,29 @@ import {
   CardBody,
   EmptyState,
   EmptyStateBody,
+  FormSelect,
+  FormSelectOption,
+  Grid,
+  GridItem,
   Label,
   Pagination,
   Select,
   SelectOption,
   Spinner,
+  Stack,
   TextInput,
   Title,
   Toolbar,
   ToolbarContent,
+  ToolbarGroup,
   ToolbarItem
 } from "@patternfly/react-core";
 import { Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { fetchHosts } from "../api/hosts";
+import { MetricCard } from "../components/MetricCard";
 import { osDisplayName } from "../platform";
 import { PAGE_SIZES } from "../pagination";
 
@@ -82,48 +89,22 @@ function formatUtc(iso: string): string {
   return `${new Date(iso).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
-function SummaryTile({
-  label,
-  count,
-  status,
-  onClick
-}: {
-  label: string;
-  count: number;
-  status: "success" | "warning" | "danger" | "info";
-  onClick?: () => void;
-}) {
-  const body = (
-    <CardBody className="hosts-summary-card-body">
-      <Title headingLevel="h2" size="2xl" className="hosts-summary-count">{count}</Title>
-      <div className="hosts-summary-copy">
-        <Label status={status} isCompact>{label}</Label>
-        <small className="hosts-summary-support">hosts</small>
-      </div>
-    </CardBody>
-  );
-
-  return onClick ? (
-    <Card isClickable isCompact component="button" className="hosts-summary-card" onClick={onClick} aria-label={`${label} ${count} hosts`}>
-      {body}
-    </Card>
-  ) : (
-    <Card isCompact className="hosts-summary-card" aria-label={`${label} ${count} hosts`}>
-      {body}
-    </Card>
-  );
-}
-
 export function Hosts() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [enforcementOpen, setEnforcementOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
-  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
+  const [attribute, setAttribute] = useState<string>("os_id");
+  const [draft, setDraft] = useState("");
 
   const hostsKey = searchParams.toString();
   const hostsQuery = useQuery({
     queryKey: ["hosts", hostsKey],
-    queryFn: () => fetchHosts(searchParams)
+    queryFn: () => fetchHosts(searchParams),
+    placeholderData: keepPreviousData
+  });
+  const fleetQuery = useQuery({
+    queryKey: ["hosts", ""],
+    queryFn: () => fetchHosts(new URLSearchParams())
   });
 
   const setParams = (updates: Record<string, string | null>) => {
@@ -147,8 +128,21 @@ export function Hosts() {
   const status = searchParams.get("status") ?? "";
   const enforcementLabel = ENFORCEMENT_OPTIONS.find((option) => option.value === enforcement)?.label ?? "Any mode";
   const statusLabel = STATUS_OPTIONS.find((option) => option.value === status)?.label ?? "All agent states";
-  const counts = data?.summary.agent_state_counts;
+  const counts = fleetQuery.data?.summary.agent_state_counts;
   const activeFilters = [...searchParams.entries()].filter(([key, value]) => !["page", "limit", "configuration_family"].includes(key) && value !== "");
+  const selectedAttribute = TEXT_FILTERS.find((filter) => filter.key === attribute)!;
+  const clearFilters = () => {
+    setDraft("");
+    const next = new URLSearchParams();
+    if (searchParams.has("limit")) next.set("limit", searchParams.get("limit")!);
+    setSearchParams(next);
+  };
+  const filterLabel = (key: string, value: string) => {
+    if (key === "configuration_status") return `${searchParams.get("configuration_family") === "ports" ? "Port coverage" : "Boolean coverage"}: ${CONFIGURATION_FILTER_LABELS[searchParams.get("configuration_family") ?? ""]?.[value] ?? value}`;
+    if (key === "status") return `Agent state: ${STATUS_OPTIONS.find((option) => option.value === value)?.label ?? value}`;
+    if (key === "enforcement") return `Enforcement: ${ENFORCEMENT_OPTIONS.find((option) => option.value === value)?.label ?? value}`;
+    return `${TEXT_FILTERS.find((filter) => filter.key === key)?.label ?? key}: ${value}`;
+  };
 
   return (
     <div className="app-resource-page">
@@ -157,32 +151,35 @@ export function Hosts() {
         <p className="pf-v6-u-color-200">Agents, SELinux configuration freshness, and activity per monitored host.</p>
       </header>
 
-      {data && counts && (
-        <div className="hosts-summary-grid pf-v6-u-mt-md" aria-label="Host summary">
-          <SummaryTile label="Monitored hosts" count={data.summary.total} status="info" />
+      <Stack hasGutter>
+      {fleetQuery.isError ? <Alert isInline variant="warning" title="Could not load fleet summary"><Button variant="link" onClick={() => void fleetQuery.refetch()}>Retry fleet summary</Button></Alert> : counts && (
+        <Grid hasGutter aria-label="Fleet agent summary">
           {STATUS_OPTIONS.map((option) => (
-            <SummaryTile
-              key={option.value}
-              label={option.label}
-              count={counts[option.value]}
-              status={AGENT_STATUS[option.value]}
-              onClick={() => setParams({ status: status === option.value ? null : option.value })}
-            />
+            <GridItem key={option.value} sm={12} md={4}>
+              <MetricCard label={option.label} value={counts[option.value]} detail="Hosts across the fleet" href={`/hosts?status=${option.value}`} />
+            </GridItem>
           ))}
-        </div>
+        </Grid>
       )}
 
-      <Toolbar className="hosts-filter-toolbar pf-v6-u-mb-md" id="hosts-filter-toolbar">
+      <form onSubmit={(event) => { event.preventDefault(); setParams({ [attribute]: draft.trim() || null }); }}>
+      <Toolbar id="hosts-filter-toolbar" aria-label="Host filters" hasNoPadding>
         <ToolbarContent>
+          <ToolbarGroup gap={{ default: "gapMd" }} rowWrap={{ default: "wrap" }}>
+          <ToolbarItem>
+            <FormSelect aria-label="Filter attribute" value={attribute} onChange={(_event, value) => { setAttribute(value); setDraft(searchParams.get(value) ?? ""); }}>
+              {TEXT_FILTERS.map((filter) => <FormSelectOption key={filter.key} value={filter.key} label={filter.label} />)}
+            </FormSelect>
+          </ToolbarItem>
           <ToolbarItem>
             <TextInput
-              id="host-filter-os_id"
-              value={searchParams.get("os_id") ?? ""}
-              onChange={(_event, value) => setParams({ os_id: value })}
-              placeholder="Filter by OS"
-              aria-label="OS"
+              value={draft}
+              onChange={(_event, value) => setDraft(value)}
+              placeholder={selectedAttribute.placeholder}
+              aria-label="Filter value"
             />
           </ToolbarItem>
+          <ToolbarItem><Button type="submit" variant="secondary">Apply filter</Button></ToolbarItem>
           <ToolbarItem>
         <Select
           isOpen={enforcementOpen}
@@ -243,51 +240,47 @@ export function Hosts() {
           ))}
         </Select>
           </ToolbarItem>
-          <ToolbarItem align={{ lg: "alignEnd" }}>
-            <Button variant="link" isExpanded={moreFiltersOpen} onClick={() => setMoreFiltersOpen(!moreFiltersOpen)}>
-              {moreFiltersOpen ? "Fewer filters" : "More filters"}
-            </Button>
-          </ToolbarItem>
-          {moreFiltersOpen && TEXT_FILTERS.filter((filter) => filter.key !== "os_id").map((filter) => (
-            <ToolbarItem key={filter.key}>
-              <TextInput
-                id={`host-filter-${filter.key}`}
-                value={searchParams.get(filter.key) ?? ""}
-                onChange={(_event, value) => setParams({ [filter.key]: value })}
-                placeholder={filter.placeholder}
-                aria-label={filter.label}
-              />
-            </ToolbarItem>
-          ))}
+          </ToolbarGroup>
         </ToolbarContent>
-      </Toolbar>
 
       {activeFilters.length > 0 && (
-        <div className="pf-v6-u-mb-md" aria-label="Active filters">
-          <span className="pf-v6-u-mr-sm">Active filters:</span>
+        <ToolbarContent className="pf-v6-u-mt-md" aria-label="Active host filters">
+          <ToolbarGroup gap={{ default: "gapMd" }} rowWrap={{ default: "wrap" }}>
           {activeFilters.map(([key, value]) => (
-            <Label key={key} color="blue" isCompact onClose={() => key === "configuration_status" ? setParams({ configuration_family: null, configuration_status: null }) : setParams({ [key]: null })} className="pf-v6-u-mr-sm">
-              {key === "configuration_status" ? `${searchParams.get("configuration_family") === "ports" ? "Port coverage" : "Boolean coverage"}: ${CONFIGURATION_FILTER_LABELS[searchParams.get("configuration_family") ?? ""]?.[value] ?? value}` : `${key}: ${value}`}
-            </Label>
+            <ToolbarItem key={key}><Label isCompact closeBtnAriaLabel={`Remove ${filterLabel(key, value)} filter`} onClose={() => {
+              if (attribute === key) setDraft("");
+              if (key === "configuration_status") setParams({ configuration_family: null, configuration_status: null });
+              else setParams({ [key]: null });
+            }}>{filterLabel(key, value)}</Label></ToolbarItem>
           ))}
-          <Button variant="link" size="sm" onClick={() => setSearchParams(new URLSearchParams())}>
+          <ToolbarItem><Button variant="link" onClick={clearFilters}>
             Reset filters
-          </Button>
-        </div>
+          </Button></ToolbarItem>
+          </ToolbarGroup>
+        </ToolbarContent>
       )}
+      </Toolbar>
+      </form>
 
+      <Card component="section" aria-label="Hosts" aria-busy={hostsQuery.isFetching} className="resource-table-card"><CardBody>
+      <div className="table-section-heading">
+        <Title headingLevel="h2" size="lg">Hosts</Title>
+        {data && !hostsQuery.isError && !hostsQuery.isPlaceholderData && <span className="pf-v6-u-color-200">{data.meta.total} result{data.meta.total === 1 ? "" : "s"}</span>}
+      </div>
+      {hostsQuery.isFetching && !hostsQuery.isPending && <p role="status" className="pf-v6-u-mb-md"><Spinner size="md" aria-label="Updating hosts" /> {hostsQuery.isPlaceholderData ? "Updating hosts; showing previous results." : "Updating hosts."}</p>}
       {hostsQuery.isPending ? (
-        <div aria-label="Loading hosts" style={{ padding: "var(--pf-v6-global--spacer--xl)" }}>
+        <div aria-label="Loading hosts" className="pf-v6-u-p-xl">
           <Spinner />
         </div>
       ) : hostsQuery.isError ? (
         <Alert variant="danger" title="Could not load hosts">
           {hostsQuery.error instanceof Error ? hostsQuery.error.message : "Unknown error"}
+          <Button variant="link" onClick={() => void hostsQuery.refetch()}>Retry hosts</Button>
         </Alert>
       ) : (
         <>
           {hosts.length > 0 && data && (
-            <section aria-label="Hosts">
+            <>
               <Table aria-label="Hosts" variant="compact" gridBreakPoint="grid-lg">
                 <Thead>
                   <Tr>
@@ -296,7 +289,7 @@ export function Hosts() {
                     <Th width={10}>Config</Th>
                     <Th width={15}>Operating system</Th>
                     <Th width={15}>SELinux</Th>
-                    <Th width={15}>Activity</Th>
+                    <Th width={15} className="pf-v6-u-text-align-right">Activity</Th>
                     <Th width={15}>Last seen</Th>
                   </Tr>
                 </Thead>
@@ -330,7 +323,7 @@ export function Hosts() {
                         )}
                         {host.selinux.configured_policy_type && <div className="pf-v6-u-color-200">{host.selinux.configured_policy_type}</div>}
                       </Td>
-                      <Td width={15} dataLabel="Activity">
+                      <Td width={15} dataLabel="Activity" className="pf-v6-u-text-align-right">
                         <div>
                           {host.counts.active_issues > 0 ? (
                             <a href={`/issues?host_id=${host.id}&status=open`}>{host.counts.active_issues} active issue{host.counts.active_issues === 1 ? "" : "s"}</a>
@@ -352,20 +345,23 @@ export function Hosts() {
                   ))}
                 </Tbody>
               </Table>
-              <div className="table-pagination"><Pagination itemCount={data.meta.total} page={data.meta.page} perPage={data.meta.page_size}
+              {!hostsQuery.isPlaceholderData && <div className="table-pagination"><Pagination itemCount={data.meta.total} page={data.meta.page} perPage={data.meta.page_size}
                 perPageOptions={PAGE_SIZES.map((value) => ({ title: String(value), value }))}
                 titles={{ paginationAriaLabel: "Host pagination" }} isDisabled={hostsQuery.isFetching}
                 onSetPage={(_event, page) => setParams({ page: String(page) })}
-                onPerPageSelect={(_event, size) => setParams({ limit: String(size) })} /></div>
-            </section>
+                onPerPageSelect={(_event, size) => setParams({ limit: String(size) })} /></div>}
+            </>
           )}
-          {hosts.length === 0 && (
-            <EmptyState titleText="No hosts match the filters.">
-              <EmptyStateBody>Adjust the filters to widen the result set.</EmptyStateBody>
+          {hosts.length === 0 && !hostsQuery.isPlaceholderData && (
+            <EmptyState titleText={activeFilters.length > 0 ? "No hosts match the filters." : "No monitored hosts yet."}>
+              <EmptyStateBody>{activeFilters.length > 0 ? "Clear filters to widen the result set." : "Connect an agent to start monitoring a host."}</EmptyStateBody>
+              {activeFilters.length > 0 && <Button variant="link" onClick={clearFilters}>Clear filters</Button>}
             </EmptyState>
           )}
         </>
       )}
+      </CardBody></Card>
+      </Stack>
     </div>
   );
 }

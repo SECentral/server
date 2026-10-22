@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -80,19 +80,16 @@ function renderHosts(payload: HostListResponse = hostsPayload, initialEntry = "/
 
 describe("Hosts", () => {
   it("lists hosts with agent state summary, freshness, and issue links", async () => {
-    const { container } = renderHosts();
+    renderHosts();
 
     await screen.findByRole("link", { name: "web-1" });
     expect(screen.getByRole("link", { name: "web-1" })).toHaveAttribute("href", "/hosts/1");
     expect(screen.getByRole("link", { name: "db-1" })).toHaveAttribute("href", "/hosts/2");
     expect(screen.getByRole("link", { name: "2 active issues" })).toHaveAttribute("href", "/issues?host_id=1&status=open");
-    expect(screen.getByText("Monitored hosts")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reporting 1 hosts" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Stale 1 hosts" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Offline 0 hosts" })).toBeInTheDocument();
-    expect([...container.querySelectorAll(".hosts-summary-copy .pf-v6-c-label__text")].map((label) => label.textContent)).toEqual([
-      "Monitored hosts", "Reporting", "Stale", "Offline"
-    ]);
+    expect(screen.getByRole("link", { name: "Reporting 1" })).toHaveAttribute("href", "/hosts?status=reporting");
+    expect(screen.getByRole("link", { name: "Stale 1" })).toHaveAttribute("href", "/hosts?status=stale");
+    expect(screen.getByRole("link", { name: "Offline 0" })).toHaveAttribute("href", "/hosts?status=offline");
+    expect(screen.getAllByText("Hosts across the fleet")).toHaveLength(3);
     expect(screen.queryByRole("button", { name: /Copy host ID/ })).not.toBeInTheDocument();
     expect(screen.queryByText("host-abc123def456")).not.toBeInTheDocument();
     expect(screen.getByText("AlmaLinux 9.3")).toBeInTheDocument();
@@ -101,8 +98,11 @@ describe("Hosts", () => {
     expect(screen.getByRole("columnheader", { name: "Operating system" })).toBeInTheDocument();
     expect(screen.getByRole("row", { name: /web-1/ })).toHaveTextContent("3 AVCs / 24h");
     expect(screen.getByRole("row", { name: /web-1/ })).toHaveTextContent("40 total events");
-    expect(screen.queryByRole("heading", { name: "Hosts" })).not.toBeInTheDocument();
-    expect(screen.queryByText("2 hosts")).not.toBeInTheDocument();
+    const list = screen.getByRole("region", { name: "Hosts" });
+    expect(list).toHaveClass("resource-table-card");
+    expect(within(list).getByRole("heading", { name: "Hosts" })).toBeInTheDocument();
+    expect(within(list).getByText("2 results")).toBeInTheDocument();
+    expect(within(list).getByRole("navigation", { name: "Host pagination" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Monitored servers" })).toBeInTheDocument();
   });
 
@@ -113,22 +113,77 @@ describe("Hosts", () => {
   });
 
   it("keeps filter state in the URL and refetches when it changes", async () => {
-    const { fetchMock } = renderHosts();
+    const { fetchMock } = renderHosts(hostsPayload, "/hosts?page=2");
     await screen.findByRole("link", { name: "web-1" });
 
     const user = userEvent.setup();
-    await user.type(screen.getByRole("textbox", { name: "OS" }), "almalinux");
+    const callsBeforeDraft = fetchMock.mock.calls.length;
+    await user.type(screen.getByRole("textbox", { name: "Filter value" }), "almalinux");
+    expect(fetchMock).toHaveBeenCalledTimes(callsBeforeDraft);
+    await user.click(screen.getByRole("button", { name: "Apply filter" }));
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith("/api/v1/hosts?os_id=almalinux", expect.objectContaining({ method: "GET" }))
     );
 
-    await user.click(screen.getByRole("button", { name: /Stale/ }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Filter attribute" }), "agent_version");
+    await user.type(screen.getByRole("textbox", { name: "Filter value" }), "0.2.0");
+    await user.click(screen.getByRole("button", { name: "Apply filter" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/hosts?os_id=almalinux&agent_version=0.2.0", expect.anything()));
+    const toolbar = screen.getByLabelText("Host filters");
+    expect(within(toolbar).getByText("OS: almalinux")).toBeInTheDocument();
+    expect(within(toolbar).getByText("Agent version: 0.2.0")).toBeInTheDocument();
+    await user.click(within(toolbar).getByRole("button", { name: "Remove OS: almalinux filter" }));
+    await user.click(screen.getByRole("button", { name: "Agent state filter" }));
+    await user.click(screen.getByRole("option", { name: "Stale" }));
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining("status=stale"),
         expect.objectContaining({ method: "GET" })
       )
     );
+  });
+
+  it("keeps fleet counts independent from filtered results", async () => {
+    const { fetchMock } = renderHosts();
+    await screen.findByRole("link", { name: "Reporting 1" });
+    fetchMock.mockImplementation((url: string) => Promise.resolve(jsonResponse(200, url.includes("status=offline")
+      ? { hosts: [], summary: { total: 0, agent_state_counts: { reporting: 0, stale: 0, offline: 0 } }, meta: { page: 1, page_size: 25, total: 0, total_pages: 0 } }
+      : hostsPayload)));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Agent state filter" }));
+    await user.click(screen.getByRole("option", { name: "Offline" }));
+    await screen.findByText("No hosts match the filters.");
+    expect(screen.getByRole("link", { name: "Reporting 1" })).toBeInTheDocument();
+    expect(screen.getByText("0 results")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(await screen.findByRole("link", { name: "web-1" })).toBeInTheDocument();
+  });
+
+  it("distinguishes an empty fleet from filtered results", async () => {
+    renderHosts({ ...hostsPayload, hosts: [], summary: { total: 0, agent_state_counts: { reporting: 0, stale: 0, offline: 0 } }, meta: { page: 1, page_size: 25, total: 0, total_pages: 0 } });
+    expect(await screen.findByText("No monitored hosts yet.")).toBeInTheDocument();
+    expect(screen.getByText("Connect an agent to start monitoring a host.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Clear filters" })).not.toBeInTheDocument();
+  });
+
+  it("retains rows during filter refresh and offers retry after a failure", async () => {
+    const { fetchMock } = renderHosts();
+    await screen.findByRole("link", { name: "web-1" });
+    let resolveRequest!: (response: Response) => void;
+    fetchMock.mockImplementation(() => new Promise<Response>((resolve) => { resolveRequest = resolve; }));
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "Filter value" }), "rhel");
+    await user.click(screen.getByRole("button", { name: "Apply filter" }));
+    expect(await screen.findByLabelText("Updating hosts")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "web-1" })).toBeInTheDocument();
+    expect(screen.queryByText("2 results")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("showing previous results");
+    expect(screen.queryByRole("navigation", { name: "Host pagination" })).not.toBeInTheDocument();
+    resolveRequest(jsonResponse(500, { error: "Unavailable" }));
+    await screen.findByText("Could not load hosts");
+    fetchMock.mockResolvedValue(jsonResponse(200, hostsPayload));
+    await user.click(screen.getByRole("button", { name: "Retry hosts" }));
+    expect(await screen.findByRole("link", { name: "web-1" })).toBeInTheDocument();
   });
 
   it("paginates the host list", async () => {
