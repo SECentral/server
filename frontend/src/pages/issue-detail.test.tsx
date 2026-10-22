@@ -304,6 +304,31 @@ function renderDetail(initialEntry = "/issues/7") {
 }
 
 describe("issue investigation", () => {
+  it("shows related issues as evidence links and compares AVC modes separately from event outcomes", async () => {
+    const payload = detailPayload("004");
+    payload.related_activity = [{ issue_id: 31, host_id: 10, hostname: "db-enforcing", occurrence_id: 201,
+      source_occurrence_id: 104, occurred_at: "2026-10-22T15:05:36Z", source_occurred_at: "2026-10-22T15:05:36Z",
+      target_type: "var_t", target_class: "dir", basis: "same_audit_event" }];
+    payload.intelligence.observation_summary = [
+      { host_id: 10, hostname: "db-enforcing", occurrences: 4, audit_events: 4, modes: { enforcing: 4 }, syscall_outcomes: { failed: 4 } },
+      { host_id: 11, hostname: "db-permissive", occurrences: 6, audit_events: 2, modes: { permissive: 6 }, syscall_outcomes: { succeeded: 2 } }
+    ];
+    const fetchMock = vi.fn();
+    mockApi(fetchMock, "004");
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((url: string, request?: { method?: string }) => url === "/api/v1/issues/7" ? Promise.resolve(response(200, payload)) : original(url, request));
+    vi.stubGlobal("fetch", fetchMock);
+    renderDetail();
+    const related = await screen.findByRole("region", { name: "Related issue activity" });
+    expect(within(related).getByRole("link", { name: "Issue #31" })).toHaveAttribute("href", "/issues/31");
+    expect(related).toHaveTextContent("Same audit event");
+    expect(related).toHaveTextContent("not a shared diagnosis, remedy or lifecycle decision");
+    const outcomes = screen.getByRole("table", { name: "Host outcome comparison" });
+    expect(outcomes).toHaveTextContent("6 occurrences / 2 audit events");
+    expect(outcomes).toHaveTextContent("Succeeded: 2");
+    expect(outcomes).toHaveTextContent("Failed: 4");
+  });
+
   it("updates the workbench and fleet table when refreshed issue evidence arrives", async () => {
     const fetchMock = vi.fn();
     mockApi(fetchMock, "001");

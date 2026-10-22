@@ -79,7 +79,7 @@ namespace :secentral do
         ActiveRecord::Base.transaction do
           raw_event_ids = organization.raw_events.select(:id)
           host_ids = organization.hosts.select(:id)
-          Occurrence.where(organization_id: organization.id).destroy_all
+          Occurrence.unscoped.where(organization_id: organization.id).destroy_all
           NormalizedDenial.where(raw_event_id: raw_event_ids).delete_all
           RawAuditRecord.where(raw_event_id: raw_event_ids).delete_all
           RawEvent.where(organization_id: organization.id).delete_all
@@ -131,12 +131,13 @@ namespace :secentral do
   end
 
   task reprocess: :environment do
-    RawEvent.find_each do |raw_event|
-      AvcNormalizer.call(raw_event.raw_audit_records.to_a).each_with_index do |result, ordinal|
-        PersistNormalizedDenial.call(raw_event, result, ordinal: ordinal, normalization_version: ProcessRawEvent::NORMALIZATION_VERSION)
-      end
+    scope = RawEvent.where(category: "avc")
+    scope = scope.where(id: ENV.fetch("RAW_EVENT_IDS").split(",").map { |id| Integer(id, 10) }) if ENV["RAW_EVENT_IDS"].present?
+    scope.find_each do |raw_event|
+      ProcessRawEvent.call(raw_event)
+      PolicyFactRequest.for_event(raw_event)
     end
-    puts "Reprocessed #{RawEvent.count} raw events"
+    puts "Reprocessed #{scope.count} raw events"
   end
 
   def demo_hosts(organization, base_time)

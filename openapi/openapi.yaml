@@ -1982,6 +1982,20 @@ components:
       type: object
       required: [candidates, rejected_candidates, observed_access, intent, freshness, change_plan, history]
       properties:
+        file_investigations:
+          description: Up to 50 recent distinct host/path examples, including resources without a generated remedy. Paths are retained evidence, never inferred from another decision.
+          type: array
+          items:
+            type: object
+            required: [host_id, hostname, occurrence_id, occurred_at, path, object_class, observed_type]
+            properties:
+              host_id: {type: integer}
+              hostname: {type: [string, 'null']}
+              occurrence_id: {type: integer}
+              occurred_at: {type: string, format: date-time}
+              path: {type: string}
+              object_class: {type: string}
+              observed_type: {type: string}
         port_investigations:
           type: array
           items: {$ref: "#/components/schemas/PortInvestigation"}
@@ -4395,6 +4409,19 @@ components:
         - occurrence_time
         - fleet
       properties:
+        observation_summary:
+          description: Per-host occurrence modes from AVC evidence and syscall outcomes counted once per audit event, not once per normalized decision. Success is not application health.
+          type: array
+          items:
+            type: object
+            required: [host_id, hostname, occurrences, audit_events, modes, syscall_outcomes]
+            properties:
+              host_id: {type: integer}
+              hostname: {type: [string, 'null']}
+              occurrences: {type: integer}
+              audit_events: {type: integer}
+              modes: {type: object, additionalProperties: {type: integer}}
+              syscall_outcomes: {type: object, additionalProperties: {type: integer}}
         resource_summary:
           type: object
           required: [absolute_path_occurrences, without_absolute_path_occurrences, path_count, name_count]
@@ -4618,6 +4645,23 @@ components:
         - policy_analysis
         - triage
       properties:
+        related_activity:
+          description: At most ten issue/host links from the latest 50 occurrences and at most 200 neighbors per host/boot. Same audit event is an exact link; same process/window means identical PID, executable and subject context within two seconds, not proven process lifetime or common cause. No status or remedy is inherited.
+          type: array
+          items:
+            type: object
+            required: [issue_id, host_id, hostname, occurrence_id, source_occurrence_id, occurred_at, source_occurred_at, target_type, target_class, basis]
+            properties:
+              issue_id: {type: integer}
+              host_id: {type: integer}
+              hostname: {type: [string, 'null']}
+              occurrence_id: {type: integer}
+              source_occurrence_id: {type: integer}
+              occurred_at: {type: string, format: date-time}
+              source_occurred_at: {type: string, format: date-time}
+              target_type: {type: string}
+              target_class: {type: string}
+              basis: {type: string, enum: [same_audit_event, same_process_window]}
         findings:
           description: Independent finding signatures, one recent example per kind, at most three. Counts may overlap because an occurrence can support both policy and file-context findings. The diagnosis field is the first visual finding, not an exclusive diagnosis.
           type: array
@@ -5044,6 +5088,10 @@ components:
         - raw_event
         - guidance
       properties:
+        superseded_at:
+          type: [string, 'null']
+          format: date-time
+          description: Historical interpretation replaced by explicit replay. Retained for old evidence/review URLs, excluded from current counts and change guidance.
         issue_signature_id:
           type: [integer, 'null']
         id:

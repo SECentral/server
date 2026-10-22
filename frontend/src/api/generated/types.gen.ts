@@ -348,6 +348,18 @@ export type PortInvestigation = {
 };
 
 export type ResolutionWorkflow = {
+    /**
+     * Up to 50 recent distinct host/path examples, including resources without a generated remedy. Paths are retained evidence, never inferred from another decision.
+     */
+    file_investigations?: Array<{
+        host_id: number;
+        hostname: string | null;
+        occurrence_id: number;
+        occurred_at: string;
+        path: string;
+        object_class: string;
+        observed_type: string;
+    }>;
     port_investigations?: Array<PortInvestigation>;
     candidates: Array<ResolutionCandidate>;
     rejected_candidates: Array<{
@@ -1583,6 +1595,21 @@ export type Issue = {
  * Summary slice of the computed issue intelligence; per-occurrence details are on the subresources.
  */
 export type IssueIntelligenceSummary = {
+    /**
+     * Per-host occurrence modes from AVC evidence and syscall outcomes counted once per audit event, not once per normalized decision. Success is not application health.
+     */
+    observation_summary?: Array<{
+        host_id: number;
+        hostname: string | null;
+        occurrences: number;
+        audit_events: number;
+        modes: {
+            [key: string]: number;
+        };
+        syscall_outcomes: {
+            [key: string]: number;
+        };
+    }>;
     resource_summary?: {
         absolute_path_occurrences: number;
         without_absolute_path_occurrences: number;
@@ -1730,6 +1757,21 @@ export type TriageSignals = {
 };
 
 export type IssueDetailResponse = {
+    /**
+     * At most ten issue/host links from the latest 50 occurrences and at most 200 neighbors per host/boot. Same audit event is an exact link; same process/window means identical PID, executable and subject context within two seconds, not proven process lifetime or common cause. No status or remedy is inherited.
+     */
+    related_activity?: Array<{
+        issue_id: number;
+        host_id: number;
+        hostname: string | null;
+        occurrence_id: number;
+        source_occurrence_id: number;
+        occurred_at: string;
+        source_occurred_at: string;
+        target_type: string;
+        target_class: string;
+        basis: 'same_audit_event' | 'same_process_window';
+    }>;
     /**
      * Independent finding signatures, one recent example per kind, at most three. Counts may overlap because an occurrence can support both policy and file-context findings. The diagnosis field is the first visual finding, not an exclusive diagnosis.
      */
@@ -1982,6 +2024,10 @@ export type OccurrenceGuidance = {
 };
 
 export type OccurrenceDetail = {
+    /**
+     * Historical interpretation replaced by explicit replay. Retained for old evidence/review URLs, excluded from current counts and change guidance.
+     */
+    superseded_at?: string | null;
     issue_signature_id?: number | null;
     id: number;
     host: IssueHost;

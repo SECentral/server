@@ -36,7 +36,7 @@ class Api::V1::IssueOccurrencesController < Api::V1::BaseController
 
   def show
     issue = current_organization.issues.find(params[:id])
-    occurrence = issue.occurrences.includes(:host, :host_snapshot, :normalized_denial, raw_event: :raw_audit_records).find(params[:occurrence_id])
+    occurrence = issue.occurrences.unscope(where: :superseded_at).includes(:host, :host_snapshot, :normalized_denial, raw_event: :raw_audit_records).find(params[:occurrence_id])
     render json: OccurrenceDetailSerializer.call(occurrence, guidance: occurrence_guidance(issue, occurrence))
   end
 
@@ -90,6 +90,8 @@ class Api::V1::IssueOccurrencesController < Api::V1::BaseController
   end
 
   def occurrence_guidance(issue, occurrence)
+    return nil if occurrence.superseded_at
+
     guidance = InvestigationGuidance.call(issue: issue, occurrence: occurrence)
     guidance[:checks].each { |check| check[:command] = InvestigationCommandRenderer.call(check) }
     guidance

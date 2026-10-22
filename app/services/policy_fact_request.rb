@@ -9,7 +9,7 @@ class PolicyFactRequest
   def self.for_events(raw_events)
     questions = raw_events.flat_map do |raw_event|
       identity = raw_event.checkpoint_policy_identity
-      questions_for(raw_event.normalized_denials.select { |denial| denial.status == "ok" }, identity)
+      questions_for(raw_event.occurrences.includes(:normalized_denial).map(&:normalized_denial).select { |denial| denial.status == "ok" }, identity)
     end
     persist(questions)
   end

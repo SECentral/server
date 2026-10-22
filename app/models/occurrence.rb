@@ -1,4 +1,7 @@
 class Occurrence < ApplicationRecord
+  # Keep corrected interpretations out of live counts while retaining historical URLs.
+  default_scope { where(superseded_at: nil) }
+
   belongs_to :organization
   belongs_to :host
   belongs_to :host_snapshot, optional: true

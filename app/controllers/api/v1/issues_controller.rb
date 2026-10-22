@@ -41,7 +41,7 @@ class Api::V1::IssuesController < Api::V1::BaseController
     finding_counts = host_explanations.flat_map { |host| host[:occurrence_diagnoses] }
       .flat_map { |item| item[:findings].empty? ? [ "unexplained" ] : item[:findings].map { |finding| finding[:kind] } }.tally
     host_explanations = host_explanations.map { |host| issue_host_explanation(host) }
-    summary = intelligence.slice(:affected_hosts, :occurrence_time, :resource_summary)
+    summary = intelligence.slice(:affected_hosts, :occurrence_time, :resource_summary, :observation_summary)
     summary[:paths] = intelligence[:paths].first(3)
     summary[:names] = intelligence[:names].first(3)
     summary[:resource_summary].merge!(path_count: intelligence[:paths].size, name_count: intelligence[:names].size,
@@ -51,6 +51,7 @@ class Api::V1::IssuesController < Api::V1::BaseController
     investigation = IssueInvestigation.call(issue, analyzer: analyzer)
     render json: {
       issue: IssueDetailSerializer.call(issue),
+      related_activity: RelatedIssueActivity.call(issue),
       intelligence: summary,
       finding_coverage: finding_counts,
       findings: displayed_findings,

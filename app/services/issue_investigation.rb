@@ -7,7 +7,7 @@ class IssueInvestigation
     filesystem = %w[file dir lnk_file fifo_file chr_file blk_file sock_file].include?(issue.target_class)
     mismatch = findings.find { |finding| finding[:kind] == "file_context_mismatch" }
     occurrence = occurrences.find { |item| item.id == mismatch&.dig(:occurrence_id) && absolute_paths(item).include?(mismatch[:path]) }
-    occurrence ||= occurrences.find { |item| absolute_paths(item).one? } if filesystem
+    occurrence ||= occurrences.reverse.find { |item| absolute_paths(item).one? } if filesystem
     occurrence ||= occurrences.find { |item| item.id == findings.first&.dig(:occurrence_id) } || occurrences.first
     return {} unless occurrence
 

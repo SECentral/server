@@ -1,5 +1,5 @@
 class ProcessRawEvent
-  NORMALIZATION_VERSION = 1
+  NORMALIZATION_VERSION = 2
 
   def self.call(raw_event)
     new(raw_event).call
@@ -14,18 +14,37 @@ class ProcessRawEvent
 
     @raw_event.host.with_lock do
       @raw_event.reload
+      old_occurrences = @raw_event.occurrences.includes(:normalized_denial).to_a
+      replay = old_occurrences.any?
       results = AvcNormalizer.call(@raw_event.raw_audit_records.to_a)
+      current = []
       results.each_with_index do |result, ordinal|
         denial = PersistNormalizedDenial.call(@raw_event, result, ordinal: ordinal, normalization_version: NORMALIZATION_VERSION)
-        persist_occurrence(denial, result)
+        # Reuse a single unchanged interpretation so its URLs and reviews survive.
+        previous = old_occurrences.find do |item|
+          original = item.normalized_denial
+          results.one? && original.attributes.symbolize_keys.slice(:source_context, :target_context, :target_class, :permissions) ==
+            result.slice(:source_context, :target_context, :target_class, :permissions)
+        end
+        current << persist_occurrence(denial, result, previous: previous, replay: replay)
+      end
+      current_ids = current.map(&:id)
+      superseded = old_occurrences.reject { |item| current_ids.include?(item.id) }
+      superseded.each { |item| item.update!(superseded_at: Time.current) }
+      issues = Issue.where(id: superseded.filter_map(&:issue_id).uniq).order(:id)
+      issues.each do |issue|
+        issue.with_lock do
+          issue.update_columns(occurrences_count: issue.occurrences.count)
+          issue.refresh_from_signatures!
+        end
       end
     end
   end
 
   private
 
-  def persist_occurrence(denial, result)
-    occurrence = denial.occurrence || Occurrence.new
+  def persist_occurrence(denial, result, previous:, replay:)
+    occurrence = denial.occurrence || previous || Occurrence.new
     occurrence.organization = @raw_event.organization
     occurrence.host = @raw_event.host
     occurrence.host_snapshot = @raw_event.host_snapshot
@@ -45,7 +64,7 @@ class ProcessRawEvent
         signature.permissions = result.fetch(:permissions).uniq.sort if signature.fingerprint_version == 3
         signature.first_seen_at = [signature.first_seen_at, occurrence.occurred_at].compact.min
         signature.last_seen_at = [signature.last_seen_at, occurrence.occurred_at].compact.max
-        if occurrence.new_record? && signature.status == "resolved"
+        if occurrence.new_record? && !replay && signature.status == "resolved"
           signature.status = "open"
           signature.reopened_at = Time.current
           signature.regressions_count += 1

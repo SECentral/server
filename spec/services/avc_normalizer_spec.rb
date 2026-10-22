@@ -39,11 +39,38 @@ RSpec.describe AvcNormalizer do
 
   it "accepts USER_AVC records and combines raw records" do
     records = [
-      'audit(100.000:7): user_avc: denied { read } for scontext=system_u:system_r:httpd_t:s0',
-      'tcontext=system_u:object_r:default_t:s0 tclass=file'
+      'type=USER_AVC audit(100.000:7): denied { read } for scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:default_t:s0 tclass=file',
+      'type=SYSCALL syscall=257 success=no exit=-13'
     ]
 
     expect(described_class.call(records).first).to include(status: "ok", permissions: ["read"])
+  end
+
+  it "keeps directory and file decisions in one permissive syscall separate" do
+    records = [
+      'type=AVC denied { write } name="db" scontext=u:r:mysqld_t:s0 tcontext=u:object_r:var_t:s0 tclass=dir permissive=1',
+      'type=AVC denied { add_name } name="marker" scontext=u:r:mysqld_t:s0 tcontext=u:object_r:var_t:s0 tclass=dir permissive=1',
+      'type=AVC denied { create } name="marker" scontext=u:r:mysqld_t:s0 tcontext=system_u:object_r:var_t:s0 tclass=file permissive=1',
+      'type=AVC denied { read write open } path="/srv/db/marker" scontext=u:r:mysqld_t:s0 tcontext=system_u:object_r:var_t:s0 tclass=file permissive=1',
+      'type=SYSCALL syscall=257 success=yes exit=3 comm="mariadbd" exe="/usr/libexec/mariadbd"',
+      'type=PATH name="/unrelated" obj=u:object_r:other_t:s0'
+    ]
+    results = described_class.call(records)
+    expect(results.map { |r| [r[:target_class], r[:permissions]] }).to eq([
+      ["dir", ["write"]], ["dir", ["add_name"]], ["file", ["create"]], ["file", %w[read write open]]
+    ])
+    expect(results.map { |r| r[:target_paths] }).to eq([[], [], [], ["/srv/db/marker"]])
+    expect(results.map { |r| r[:avc_record_position] }).to eq([0, 1, 2, 3])
+    expect(results).to all(include(permissive: true, syscall_evidence: [ { "syscall" => "257", "success" => "yes", "exit" => "3" } ]))
+  end
+
+  it "does not borrow missing identity or permissive state from another AVC" do
+    results = described_class.call([
+      'type=AVC denied { read } scontext=u:r:a_t:s0',
+      'type=AVC denied { write } scontext=u:r:b_t:s0 tcontext=u:object_r:c_t:s0 tclass=file permissive=1'
+    ])
+    expect(results.first).to include(status: "ungroupable", missing: include("tcontext", "tclass"))
+    expect(results.last).to include(source_type: "b_t", permissions: ["write"], permissive: true)
   end
 
   it "returns an explicit ungroupable result for incomplete AVC data" do

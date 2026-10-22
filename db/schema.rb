@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_20_000001) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_22_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -262,6 +262,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_20_000001) do
     t.bigint "raw_event_id", null: false
     t.datetime "updated_at", null: false
     t.bigint "issue_signature_id"
+    t.datetime "superseded_at"
     t.index ["host_id"], name: "index_occurrences_on_host_id"
     t.index ["host_snapshot_id"], name: "index_occurrences_on_host_snapshot_id"
     t.index ["issue_id"], name: "index_occurrences_on_issue_id"

@@ -1,7 +1,7 @@
 class PersistNormalizedDenial
   OWNED_DETAIL_KEYS = %w[
     missing target_evidence network_evidence process_evidence syscall_evidence
-    permissive enforcement_mode event_file_contexts policy_evaluations evidence_provenance
+    permissive enforcement_mode event_file_contexts policy_evaluations evidence_provenance avc_record_position
   ].freeze
 
   def self.call(raw_event, result, ordinal:, normalization_version:)
@@ -26,6 +26,7 @@ class PersistNormalizedDenial
   def self.normalized_details(raw_event, result)
     {
       "missing" => result[:missing] || [],
+      "avc_record_position" => result[:avc_record_position],
       "target_evidence" => result[:target_evidence] || { path_fields: [], filesystem_paths: [], object_names: [] },
       "network_evidence" => result[:network_evidence] || { dest_fields: [], dport_fields: [], lport_fields: [], proto_fields: [], bind_port_fields: [], operations: [] },
       "process_evidence" => result[:process_evidence] || { pids: [], commands: [], executables: [], source_contexts: [] },

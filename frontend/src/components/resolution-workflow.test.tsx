@@ -181,6 +181,20 @@ describe("Evidence-driven resolution UI", () => {
     expect(resolutionResources(state)).toHaveLength(2);
   });
 
+  it("keeps evidenced file resources navigable without a remedy and names other filesystem object classes", () => {
+    const state = { ...initial(), candidates: [], file_investigations: [
+      { host_id: 1, hostname: "db-enforcing", occurrence_id: 11, occurred_at: "2026-10-22T15:05:36Z", path: "/srv/db/ibdata1", object_class: "file", observed_type: "var_t" },
+      { host_id: 2, hostname: "db-permissive", occurrence_id: 12, occurred_at: "2026-10-22T15:05:36Z", path: "/srv/db/mysql/plugin.frm", object_class: "file", observed_type: "var_t" }
+    ] };
+    const resources = resolutionResources(state);
+    expect(resources).toHaveLength(2);
+    expect(resources.every((resource) => resource.candidates.length === 0)).toBe(true);
+    expect(activeResolutionResource(state, "1:/srv/db/ibdata1")?.source?.occurrence_id).toBe(11);
+    const source = { host_id: 3, hostname: "db", occurrence_id: 13, occurred_at: "2026-10-22T15:05:36Z", path: null, object_class: "dir", observed_type: "var_t" };
+    expect(resolutionResources(state, source)[0].label).toBe("Unidentified directory · db");
+    expect(resolutionResources(state, { ...source, object_class: "sock_file" })[0].label).toBe("Unidentified Unix socket · db");
+  });
+
   it("identifies a basename-only file without borrowing a known or operator-attested path", () => {
     const unknown = { ...candidate, id: "unknown-file", requires_home_content_review: true, home_content_path: null,
       evidence_basis: { occurrence_id: 12, home_content_names: ["page.html"], home_content_review: { path: "/var/www/html/page.html", confirmed: true } } };

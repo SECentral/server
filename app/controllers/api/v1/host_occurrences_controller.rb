@@ -42,7 +42,7 @@ class Api::V1::HostOccurrencesController < Api::V1::BaseController
 
   def show
     host = current_organization.hosts.find(params[:id])
-    occurrence = host.occurrences.where(organization: current_organization)
+    occurrence = host.occurrences.unscope(where: :superseded_at).where(organization: current_organization)
       .includes(:host, :issue, :host_snapshot, :normalized_denial, raw_event: :raw_audit_records).find(params[:occurrence_id])
     render json: OccurrenceDetailSerializer.call(occurrence, guidance: occurrence_guidance(occurrence))
   end
@@ -50,7 +50,7 @@ class Api::V1::HostOccurrencesController < Api::V1::BaseController
   private
 
   def occurrence_guidance(occurrence)
-    return nil unless occurrence.issue
+    return nil unless occurrence.issue && !occurrence.superseded_at
 
     guidance = InvestigationGuidance.call(issue: occurrence.issue, occurrence: occurrence)
     guidance[:checks].each { |check| check[:command] = InvestigationCommandRenderer.call(check) }

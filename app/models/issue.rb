@@ -16,7 +16,14 @@ class Issue < ApplicationRecord
     occurrences.count
   end
 
-  def set_disposition!(new_disposition, note: nil, signature_ids: signatures.ids)
+  def active_signatures
+    current = occurrences.where.not(issue_signature_id: nil).select(:issue_signature_id)
+    retired = Occurrence.unscoped.where(issue_id: id).where.not(superseded_at: nil)
+      .where.not(issue_signature_id: nil).where.not(issue_signature_id: current).select(:issue_signature_id)
+    signatures.where.not(id: retired)
+  end
+
+  def set_disposition!(new_disposition, note: nil, signature_ids: active_signatures.ids)
     raise ArgumentError, "invalid issue disposition" unless DISPOSITIONS.include?(new_disposition)
 
     with_lock do
@@ -25,7 +32,7 @@ class Issue < ApplicationRecord
     end
   end
 
-  def transition_to!(new_status, signature_ids: signatures.ids)
+  def transition_to!(new_status, signature_ids: active_signatures.ids)
     raise ArgumentError, "invalid issue status" unless STATUSES.include?(new_status)
 
     with_lock do
@@ -35,7 +42,7 @@ class Issue < ApplicationRecord
   end
 
   def refresh_from_signatures!
-    items = signatures.reload.to_a
+    items = active_signatures.to_a
     return if items.empty?
 
     state = items.any? { |item| item.status == "open" } ? "open" : items.all? { |item| item.status == "ignored" } ? "ignored" : "resolved"
@@ -52,7 +59,7 @@ class Issue < ApplicationRecord
   def reviewed_signatures(ids)
     raise ArgumentError, "Select at least one reviewed signature" unless ids.is_a?(Array) && ids.any? && ids.all? { |id| id.is_a?(Integer) && id.positive? }
 
-    selected = signatures.where(id: ids.uniq).to_a
+    selected = active_signatures.where(id: ids.uniq).to_a
     raise ArgumentError, "Signature does not belong to this issue" unless selected.size == ids.uniq.size
 
     selected

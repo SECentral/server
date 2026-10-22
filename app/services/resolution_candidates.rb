@@ -55,7 +55,17 @@ class ResolutionCandidates
       end
       candidate
     end
-    @result = { candidates: candidates, rejected_candidates: @rejected.uniq, observed_access: observed_access,
+    file_investigations = occurrences.values.filter_map do |occurrence|
+      denial = occurrence.normalized_denial
+      next unless %w[file dir lnk_file fifo_file chr_file blk_file sock_file].include?(denial.target_class)
+
+      paths = Array(denial.details.dig("target_evidence", "filesystem_paths"))
+      next unless paths.one? && paths.first.start_with?("/") && !paths.first.match?(/[\0\r\n]/) && Pathname.new(paths.first).cleanpath.to_s == paths.first
+
+      { host_id: occurrence.host_id, hostname: occurrence.host.hostname, occurrence_id: occurrence.id,
+        occurred_at: occurrence.occurred_at, path: paths.first, object_class: denial.target_class, observed_type: denial.target_type }
+    end.uniq { |item| item.values_at(:host_id, :path) }.first(50)
+    @result = { candidates: candidates, rejected_candidates: @rejected.uniq, observed_access: observed_access, file_investigations: file_investigations,
       port_investigations: ports[:investigations] }
   end
 

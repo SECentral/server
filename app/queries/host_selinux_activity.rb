@@ -21,7 +21,7 @@ class HostSelinuxActivity
     raise ArgumentError, "limit requires numbered pagination" unless limit.nil?
     return response(project(relation.where(id: relation.find(event_id).id))) if event_id
     if occurrence_id
-      occurrence = @host.occurrences.includes(:raw_event).find(occurrence_id)
+      occurrence = @host.occurrences.unscope(where: :superseded_at).includes(:raw_event).find(occurrence_id)
       return response([]) if occurrence.host_snapshot_id && occurrence.raw_event.checkpoint_invalidated_fields.empty?
 
       raw = occurrence.raw_event
@@ -134,7 +134,7 @@ class HostSelinuxActivity
           AND (r.audit_timestamp, r.audit_sequence) > (e.audit_timestamp, e.audit_sequence)
         ORDER BY r.audit_timestamp, r.audit_sequence LIMIT 1) following ON true
       LEFT JOIN LATERAL (SELECT count(*) FROM occurrences o JOIN raw_events r ON r.id = o.raw_event_id
-        WHERE e.transition_type IS NOT NULL AND o.host_id = e.host_id
+         WHERE e.transition_type IS NOT NULL AND o.host_id = e.host_id AND o.superseded_at IS NULL
           AND (o.host_snapshot_id IS NULL OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(r.checkpoint_invalidated_fields) f
             WHERE f = ANY(#{CheckpointTrust.transition_fields_sql('e.transition_type')})))
           AND r.boot_id = e.boot_id AND r.category = 'avc'

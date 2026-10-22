@@ -1,4 +1,5 @@
 import {
+  Alert,
   Card,
   CardBody,
   CardTitle,
@@ -102,6 +103,9 @@ export function OccurrenceInvestigation({ occurrence }: { occurrence: Occurrence
   const tab = requestedTab === "evidence" || requestedTab === "normalized" ? requestedTab : "summary";
   return (
     <div className="occurrence-investigation">
+      {occurrence.superseded_at && <Alert variant="warning" isInline title="Historical interpretation superseded">
+        Reprocessing replaced this interpretation. It is retained for evidence and review history, but excluded from current counts and change guidance.
+      </Alert>}
       <Tabs activeKey={tab} onSelect={(_event, key) => setParams((previous) => {
         const next = new URLSearchParams(previous);
         if (key === "summary") next.delete("tab");

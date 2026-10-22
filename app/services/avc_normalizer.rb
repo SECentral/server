@@ -12,22 +12,36 @@ class AvcNormalizer
   end
 
   def call
-    parsed = @records.map { |record| parse_record(record) }
+    parsed = @records.each_with_index.map { |record, index| parse_record(record).merge(position: record.respond_to?(:position) ? record.position : index) }
     avc_records = parsed.select { |record| AVC_TYPES.include?(record[:type_name]) }
     return [{ status: "ungroupable", missing: ["avc"] }] if avc_records.empty?
 
     supplemental = parsed.reject { |record| AVC_TYPES.include?(record[:type_name]) }
-    fields = avc_records.map { |record| record[:fields] }.reduce({}) { |combined, record| combined.merge(record) }
+    avc_records.map do |avc|
+      supporting = supplemental.select do |record|
+        next true if avc_records.one? || record[:type_name] != "PATH"
+
+        identity = avc[:fields]
+        identity["dev"].present? && identity["ino"].present? &&
+          record[:fields]["dev"] == identity["dev"] && record[:fields]["inode"] == identity["ino"]
+      end
+      normalize(avc, supporting)
+    end
+  end
+
+  def normalize(avc, supplemental)
+    parsed = [avc] + supplemental
+    fields = avc[:fields].dup
     supplemental.each do |record|
       record[:fields].each { |key, value| fields[key] ||= value if %w[comm exe].include?(key) }
     end
 
     missing = REQUIRED.reject { |key| fields[key] }
-    permissions = avc_records.flat_map { |record| record[:permissions] }.uniq
+    permissions = avc[:permissions].uniq
     missing << "permissions" if permissions.empty?
     missing << "source_type" unless context_type(fields["scontext"])
     missing << "target_type" unless context_type(fields["tcontext"])
-    return [{ status: "ungroupable", missing: missing.uniq }] if missing.any?
+    return { status: "ungroupable", missing: missing.uniq } if missing.any?
 
     target_evidence = parsed.each_with_object({ path_fields: [], filesystem_paths: [], object_names: [] }) do |record, evidence|
       evidence[:path_fields].concat(record[:path_fields])
@@ -51,7 +65,7 @@ class AvcNormalizer
       evidence["source_contexts"].concat(Array(record_fields["scontext"]))
     end.transform_values(&:uniq)
 
-    [{
+    {
       status: "ok",
       source_context: fields["scontext"],
       source_type: context_type(fields["scontext"]),
@@ -70,8 +84,9 @@ class AvcNormalizer
       target_evidence: target_evidence,
       network_evidence: network_evidence,
       process_evidence: process_evidence,
-       evidence_provenance: parsed.flat_map { |record| record[:provenance] }.uniq
-    }]
+        evidence_provenance: parsed.flat_map { |record| record[:provenance] }.uniq,
+        avc_record_position: avc[:position]
+    }
   end
 
   def activity_identity
@@ -82,6 +97,17 @@ class AvcNormalizer
     identity = identities.first
     return unless %w[pid dev ino scontext tcontext tclass].all? { |key| identity[key].present? }
     return unless identity["pid"].match?(/\A[1-9]\d*\z/) && identity["ino"].match?(/\A[1-9]\d*\z/)
+
+    identity
+  end
+
+  def process_identity
+    syscalls = @records.map { |record| parse_record(record) }.select { |record| record[:type_name] == "SYSCALL" }
+    return unless syscalls.one?
+
+    identity = syscalls.sole[:fields].slice("pid", "exe", "subj")
+    return unless identity.size == 3 && identity.values.all?(&:present?) && identity["pid"].match?(/\A[1-9]\d*\z/) &&
+      identity["exe"].start_with?("/") && context_type(identity["subj"])
 
     identity
   end

@@ -334,8 +334,8 @@ RSpec.describe "Issues API", type: :request do
     body = JSON.parse(response.body)
     guidance = body.fetch("triage_guidance")
     expect(body.dig("intelligence", "resource_summary", "path_count")).to eq(3)
-    expect(guidance).to include("path" => paths.last, "path_count" => 1,
-      "recursive_directory" => "/var/www/html-other", "recursive_path_count" => 1)
+    expect(guidance).to include("path" => paths.first, "path_count" => 1,
+      "recursive_directory" => "/var/www/html", "recursive_path_count" => 1)
     expect(guidance).not_to have_key("occurrence_count")
     expect(guidance).not_to have_key("expected_type")
   end
@@ -901,6 +901,7 @@ RSpec.describe "Issues API", type: :request do
     first = create_occurrence(issue, "host-agreement")
     configure_file_context_occurrence(first, context: "system_u:object_r:user_home_t:s0", expected_context: "system_u:object_r:user_home_t:s0")
     second = create_occurrence(issue, "host-uninspected", 2)
+    first.update!(occurred_at: second.occurred_at + 10.seconds)
     second.normalized_denial.update!(target_type: "user_home_t", target_context: "system_u:object_r:user_home_t:s0", details: { "target_evidence" => { "filesystem_paths" => ["/srv/app/data"] } })
     get "/api/v1/issues/#{issue.id}"
     body = JSON.parse(response.body)

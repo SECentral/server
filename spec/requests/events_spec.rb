@@ -1093,11 +1093,11 @@ RSpec.describe "Events API", type: :request do
 
     expect(response).to have_http_status(:accepted)
     issue = Issue.sole
-    expect(issue).to have_attributes(permissions: %w[map open read], occurrences_count: 3)
+    expect(issue).to have_attributes(permissions: %w[map open read], occurrences_count: 4)
     expect(issue.occurrences.distinct.count(:host_id)).to eq(2)
-    expect(issue.signatures.pluck(:permissions)).to contain_exactly(["read"], %w[open read], ["map"])
-    expect(NormalizedDenial.pluck(:permissions)).to contain_exactly(["read"], %w[read open], ["map"])
-    expect(NormalizedDenial.pluck(:details).map { |details| details["enforcement_mode"] }).to contain_exactly("enforcing", "permissive", "permissive")
+    expect(issue.signatures.pluck(:permissions)).to contain_exactly(["read"], ["open"], ["map"])
+    expect(NormalizedDenial.pluck(:permissions)).to contain_exactly(["read"], ["read"], ["open"], ["map"])
+    expect(NormalizedDenial.pluck(:details).map { |details| details["enforcement_mode"] }).to contain_exactly("enforcing", "permissive", "permissive", "permissive")
     expect(RawAuditRecord.where(record_type: 1400).count).to eq(4)
   end
 

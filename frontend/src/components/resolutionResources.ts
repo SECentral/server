@@ -27,6 +27,10 @@ export function resolutionResources(workflow: ResolutionWorkflow, source?: Sourc
     label: `${port.protocol.toUpperCase()}/${port.port ?? "port not recorded"} · ${port.operation === "name_bind" ? "Local bind" : "Outbound connect"} · ${port.hostname ?? `Host ${port.host_id}`}`,
     port, candidates: []
   }));
+  for (const item of workflow.file_investigations ?? []) {
+    resources.push({ key: `${item.host_id}:${item.path}`, label: `${item.path} · ${item.hostname ?? `Host ${item.host_id}`}`,
+      path: item.path, source: item, candidates: [] });
+  }
   for (const candidate of workflow.candidates) {
     const basis = candidate.evidence_basis;
     const path = candidateFilePath(candidate);
@@ -46,7 +50,10 @@ export function resolutionResources(workflow: ResolutionWorkflow, source?: Sourc
     const key = `${source.host_id}:${source.path ?? `policy:${source.occurrence_id}`}`;
     const existing = resources.find((resource) => resource.key === key);
     if (existing) existing.source = source;
-    else resources.unshift({ key, label: `${source.path ?? "Unidentified file"} · ${source.hostname ?? `Host ${source.host_id}`}`, path: source.path ?? undefined, source, candidates: [] });
+    else {
+      const noun = source.object_class === "dir" ? "directory" : source.object_class === "sock_file" ? "Unix socket" : "file";
+      resources.unshift({ key, label: `${source.path ?? `Unidentified ${noun}`} · ${source.hostname ?? `Host ${source.host_id}`}`, path: source.path ?? undefined, source, candidates: [] });
+    }
   }
   return resources;
 }

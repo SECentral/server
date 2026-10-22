@@ -60,6 +60,21 @@ class IssueIntelligence
       process_evidence: rows.flat_map { |row| [ row[2].to_h.fetch("process_evidence", {}) ] }.then { |values| merge_process_evidence(values) },
       expected_context_observations: expected_context_observations(rows),
       affected_hosts: @issue.occurrences.distinct.count(:host_id),
+      observation_summary: rows.group_by(&:first).map do |host_id, items|
+        events = items.uniq { |row| row[8] }
+        outcomes = events.map do |row|
+          syscalls = Array(row[2]["syscall_evidence"])
+          if syscalls.any? { |s| %w[no false 0].include?(s["success"].to_s) }
+            "failed"
+          elsif syscalls.any? && syscalls.all? { |s| %w[yes true 1].include?(s["success"].to_s) }
+            "succeeded"
+          else
+            "unknown"
+          end
+        end.tally
+        { host_id: host_id, hostname: items.first[1], occurrences: items.size, audit_events: events.size,
+          modes: items.map { |row| row[2].fetch("enforcement_mode", "unknown") }.tally, syscall_outcomes: outcomes }
+      end,
       occurrence_time: {
         affected_occurrences: @issue.occurrences.count,
         affected_hosts: @issue.occurrences.distinct.count(:host_id),

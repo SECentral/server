@@ -576,6 +576,26 @@ export function IssueDetail() {
       </section></ExpandableSection>}
 
       <Card isCompact className="issue-fleet-occurrences"><CardBody>
+      {!!intelligence.observation_summary?.length && <section aria-label="Recorded outcomes" className="pf-v6-u-mb-lg">
+        <h2>Recorded outcomes</h2>
+        <p>Permissive decisions are recorded without SELinux blocking the operation. Syscall success is not proof of application success; counts can include retries and shutdown activity.</p>
+        <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Host outcome comparison"><Thead><Tr><Th>Host</Th><Th>Occurrences / audit events</Th><Th>AVC enforcement</Th><Th>Syscall outcomes by event</Th></Tr></Thead><Tbody>
+          {intelligence.observation_summary.map((item) => <Tr key={item.host_id}>
+            <Td dataLabel="Host"><Link to={`/hosts/${item.host_id}`}>{item.hostname ?? `Host ${item.host_id}`}</Link></Td>
+            <Td dataLabel="Occurrences / audit events">{item.occurrences} occurrence{item.occurrences === 1 ? "" : "s"} / {item.audit_events} audit event{item.audit_events === 1 ? "" : "s"}</Td>
+            <Td dataLabel="AVC enforcement">{Object.entries(item.modes).map(([mode, count]) => `${displayState(mode)}: ${count}`).join(" · ")}</Td>
+            <Td dataLabel="Syscall outcomes by event">{Object.entries(item.syscall_outcomes).map(([outcome, count]) => `${displayState(outcome)}: ${count}`).join(" · ")}</Td>
+          </Tr>)}
+        </Tbody></Table>
+      </section>}
+      {!!detailQuery.data.related_activity?.length && <section aria-label="Related issue activity" className="pf-v6-u-mb-lg">
+        <h2>Related issue activity</h2>
+        <p>Bounded recent evidence links, not a shared diagnosis, remedy or lifecycle decision. Process-window links do not establish a process lifetime or common root cause.</p>
+        <ul>{detailQuery.data.related_activity.map((item) => <li key={`${item.issue_id}:${item.host_id}`}>
+          <Link to={`/issues/${item.issue_id}`}>Issue #{item.issue_id}</Link> · <code>{item.target_type}:{item.target_class}</code> · {item.hostname ?? `Host ${item.host_id}`} · {item.basis === "same_audit_event" ? "Same audit event" : "Same host, boot, PID, executable and subject context within 2 seconds"}.
+          {" "}<Link to={`/hosts/${item.host_id}/occurrences/${item.source_occurrence_id}`}>This issue's example</Link> ({formatUtc(item.source_occurred_at)}) ↔ <Link to={`/hosts/${item.host_id}/occurrences/${item.occurrence_id}`}>Related example</Link> ({formatUtc(item.occurred_at)}).
+        </li>)}</ul>
+      </section>}
       <FleetSection
         hostExplanations={host_explanations}
         fleet={fleet_explanation}
