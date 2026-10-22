@@ -161,6 +161,36 @@ RSpec.describe PortMappingGuidance do
     expect(result(issue)[:proposals].map { |proposal| proposal[:basis][:target_port_type] }).to contain_exactly("http_port_t", "http_cache_port_t")
   end
 
+  it "explains a conditional Boolean-plus-mapping route but only proposes the mapping after refreshed state supports it" do
+    issue, _, host, snapshot, fact = port_fixture(operation: "name_connect")
+    rules = [
+      ["allow httpd_t http_port_t:tcp_socket name_connect; [ httpd_can_network_relay ]:True", ["http_port_t"]],
+      ["allow httpd_t port_type:tcp_socket name_connect; [ httpd_can_network_connect ]:True", ["http_port_t", "unreserved_port_t"]],
+      ["allow httpd_t http_port_t:tcp_socket name_connect; [ httpd_graceful_shutdown ]:False", ["http_port_t"]]
+    ]
+    fact.update!(matching_rules: rules.map(&:first), rule_details: rules.map { |rule, types| { "rule" => rule, "target_types" => types } } + [fact.rule_details.last])
+    replace_port_snapshot(host, snapshot, "selinux" => { "booleans" => [
+      { "name" => "httpd_can_network_relay", "status" => "observed", "current" => false },
+      { "name" => "httpd_can_network_connect", "status" => "observed", "current" => false },
+      { "name" => "httpd_graceful_shutdown", "status" => "unavailable", "current" => nil }
+    ] })
+
+    data = result(issue)
+    http = data[:investigations].sole[:types].find { |type| type[:type] == "http_port_t" }
+    expect(http).to include(state: "conditional", conditional_rules: contain_exactly(
+      include(expression: "httpd_can_network_relay", branch: "True", state: "inactive"),
+      include(expression: "httpd_can_network_connect", branch: "True", state: "inactive"),
+      include(expression: "httpd_graceful_shutdown", branch: "False", state: "unknown")
+    ))
+    expect(data[:proposals]).to be_empty
+
+    replace_port_snapshot(host, host.current_snapshot, "selinux" => { "booleans" => [
+      { "name" => "httpd_can_network_relay", "status" => "observed", "current" => true },
+      { "name" => "httpd_can_network_connect", "status" => "observed", "current" => false }
+    ] })
+    expect(result(issue)[:proposals].map { |proposal| proposal[:basis][:target_port_type] }).to contain_exactly("http_port_t")
+  end
+
   it "prioritizes retry when current conditional connect policy already supports the observed port type" do
     issue, _, host, snapshot, fact = port_fixture(operation: "name_connect")
     rule = "allow httpd_t port_type:tcp_socket name_connect; [ httpd_can_network_connect ]:True"

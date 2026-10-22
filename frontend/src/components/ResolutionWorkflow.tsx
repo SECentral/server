@@ -214,6 +214,11 @@ function PortTypeSelection({ investigation, candidates, workflow, busy, onSelect
       {selected.service ? <><p>{selected.service.description}</p><p>Reference: <a href={selected.service.source_url}>{selected.service.source}</a> · <code>{selected.service.source_entry}</code> · <a href={selected.service.macro_url}>Type declaration macro</a>. This association is reference knowledge, not a host observation.</p></>
         : <p>No reference service description is available for this type. Review service documentation; its name alone does not establish suitability.</p>}
       <p>{selected.explanation}</p>
+      {selected.state === "conditional" && selected.conditional_rules?.length ? <section aria-label="Conditional port policy paths">
+        <h5>Possible multi-step path · not a change recommendation</h5>
+        <p>A mapping to this type alone will not enable the permission while these policy conditions are inactive or unknown. If the confirmed service intent warrants one of these capabilities, review it separately; after any approved Boolean change, refresh host evidence and review the mapping again. A Boolean has host-wide effects; a port mapping affects every workload using this host/protocol/port.</p>
+        <ul>{selected.conditional_rules.map((condition) => <li key={condition.rule}><code>{condition.expression}</code> · {condition.branch} branch · {condition.state} at latest retained state <details><summary>Matching rule</summary><code>{condition.rule}</code></details></li>)}</ul>
+      </section> : null}
       {selected.existing_endpoints.length > 0 && <p>Observed endpoint/range examples: {selected.existing_endpoints.map((range) => `${investigation.protocol.toUpperCase()}/${range.start}${range.end !== range.start ? `–${range.end}` : ""}`).join(", ")}. Confirm ownership and application configuration before using an existing endpoint.</p>}
       {candidate ? candidate.id === workflow.intent?.candidate_id ? <p>This is the reviewed selection shown below; browsing does not replace its review.</p> : <ResolutionCandidateCard key={candidate.id} candidate={candidate} selected={false} freshness={workflow.freshness} busy={busy} onSelect={onSelect} />
         : <p>The retained prerequisites do not support a reviewed mapping change for this type. Continue investigating the evidence and alternatives above.</p>}

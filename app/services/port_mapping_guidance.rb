@@ -106,10 +106,16 @@ class PortMappingGuidance
       next unless type.match?(/\A[A-Za-z][A-Za-z0-9_]*\z/)
 
       supporting = rules.select { |rule| rule["target_types"].include?(type) }
-      active = supporting.select { |rule| active_rule?(rule, state, investigation[:operation]) }
+      conditional_rules = supporting.filter_map do |rule|
+        match = PolicyRuleEvaluator::RULE.match(rule["rule"].to_s)
+        next unless match && match[5]
+
+        { rule: rule["rule"], expression: match[5], branch: match[6], state: rule_state(rule, state, investigation[:operation]) }
+      end.uniq
+      active = supporting.select { |rule| rule_state(rule, state, investigation[:operation]) == "active" }
       { type: type, permission: investigation[:operation], state: active.any? ? "supported" : "conditional",
         explanation: active.any? ? "An applicable exact-policy rule supplies #{investigation[:operation]} for this type under the latest observed conditions; intent and other permission checks remain unknown." : "Matching rules require inactive or unobserved conditions. Changing a mapping alone does not activate these rules.",
-        existing_endpoints: ranges.select { |range| range[:type] == type }.first(3), active_rules: active,
+        conditional_rules: conditional_rules, existing_endpoints: ranges.select { |range| range[:type] == type }.first(3), active_rules: active,
         service: PortServiceDescriptions.for(type) }.compact
     end
     current_supported = current.map { |range| range[:type] }.uniq.one? && options.any? { |option| option[:state] == "supported" && current.any? { |range| range[:type] == option[:type] } }
@@ -182,14 +188,15 @@ class PortMappingGuidance
     nil
   end
 
-  def active_rule?(rule, state, operation)
+  def rule_state(rule, state, operation)
     match = PolicyRuleEvaluator::RULE.match(rule["rule"].to_s)
-    return false unless match && match[3] == @issue.target_class && match[4].delete("{}").split.include?(operation)
-    return true unless match[5]
+    return "unknown" unless match && match[3] == @issue.target_class && match[4].delete("{}").split.include?(operation)
+    return "active" unless match[5]
 
     values = Array(state["booleans"]).to_h { |boolean| [boolean["name"], boolean["status"] == "observed" ? boolean["current"] : nil] }
     value = PolicyEvaluation::BooleanExpression.call(match[5], values)
-    match[6] == "False" ? value == false : value == true
+    value = !value if match[6] == "False" && !value.nil?
+    value.nil? ? "unknown" : value ? "active" : "inactive"
   end
 
   def proposal(occurrence, investigation, option, fact, state, covering, policy_covering, stale)

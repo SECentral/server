@@ -1965,6 +1965,17 @@ components:
               permission: {type: string}
               state: {type: string, enum: [supported, conditional, no_op]}
               explanation: {type: string}
+              conditional_rules:
+                type: array
+                description: Exact matching conditional rules for this type and permission, evaluated against latest retained host Boolean observations. Policy paths are not recommendations.
+                items:
+                  type: object
+                  required: [rule, expression, branch, state]
+                  properties:
+                    rule: {type: string}
+                    expression: {type: string}
+                    branch: {type: string, enum: ['True', 'False']}
+                    state: {type: string, enum: [active, inactive, unknown]}
               existing_endpoints: {type: array, items: {$ref: "#/components/schemas/PortMappingRange"}}
               service: {$ref: "#/components/schemas/PortServiceDescription"}
     ResolutionWorkflow:

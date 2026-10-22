@@ -333,6 +333,15 @@ export type PortInvestigation = {
         permission: string;
         state: 'supported' | 'conditional' | 'no_op';
         explanation: string;
+        /**
+         * Exact matching conditional rules for this type and permission, evaluated against latest retained host Boolean observations. Policy paths are not recommendations.
+         */
+        conditional_rules?: Array<{
+            rule: string;
+            expression: string;
+            branch: 'True' | 'False';
+            state: 'active' | 'inactive' | 'unknown';
+        }>;
         existing_endpoints: Array<PortMappingRange>;
         service?: PortServiceDescription;
     }>;

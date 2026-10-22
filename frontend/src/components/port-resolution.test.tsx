@@ -344,6 +344,28 @@ describe("Port troubleshooting", () => {
     expect(screen.queryByRole("button", { name: "Review this change" })).not.toBeInTheDocument();
   });
 
+  it("explains the separate Boolean prerequisite before a conditional port mapping", async () => {
+    const conditionalHttp = { ...investigation.types[0], state: "conditional" as const,
+      conditional_rules: [
+        { rule: "allow httpd_t http_port_t:tcp_socket name_connect; [ httpd_can_network_relay ]:True", expression: "httpd_can_network_relay", branch: "True" as const, state: "inactive" as const },
+        { rule: "allow httpd_t port_type:tcp_socket name_connect; [ httpd_can_network_connect ]:True", expression: "httpd_can_network_connect", branch: "True" as const, state: "inactive" as const }
+      ] };
+    mount({ ...workflow(), candidates: [], port_investigations: [{ ...investigation, state: "blocked", reason: "All matching alternative rules require inactive conditions.", types: [conditionalHttp] }] });
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("What service should listen on this port?"), "http");
+    await user.selectOptions(screen.getByLabelText("Policy-supported port type"), "http_port_t");
+
+    const selected = screen.getByRole("region", { name: "Selected port type" });
+    expect(selected).toHaveTextContent("Possible multi-step path · not a change recommendation");
+    expect(selected).toHaveTextContent("A mapping to this type alone will not enable the permission");
+    expect(selected).toHaveTextContent("httpd_can_network_relay · True branch · inactive");
+    expect(selected).toHaveTextContent("httpd_can_network_connect · True branch · inactive");
+    expect(selected).toHaveTextContent("refresh host evidence and review the mapping again");
+    expect(selected).toHaveTextContent("a port mapping affects every workload using this host/protocol/port");
+    expect(within(selected).queryByRole("button", { name: "Review this change" })).not.toBeInTheDocument();
+    expect(selected).toHaveTextContent("The retained prerequisites do not support a reviewed mapping change");
+  });
+
   it.each(["stale", "already permitted"])("keeps %s evidence inspectable without exposing a new change", async (kind) => {
     const state: Workflow = kind === "stale" ? { ...workflow(), candidates: [{ ...candidate, status: "evidence_changed", unavailable_reason: "Host state is stale; refresh before review." }] }
       : { ...workflow(), candidates: [], port_investigations: [{ ...investigation, state: "no_change", reason: "Current policy already permits this operation; check runtime state and retry.", types: [{ ...investigation.types[0], state: "no_op" }] }] };
