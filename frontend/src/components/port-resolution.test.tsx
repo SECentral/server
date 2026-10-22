@@ -76,7 +76,7 @@ describe("Port troubleshooting", () => {
     expect(document.body.textContent).not.toContain("sha256:");
     const user = userEvent.setup();
     await user.selectOptions(screen.getByLabelText("Policy-supported port type"), "http_port_t");
-    expect(screen.getByRole("button", { name: "Choose intent" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Review this change" })).toBeVisible();
     expect(screen.queryByRole("button", { name: /Copy command: sudo semanage/ })).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.every((call) => call[1]?.method == null || call[1]?.method === "GET")).toBe(true);
   });
@@ -118,9 +118,9 @@ describe("Port troubleshooting", () => {
     expect(screen.getByRole("link", { name: "Fixture reference policy" })).toHaveAttribute("href", service.source_url);
     expect(screen.getByText(/Your stated service intent/)).toHaveTextContent("not observed host evidence");
     expect(screen.getByText(/Observed endpoint\/range examples:/)).toHaveTextContent("TCP/80");
-    await user.click(screen.getByRole("button", { name: "Choose intent" }));
+    await user.click(screen.getByRole("button", { name: "Review this change" }));
     expect(screen.getByText(candidate.intent_prompt)).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Confirm intent" }));
+    await user.click(screen.getByRole("button", { name: "Save reviewed plan" }));
     const reviewed = await screen.findByRole("region", { name: "Selected change plan" });
     const copy = within(reviewed).getByRole("button", { name: "Copy command: sudo semanage port -a -p tcp -t http_port_t 12345" });
     const badge = within(reviewed).getAllByText("Changes SELinux port mapping")[0];
@@ -136,7 +136,7 @@ describe("Port troubleshooting", () => {
     mount(state);
     expect(screen.getByRole("article", { name: "Port investigation" })).toHaveTextContent("service-specific range overlaps");
     expect(screen.getByRole("article", { name: "Port investigation" })).toHaveTextContent("Inventory coverage: effective partial");
-    expect(screen.queryByRole("button", { name: "Choose intent" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Review this change" })).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain("sudo semanage port");
   });
 
@@ -290,7 +290,7 @@ describe("Port troubleshooting", () => {
     expect(screen.getByRole("button", { name: "Switch to reviewed plan" })).toBeVisible();
   });
 
-  it("falls back from an invalid resource URL and searches a bounded selector for more than five investigations", async () => {
+  it("falls back from an invalid resource URL and uses one native selector for more than five investigations", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ host: { id: 1, hostname: "web-1" }, guidance: null }), { status: 200 })));
     const state = { ...workflow(), candidates: [], port_investigations: Array.from({ length: 8 }, (_, index) => ({ ...investigation, port: 12345 + index, occurrence_id: 11 + index })) };
     mount(state, undefined, "/issues/7?resource=removed-resource");
@@ -298,8 +298,8 @@ describe("Port troubleshooting", () => {
     const select = screen.getByRole("combobox", { name: "Active investigation resource" });
     expect(select).toHaveValue("1:tcp:12345:name_bind");
     const user = userEvent.setup();
-    await user.type(screen.getByRole("textbox", { name: "Search investigation resources" }), "12352");
-    expect(within(select).getAllByRole("option")).toHaveLength(2);
+    expect(screen.queryByRole("textbox", { name: "Search investigation resources" })).not.toBeInTheDocument();
+    expect(within(select).getAllByRole("option")).toHaveLength(8);
     await user.selectOptions(select, "1:tcp:12352:name_bind");
     expect(screen.getByRole("article", { name: "Port investigation" })).toHaveTextContent("TCP/12352");
     expect(screen.getByLabelText("Location")).toHaveTextContent("resource=1%3Atcp%3A12352%3Aname_bind");
@@ -325,7 +325,7 @@ describe("Port troubleshooting", () => {
     await user.type(screen.getByRole("textbox", { name: "Search policy-supported port types" }), "z_service_19");
     await user.selectOptions(screen.getByLabelText("Policy-supported port type"), "z_service_19_port_t");
     expect(screen.getByRole("region", { name: "Selected port type" })).toHaveTextContent("No reference service description is available");
-    expect(screen.getByRole("button", { name: "Choose intent" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Review this change" })).toBeEnabled();
     expect(screen.getByLabelText("What service should listen on this port?")).toHaveValue("");
     expect(document.querySelectorAll(".resolution-candidate-card")).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: "Show all policy types" }));
@@ -341,7 +341,7 @@ describe("Port troubleshooting", () => {
     const choices = within(screen.getByLabelText("Policy-supported port type"));
     expect(choices.getByRole("option", { name: /HTTP service — http_port_t/ })).toBeInTheDocument();
     expect(choices.queryByRole("option", { name: /http_cache_port_t/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Choose intent" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Review this change" })).not.toBeInTheDocument();
   });
 
   it.each(["stale", "already permitted"])("keeps %s evidence inspectable without exposing a new change", async (kind) => {
@@ -350,7 +350,7 @@ describe("Port troubleshooting", () => {
     mount(state);
     const user = userEvent.setup();
     await user.selectOptions(screen.getByLabelText("Policy-supported port type"), "http_port_t");
-    expect(screen.queryByRole("button", { name: "Choose intent" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Review this change" })).not.toBeInTheDocument();
     expect(screen.getByRole("article", { name: "Port investigation" })).toHaveTextContent(kind === "stale" ? "Host state is stale" : "already permits");
     expect(document.body.textContent).not.toContain("sudo semanage port");
   });

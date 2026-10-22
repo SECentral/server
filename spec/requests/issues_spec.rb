@@ -467,6 +467,11 @@ RSpec.describe "Issues API", type: :request do
     expect(body.dig("findings", 1, "diagnosis")).to include("operation" => "read", "policy_identity" => identity, "checkpoint_observed_at" => occurrence.raw_event.host_observed_at.iso8601(3))
     expect(body.dig("findings", 1, "diagnosis", "conditional_rules", 0, "rule")).to eq(rule)
     expect(body.dig("findings", 1, "diagnosis", "evidence").to_json).not_to include("execve")
+    scoped_findings = body.fetch("host_explanations").sole.fetch("diagnosis_groups").sole.fetch("findings")
+    expect(scoped_findings.map { |finding| finding["kind"] }).to eq(%w[file_context_mismatch conditional_allow_inactive])
+    expect(scoped_findings).to all(include("occurrence_id" => occurrence.id, "host_id" => occurrence.host_id))
+    expect(body.fetch("host_explanations").sole.fetch("diagnosis_groups").sole).to include("policy_identity_count" => 1,
+      "policy_provenance" => [include("policy_identity" => identity, "occurrence_id" => occurrence.id)])
 
     repeated = create_occurrence(issue, "read-repeat", 2, host: occurrence.host)
     repeated.update!(host_snapshot: occurrence.host_snapshot)

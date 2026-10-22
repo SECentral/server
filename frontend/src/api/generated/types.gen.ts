@@ -1843,6 +1843,10 @@ export type IssueHostExplanationSummary = {
         status: 'diagnosed' | 'insufficient_evidence';
         count: number;
         diagnosis: Diagnosis | null;
+        /**
+         * Independent findings for this group's representative occurrence, with their own host/occurrence provenance. These do not assert a cause for a different selected resource.
+         */
+        findings?: Array<Diagnosis>;
         sample_occurrence_ids: Array<number>;
         policy_identity_count: number;
         policy_provenance: Array<{

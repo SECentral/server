@@ -9,22 +9,35 @@ export function portResourceKey(port: Pick<Port, "host_id" | "protocol" | "port"
   return `${port.host_id}:${port.protocol}:${port.port ?? "unknown"}:${port.operation}`;
 }
 
+export function candidateFilePath(candidate: Candidate): string | null {
+  const path = candidate.evidence_basis.path ?? candidate.home_content_path ?? candidate.evidence_basis.home_content_path;
+  return typeof path === "string" && path.startsWith("/") ? path : null;
+}
+
+function unidentifiedResource(candidate: Candidate): string {
+  const basis = candidate.evidence_basis;
+  const names = Array.isArray(basis.home_content_names) ? basis.home_content_names.filter((name): name is string => typeof name === "string") : [];
+  if (candidate.requires_home_content_review || basis.object_class === "file") return `Unidentified file${names.length === 1 ? `: ${names[0]}` : ""} · occurrence #${basis.occurrence_id ?? "unknown"}`;
+  return `Policy review${typeof basis.boolean === "string" ? `: ${basis.boolean}` : ""}`;
+}
+
 export function resolutionResources(workflow: ResolutionWorkflow, source?: Source) {
-  const resources: { key: string; label: string; port?: Port; source?: Source; candidates: Candidate[] }[] = (workflow.port_investigations ?? []).map((port) => ({
+  const resources: { key: string; label: string; path?: string; port?: Port; source?: Source; candidates: Candidate[] }[] = (workflow.port_investigations ?? []).map((port) => ({
     key: portResourceKey(port),
     label: `${port.protocol.toUpperCase()}/${port.port ?? "port not recorded"} · ${port.operation === "name_bind" ? "Local bind" : "Outbound connect"} · ${port.hostname ?? `Host ${port.host_id}`}`,
     port, candidates: []
   }));
   for (const candidate of workflow.candidates) {
     const basis = candidate.evidence_basis;
+    const path = candidateFilePath(candidate);
     const port = resources.find((resource) => resource.port && resource.port.host_id === candidate.host_id &&
       (candidate.kind === "set_port_mapping"
         ? resource.port.protocol === basis.protocol && resource.port.port === basis.port && resource.port.operation === basis.operation
         : resource.port.occurrence_id === basis.occurrence_id));
-    const key = port?.key ?? `${candidate.host_id}:${basis.path ?? `policy:${basis.occurrence_id ?? "unknown"}`}`;
+    const key = port?.key ?? `${candidate.host_id}:${path ?? `policy:${basis.occurrence_id ?? "unknown"}`}`;
     let resource = resources.find((item) => item.key === key);
     if (!resource) {
-      resource = { key, label: `${basis.path ?? "Policy options"} · ${candidate.hostname ?? `Host ${candidate.host_id}`}`, candidates: [] };
+      resource = { key, label: `${path ?? unidentifiedResource(candidate)} · ${candidate.hostname ?? `Host ${candidate.host_id}`}`, path: path ?? undefined, candidates: [] };
       resources.push(resource);
     }
     resource.candidates.push(candidate);
@@ -33,14 +46,16 @@ export function resolutionResources(workflow: ResolutionWorkflow, source?: Sourc
     const key = `${source.host_id}:${source.path ?? `policy:${source.occurrence_id}`}`;
     const existing = resources.find((resource) => resource.key === key);
     if (existing) existing.source = source;
-    else resources.unshift({ key, label: `${source.path ?? "Identify file"} · ${source.hostname ?? `Host ${source.host_id}`}`, source, candidates: [] });
+    else resources.unshift({ key, label: `${source.path ?? "Unidentified file"} · ${source.hostname ?? `Host ${source.host_id}`}`, path: source.path ?? undefined, source, candidates: [] });
   }
   return resources;
 }
 
 export function activeResolutionResource(workflow: ResolutionWorkflow, requested: string | null, source?: NonNullable<IssueDetailResponse["operator_guidance"]>["source"]) {
   const resources = resolutionResources(workflow, source);
-  return resources.find((resource) => resource.key === requested) ?? resources.find((resource) => source && (resource.source?.occurrence_id === source.occurrence_id || resource.port?.occurrence_id === source.occurrence_id || resource.candidates.some((candidate) => candidate.host_id === source.host_id && (source.path ? candidate.evidence_basis.path === source.path : candidate.evidence_basis.occurrence_id === source.occurrence_id))))
+  return resources.find((resource) => resource.key === requested)
+    ?? resources.find((resource) => resource.candidates.some((candidate) => `${candidate.host_id}:policy:${candidate.evidence_basis.occurrence_id}` === requested))
+    ?? resources.find((resource) => source && (resource.source?.occurrence_id === source.occurrence_id || resource.port?.occurrence_id === source.occurrence_id || resource.candidates.some((candidate) => candidate.host_id === source.host_id && (source.path ? candidateFilePath(candidate) === source.path : candidate.evidence_basis.occurrence_id === source.occurrence_id))))
     ?? resources.find((resource) => resource.candidates.some((candidate) => candidate.id === workflow.intent?.candidate_id)) ?? resources[0];
 }
 
@@ -55,18 +70,20 @@ export function activeResourceFinding(detail: IssueDetailResponse, workflow: Res
   const group = groups.find((group) => group.diagnosis?.host_id === hostId && group.diagnosis?.occurrence_id === occurrenceId && occurrenceId != null);
   const diagnosis = group?.diagnosis ?? (detail.diagnosis?.occurrence_id === occurrenceId && detail.diagnosis?.host_id === hostId ? detail.diagnosis : null);
   const displayed = diagnosis ?? detail.diagnosis;
+  const scopedFindings = (group?.findings ?? detail.findings?.map((finding) => finding.diagnosis) ?? []).filter((finding) => finding.occurrence_id === displayed?.occurrence_id && finding.host_id === displayed?.host_id);
   return {
     diagnosis: displayed,
+    findings: scopedFindings.length ? scopedFindings : displayed ? [displayed] : [],
     count: group?.count ?? detail.findings?.find((finding) => finding.diagnosis.occurrence_id === displayed?.occurrence_id && finding.diagnosis.host_id === displayed?.host_id)?.occurrence_count,
     different: !!detail.diagnosis && !diagnosis && occurrenceId != null && (detail.diagnosis.occurrence_id !== occurrenceId || detail.diagnosis.host_id !== hostId)
   };
 }
 
 export function fileResourceLabel(resource: ReturnType<typeof resolutionResources>[number], resources: ReturnType<typeof resolutionResources>): string {
-  const path = resource.source?.path ?? resource.candidates[0]?.evidence_basis.path;
+  const path = resource.path;
   if (typeof path !== "string") return resource.label;
   const parts = path.split("/").filter(Boolean);
-  const otherPaths = resources.filter((other) => other.key !== resource.key).map((other) => other.source?.path ?? other.candidates[0]?.evidence_basis.path).filter((other): other is string => typeof other === "string");
+  const otherPaths = resources.filter((other) => other.key !== resource.key).map((other) => other.path).filter((other): other is string => typeof other === "string");
   let suffix = parts.at(-1) ?? "/";
   for (let length = 1; length <= parts.length; length++) {
     suffix = parts.slice(-length).join("/");

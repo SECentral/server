@@ -158,7 +158,7 @@ function detailPayload(scenario: Scenario, status: "open" | "resolved" | "ignore
       affected_hosts: fleetLive ? 3 : 1,
       paths: fleetLive ? ["/usr/bin/id", "/usr/bin/stat"] : basename ? [] : database ? ["/srv/secentral-s004-mariadb/ibdata1"] : execution ? ["/var/www/cgi-bin/secentral-s005-helper.sh"] : port ? [] : scenario === "missing-observation" ? ["/var/www/html/secentral-test.html"] : ["/var/www/html/secentral-test.html"],
       names: basename ? ["secentral-s001-basename-20260930"] : scenario === "missing-observation" ? [] : [],
-      occurrence_time: {}, fleet: {}
+      occurrence_time: {}, fleet: fleetLive ? { activity_hosts: 4, current_configuration_hosts: 4, hosts_with_occurrence: 3, hosts_without_occurrence: 1 } : { activity_hosts: 1, current_configuration_hosts: 1, hosts_with_occurrence: 1, hosts_without_occurrence: 0 }
     },
     diagnosis: issueDiagnosis as IssueDetailResponse["diagnosis"],
     host_explanations: (fleetLive ? [
@@ -551,7 +551,7 @@ describe("issue investigation", () => {
     expect(screen.getByLabelText("Suggested next step")).toHaveTextContent("Inspect the current file label");
     await waitFor(() => expect(screen.getByRole("region", { name: "Observed access" })).toHaveTextContent("/var/www/html/a file.txt"));
     expect(screen.getByRole("button", { name: "Copy command: restorecon -v -- '/var/www/html/a file.txt'" })).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Review Boolean change" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Review this change" })).not.toBeInTheDocument();
   });
 
   it("presents a correlated pair as one activity while keeping both audit events accessible", async () => {
@@ -726,6 +726,48 @@ describe("issue investigation", () => {
     expect(diagnosis).not.toHaveTextContent("blocked");
   });
 
+  it("shows independent label and policy findings for the same scoped event without borrowing another host's finding", async () => {
+    const payload = detailPayload("001");
+    const label = { ...payload.diagnosis!, permissions: ["entrypoint"] };
+    const policy = { ...diagnosisFor("004")!, host_id: 10, occurrence_id: 101, source_domain: "httpd_t", target_type: "user_home_t", permissions: ["entrypoint"] };
+    const foreign = { ...policy, host_id: 20, occurrence_id: 202, operation: "name_bind", lead: "Foreign policy evidence must not appear here." };
+    payload.diagnosis = label;
+    payload.host_explanations[0].diagnosis_groups[0].diagnosis = label;
+    payload.host_explanations[0].diagnosis_groups[0].findings = [label, foreign, policy];
+    payload.resolutions = { candidates: [], rejected_candidates: [], intent: null, freshness: null, history: [], change_plan: null,
+      observed_access: { occurrence_id: 101, host_id: 10, hostname: "web-1", actor: "runcon", source_type: "httpd_t", resource: label.path!,
+        target_type: "user_home_t", object_class: "file", permissions: ["entrypoint"], operation_label: "entrypoint", outcome: "DENIED", observed_at: "2026-09-30T16:26:25Z" } };
+    vi.stubGlobal("fetch", vi.fn(async () => response(200, payload)));
+    renderDetail();
+    const diagnosis = await screen.findByRole("region", { name: "Diagnosis" });
+    expect(within(diagnosis).getByRole("link", { name: /occurrence #101/ })).toHaveAttribute("href", "/hosts/10/occurrences/101");
+    expect(diagnosis).toHaveTextContent("Other occurrences can have different findings");
+    expect(within(diagnosis).getByRole("heading", { name: /Host-configured label/ })).toBeVisible();
+    expect(within(diagnosis).getByRole("region", { name: "Policy explanation" })).toHaveTextContent("no allow rule for this launch");
+    expect(diagnosis).not.toHaveTextContent("Foreign policy evidence");
+    expect(diagnosis).toHaveTextContent("Restoring the configured label does not establish that execution is appropriate or permitted");
+    expect(within(diagnosis).queryByRole("button", { name: /Copy command/ })).not.toBeInTheDocument();
+    const details = within(diagnosis).getByRole("button", { name: "Label observation details" });
+    expect(details).toHaveAttribute("aria-expanded", "false");
+    await userEvent.setup().click(details);
+    expect(within(diagnosis).getByText(label.expected_context_observed_at!)).toBeVisible();
+    expect(diagnosis).toHaveTextContent("not an inspection of the file's current label");
+  });
+
+  it("keeps a shadow_t policy finding separate from an unavailable configured-label comparison", async () => {
+    const payload = detailPayload("004");
+    payload.issue.source_type = "httpd_t";
+    payload.issue.target_type = "shadow_t";
+    payload.diagnosis = { ...payload.diagnosis!, source_domain: "httpd_t", target_type: "shadow_t", path: "/var/www/html/example.txt" };
+    vi.stubGlobal("fetch", vi.fn(async () => response(200, payload)));
+    renderDetail();
+    const diagnosis = await screen.findByRole("region", { name: "Diagnosis" });
+    expect(diagnosis).toHaveTextContent("The evaluated policy has no allow rule for checking metadata on this file labeled shadow_t");
+    expect(diagnosis).toHaveTextContent("Host-configured label: not established by this policy finding");
+    expect(within(diagnosis).queryByLabelText("AVC and host-configured label comparison")).not.toBeInTheDocument();
+    expect(within(diagnosis).queryByRole("button", { name: "Label observation details" })).not.toBeInTheDocument();
+  });
+
   it("001-A shows conditional-read evidence and the independent missing-path limitation without exposing provenance", async () => {
     const payload = detailPayload("basename");
     const finding = readFinding();
@@ -779,11 +821,11 @@ describe("issue investigation", () => {
 
     expect(await screen.findByRole("heading", { name: "Potential file-context mismatch" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Label SELinux used/ })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /Expected for this path/ })).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { name: /Host-configured label/ }).length).toBeGreaterThan(0);
     expect(screen.getByText("user_home_t", { selector: ".issue-context-type" })).toBeInTheDocument();
     expect(screen.getByText("httpd_sys_content_t", { selector: ".issue-context-type" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("/var/www/html/secentral-test.html");
-    expect(screen.getByText("Checked after the denial")).toBeInTheDocument();
+    expect(screen.getByText("Looked up after the denial")).toBeInTheDocument();
     expect(screen.getByText("At the denial")).toBeInTheDocument();
     expect(screen.getByText("Different types")).toBeInTheDocument();
     expect(screen.queryByText("unconfined_u:object_r:user_home_t:s0")).not.toBeInTheDocument();
@@ -958,8 +1000,50 @@ describe("issue investigation", () => {
     await screen.findByRole("heading", { level: 1, name: "runcon could not start /usr/bin/id." });
     expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContain("/api/v1/issues/1932/analysis");
     await user.click(screen.getByRole("button", { name: "Fleet correlations" }));
-    expect(await screen.findByText(/No fleet correlation is supported/)).toBeInTheDocument();
+    expect(await screen.findByText(/No supported policy-version, local file-context or custom-module correlation/)).toBeInTheDocument();
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain("/api/v1/issues/1932/analysis");
+  });
+
+  it("explains the missing current comparison cohort instead of offering empty analysis for historical affected hosts", async () => {
+    const payload = detailPayload("001");
+    payload.issue.affected_hosts = 2;
+    payload.fleet_explanation.affected_host_count = 2;
+    payload.intelligence.fleet = { activity_hosts: 1, current_configuration_hosts: 1, hosts_with_occurrence: 1, hosts_without_occurrence: 0 };
+    const fetchMock = vi.fn(async (url: string) => response(200, url.endsWith("/analysis") ? analysisPayload("001") : payload));
+    vi.stubGlobal("fetch", fetchMock);
+    renderDetail();
+    expect(await screen.findByText(/1 host currently has usable configuration evidence/)).toHaveTextContent("There are no comparison hosts without this issue");
+    expect(screen.queryByRole("button", { name: "Fleet correlations" })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.map(([url]) => url).some((url) => String(url).endsWith("/analysis"))).toBe(false);
+  });
+
+  it("offers lazy comparison with an unaffected cohort even when only one host has historical denials, retaining loading and error states", async () => {
+    const payload = detailPayload("001");
+    payload.intelligence.fleet = { activity_hosts: 2, current_configuration_hosts: 2, hosts_with_occurrence: 1, hosts_without_occurrence: 1 };
+    let finishAnalysis: (response: Response) => void = () => {};
+    const pendingAnalysis = new Promise<Response>((resolve) => { finishAnalysis = resolve; });
+    const fetchMock = vi.fn(async (url: string) => url.endsWith("/analysis") ? pendingAnalysis : response(200, payload));
+    vi.stubGlobal("fetch", fetchMock);
+    renderDetail();
+    const button = await screen.findByRole("button", { name: "Fleet correlations" });
+    expect(fetchMock.mock.calls.map(([url]) => url)).not.toContain("/api/v1/issues/7/analysis");
+    await userEvent.setup().click(button);
+    expect(screen.getByText("Checking supporting fleet evidence…")).toBeVisible();
+    finishAnalysis(response(503, { error: { message: "Comparison unavailable" } }));
+    expect(await screen.findByText("Fleet correlations could not be loaded.")).toBeVisible();
+    expect(screen.queryByText(/No supported policy-version/)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [{}, /current configuration and comparison-host counts are not available/],
+    [{ current_configuration_hosts: 0, hosts_with_occurrence: 0, hosts_without_occurrence: 0 }, /0 hosts currently have usable configuration evidence/]
+  ])("does not render missing or empty current fleet evidence as a successful negative correlation (%j)", async (fleet, explanation) => {
+    const payload = detailPayload("001");
+    payload.intelligence.fleet = fleet;
+    vi.stubGlobal("fetch", vi.fn(async () => response(200, payload)));
+    renderDetail();
+    expect(await screen.findByText(explanation)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Fleet correlations" })).not.toBeInTheDocument();
   });
 
   it("shows repeated occurrences as scan-friendly rows, then readable detail before raw evidence", async () => {

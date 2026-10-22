@@ -4801,6 +4801,11 @@ components:
                 oneOf:
                   - $ref: "#/components/schemas/Diagnosis"
                   - type: "null"
+              findings:
+                description: Independent findings for this group's representative occurrence, with their own host/occurrence provenance. These do not assert a cause for a different selected resource.
+                type: array
+                maxItems: 3
+                items: {$ref: "#/components/schemas/Diagnosis"}
               sample_occurrence_ids:
                 type: array
                 items:

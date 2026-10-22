@@ -143,7 +143,7 @@ function issueHeadline(detail: IssueDetailResponse): string {
 
 function primaryLimitation(diagnosis: Diagnosis): string | null {
   if (diagnosis.kind === "no_matching_allow" && ["name_bind", "name_connect"].includes(diagnosis.operation ?? "")) return null;
-  if (diagnosis.kind === "file_context_mismatch") return "The expected label was checked shortly after the denial; it may not reflect the label configuration at that time.";
+  if (diagnosis.kind === "file_context_mismatch") return `Recheck the current file label and host-configured labeling before changing it.${diagnosis.permissions?.some((permission) => ["execute", "entrypoint"].includes(permission)) ? " Restoring the configured label does not establish that execution is appropriate or permitted." : " A configured label is not proof of suitability for this workload."}`;
   if (diagnosis.kind === "conditional_allow_inactive" && diagnosis.operation === "execute") return "This denial does not establish that a domain transition was attempted or intended.";
   if (diagnosis.kind === "conditional_allow_inactive") return null;
   if (diagnosis.kind === "no_matching_allow" && diagnosis.permissions?.includes("entrypoint")) return "Audit evidence does not establish whether this launch is part of expected workload behavior.";
@@ -154,14 +154,14 @@ function primaryLimitation(diagnosis: Diagnosis): string | null {
 
 function ContextComparison({ diagnosis }: { diagnosis: Diagnosis }) {
   return (
-    <div className="issue-context-comparison" aria-label="Observed and expected file context comparison">
+    <div className="issue-context-comparison" aria-label="AVC and host-configured label comparison">
       <article>
-        <h3>Label SELinux used <small>At the denial</small></h3>
+        <h4>Label SELinux used <small>At the denial</small></h4>
         <code className="issue-context-type">{diagnosis.observed_type ?? "Not available"}</code>
       </article>
       <p className="issue-context-difference"><span aria-hidden="true">≠</span><small>Different types</small></p>
       <article>
-        <h3>Expected for this path <small>Checked after the denial</small></h3>
+        <h4>Host-configured label <small>Looked up after the denial</small></h4>
         <code className="issue-context-type">{diagnosis.expected_type ?? "Not available"}</code>
       </article>
     </div>
@@ -178,7 +178,12 @@ function BooleanCheckpointSummary({ diagnosis }: { diagnosis: Diagnosis }) {
 
 function DiagnosisEvidence({ diagnosis }: { diagnosis: Diagnosis }) {
   return <>
-    {diagnosis.kind === "file_context_mismatch" && <ContextComparison diagnosis={diagnosis} />}
+    {diagnosis.kind === "file_context_mismatch" && <><ContextComparison diagnosis={diagnosis} />
+      <ExpandableSection toggleText="Label observation details">
+        {diagnosis.expected_context_observed_at && <p>Host matchpathcon lookup: <time dateTime={diagnosis.expected_context_observed_at}>{diagnosis.expected_context_observed_at}</time>. This is a configured-label lookup, not an inspection of the file's current label.</p>}
+        <p>{diagnosis.limitation}</p>
+        <EvidenceLink target="audit-evidence" occurrenceId={diagnosis.occurrence_id}>Inspect this occurrence and its label evidence</EvidenceLink>
+      </ExpandableSection></>}
     {diagnosis.kind === "conditional_allow_inactive" && <ExpandableSection toggleText="Conditional policy paths"><BooleanCheckpointSummary diagnosis={diagnosis} /><EvidenceLink target="policy-evaluation-evidence" occurrenceId={diagnosis.occurrence_id}>Inspect policy evaluation</EvidenceLink></ExpandableSection>}
   </>;
 }
@@ -207,22 +212,26 @@ function diagnosisVariantDetail(diagnosis: Diagnosis | null | undefined): string
 function FindingCard({ detail }: { detail: IssueDetailResponse }) {
   const [params] = useSearchParams();
   const { issue, intelligence, triage_guidance, findings, policy_analysis } = detail;
-  const finding = detail.resolutions ? activeResourceFinding(detail, detail.resolutions, params.get("resource")) : { diagnosis: detail.diagnosis, different: false, count: detail.findings?.[0]?.occurrence_count };
+  const finding = detail.resolutions ? activeResourceFinding(detail, detail.resolutions, params.get("resource")) : { diagnosis: detail.diagnosis, findings: detail.findings?.filter((item) => item.diagnosis.occurrence_id === detail.diagnosis?.occurrence_id && item.diagnosis.host_id === detail.diagnosis?.host_id).map((item) => item.diagnosis) ?? [], different: false, count: detail.findings?.[0]?.occurrence_count };
   const { diagnosis } = finding;
   const lead = diagnosis ? primaryFindingLead(diagnosis) : null;
   const explainedPermissions = diagnosis?.explained_permissions ?? [];
   const otherPermissions = explainedPermissions.length ? (diagnosis?.permissions ?? []).filter((permission) => !explainedPermissions.includes(permission)) : [];
+  const policyFinding = finding.findings.find((item) => item.kind !== "file_context_mismatch");
+  const findingHost = detail.host_explanations.find((host) => host.host_id === diagnosis?.host_id);
   const conditionalTitle = diagnosis?.kind === "conditional_allow_inactive" ? `${diagnosis.source_domain ?? issue.source_type} was denied ${diagnosis.operation === "name_bind" ? "binding" : diagnosis.operation === "name_connect" ? "connecting to" : diagnosis.operation === "read" ? "reading" : "executing"} ${diagnosis.path ?? (diagnosis.bind_port || diagnosis.destination_port ? `${issue.target_class === "udp_socket" ? "UDP" : "TCP"}/${diagnosis.bind_port ?? diagnosis.destination_port}` : `objects labeled ${diagnosis.target_type ?? issue.target_type}`)}.` : null;
   return <section aria-labelledby="finding-title" className="issue-section issue-primary-finding"><h2 id="finding-title">Diagnosis</h2>
     {policy_analysis.status !== "evaluated" && <p role="status">Policy analysis: {displayState(policy_analysis.status)}. Retained facts and local checks remain available; this is not a completed policy assessment.</p>}
      {triage_guidance && diagnosis?.kind !== "file_context_mismatch" && <LabelMismatchGuidance guidance={triage_guidance} />}
      {diagnosis ? <article>
        <Title headingLevel="h3" size="xl">{conditionalTitle ?? diagnosis.title}</Title>
-       {finding.different && diagnosis.occurrence_id && diagnosis.host_id && <p>Finding evidence: <Link to={`/hosts/${diagnosis.host_id}/occurrences/${diagnosis.occurrence_id}`}>{detail.host_explanations.find((host) => host.host_id === diagnosis.host_id)?.hostname ?? `Host ${diagnosis.host_id}`} · occurrence #{diagnosis.occurrence_id}</Link>. Inspection uses a different retained example; this finding does not establish that example's cause.</p>}
+       {diagnosis.host_id && <p>Finding example: <Link to={`/hosts/${diagnosis.host_id}/occurrences/${diagnosis.occurrence_id}`}>{findingHost?.hostname ?? `Host ${diagnosis.host_id}`} · occurrence #{diagnosis.occurrence_id}</Link>{diagnosis.permissions?.length ? <> · <code>{diagnosis.permissions.join(", ")}</code></> : diagnosis.operation ? <> · <code>{diagnosis.operation}</code></> : null}. {issue.occurrences_count > 1 && "Other occurrences can have different findings."}{finding.different && " Inspection uses a different retained example; this finding does not establish that example's cause."}</p>}
        {lead && <p className="issue-finding-lead">{lead}</p>}
        {otherPermissions.length > 0 && <p>This finding explains <code>{explainedPermissions.join(", ")}</code> only. Other permissions recorded in this event (<code>{otherPermissions.join(", ")}</code>) need independent assessment.</p>}
       {diagnosis.kind === "conditional_allow_inactive" && <p>Recorded target type: <code>{diagnosis.target_type ?? issue.target_type}</code></p>}
-      <DiagnosisEvidence diagnosis={diagnosis} />
+       <DiagnosisEvidence diagnosis={diagnosis} />
+       {diagnosis.kind === "file_context_mismatch" && (policyFinding ? <section aria-label="Policy explanation"><h3>Policy explanation</h3><p>{primaryFindingLead(policyFinding) ?? text(row(policyFinding).finding)}</p><DiagnosisEvidence diagnosis={policyFinding} /><EvidenceLink target="policy-evaluation-evidence" occurrenceId={policyFinding.occurrence_id}>Inspect this policy explanation</EvidenceLink></section> : <p>A policy explanation is not available for this example; the label difference alone does not establish the policy mechanism.</p>)}
+       {diagnosis.kind !== "file_context_mismatch" && issue.target_class === "file" && <p>Host-configured label: not established by this policy finding. Use the workspace checks to inspect current and configured labeling.</p>}
       {diagnosis.kind === "no_matching_allow" && ["name_bind", "name_connect"].includes(diagnosis.operation ?? "") && <p><strong>Investigate:</strong> {diagnosis.next_step}</p>}
        {primaryLimitation(diagnosis) && <p className="issue-limitation"><strong>Limitation:</strong> {primaryLimitation(diagnosis)}</p>}
      </article> : !triage_guidance && <MissingExplanation issue={issue} paths={intelligence.paths} names={intelligence.names} hasFindings={(findings?.length ?? 0) > 0} policyAnalysis={policy_analysis} />}
@@ -287,9 +296,21 @@ function MissingExplanation({
   );
 }
 
+function fleetComparisonLimitation(configuration: IssueDetailResponse["intelligence"]["fleet"]): string | null {
+  const current = configuration.current_configuration_hosts;
+  const affected = configuration.hosts_with_occurrence;
+  const unaffected = configuration.hosts_without_occurrence;
+  if (typeof current !== "number" || typeof affected !== "number" || typeof unaffected !== "number") return "Fleet comparison unavailable: current configuration and comparison-host counts are not available.";
+  if (current < 2) return `Fleet comparison unavailable: ${current} host${current === 1 ? " currently has" : "s currently have"} usable configuration evidence.${unaffected === 0 ? " There are no comparison hosts without this issue." : " At least two comparable hosts are needed."}`;
+  if (affected === 0) return "Fleet comparison unavailable: no hosts with usable current configuration have a retained occurrence of this issue.";
+  if (unaffected === 0) return "Fleet comparison unavailable: there are no comparison hosts without this issue among hosts with usable current configuration.";
+  return null;
+}
+
 const FleetSection = memo(function FleetSection({
   hostExplanations,
   fleet,
+  configurationFleet,
   relatedAnalysis,
   loadingRelated,
   relatedError,
@@ -297,12 +318,14 @@ const FleetSection = memo(function FleetSection({
 }: {
   hostExplanations: IssueDetailResponse["host_explanations"];
   fleet: IssueDetailResponse["fleet_explanation"];
+  configurationFleet: IssueDetailResponse["intelligence"]["fleet"];
   relatedAnalysis: Awaited<ReturnType<typeof fetchIssueAnalysis>> | undefined;
   loadingRelated: boolean;
   relatedError: boolean;
   onRelatedToggle: (open: boolean) => void;
 }) {
   const hypotheses = relatedAnalysis?.hypotheses.filter((hypothesis) => ["policy_version_correlation", "local_file_context_difference", "custom_policy_difference"].includes(hypothesis.kind)) ?? [];
+  const comparisonLimitation = fleetComparisonLimitation(configurationFleet);
   return (
     <section className="issue-fleet-section" aria-labelledby="issue-fleet-title">
       <header><div><h2 id="issue-fleet-title">Fleet Scope & Occurrences</h2><p>{fleet.affected_host_count} affected host{fleet.affected_host_count === 1 ? "" : "s"} · {fleetSummary(fleet.state, fleet.affected_host_count)}</p></div></header>
@@ -326,10 +349,10 @@ const FleetSection = memo(function FleetSection({
           </Tr>;
         })}
       </Tbody></Table>
-      {fleet.affected_host_count > 1 && <ExpandableSection className="issue-fleet-leads" toggleText="Fleet correlations" onToggle={(_event, open) => onRelatedToggle(open)}>
+      {comparisonLimitation ? <p>{comparisonLimitation}</p> : <ExpandableSection className="issue-fleet-leads" toggleText="Fleet correlations" onToggle={(_event, open) => onRelatedToggle(open)}>
         {loadingRelated && <p>Checking supporting fleet evidence…</p>}
         {relatedError && <p>Fleet correlations could not be loaded.</p>}
-        {!loadingRelated && !relatedError && hypotheses.length === 0 && <p>No fleet correlation is supported by the available evidence.</p>}
+        {!loadingRelated && !relatedError && hypotheses.length === 0 && <p>No supported policy-version, local file-context or custom-module correlation was returned for the comparison hosts. This does not rule out other shared causes.</p>}
         {hypotheses.map((hypothesis) => (
         <article key={hypothesis.kind}>
           <h3>{hypothesis.label}</h3>
@@ -430,7 +453,7 @@ export function IssueDetail() {
   const inspectOccurrence = (occurrenceId: number) => {
     setSearchParams((previous) => { const next = new URLSearchParams(previous); next.delete("phase"); next.set("evidence", "audit-evidence"); next.set("evidence_tab", "audit"); next.set("evidence_occurrence", String(occurrenceId)); return next; });
   };
-  const analysisQuery = useQuery({ queryKey: ["issue-analysis", issueId], queryFn: () => fetchIssueAnalysis(issueId), enabled: validId && showRelatedFleet });
+  const analysisQuery = useQuery({ queryKey: ["issue-analysis", issueId], queryFn: () => fetchIssueAnalysis(issueId), enabled: validId && showRelatedFleet && !!detailQuery.data && !fleetComparisonLimitation(detailQuery.data.intelligence.fleet) });
   const [pendingDisposition, setPendingDisposition] = useState<string | null>(null);
   const [dispositionNote, setDispositionNote] = useState("");
   const [savingStatus, setSavingStatus] = useState(false);
@@ -556,6 +579,7 @@ export function IssueDetail() {
       <FleetSection
         hostExplanations={host_explanations}
         fleet={fleet_explanation}
+        configurationFleet={intelligence.fleet}
         relatedAnalysis={analysisQuery.data}
         loadingRelated={analysisQuery.isPending && showRelatedFleet}
         relatedError={analysisQuery.isError}

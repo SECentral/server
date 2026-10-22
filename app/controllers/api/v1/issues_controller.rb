@@ -89,15 +89,16 @@ class Api::V1::IssuesController < Api::V1::BaseController
     groups = host[:occurrence_diagnoses].group_by { |occurrence| occurrence[:agreement_signature] }.values
     displayed_groups = groups.first(5).map do |occurrences|
       occurrence = occurrences.first
-      policy_provenance = occurrences.filter_map do |item|
-        diagnosis = item[:diagnosis]
-        next unless diagnosis&.dig(:policy_identity)
+      policy_provenance = occurrences.flat_map do |item|
+        item[:findings].filter_map do |finding|
+          next unless finding[:policy_identity]
 
-        { policy_identity: diagnosis[:policy_identity], checkpoint_observed_at: diagnosis[:checkpoint_observed_at], occurrence_id: item[:occurrence_id] }
+          { policy_identity: finding[:policy_identity], checkpoint_observed_at: finding[:checkpoint_observed_at], occurrence_id: item[:occurrence_id] }
+        end
       end.uniq { |item| item[:policy_identity] }
       displayed_provenance = policy_provenance.first(5)
       { status: occurrence[:diagnosis] ? "diagnosed" : "insufficient_evidence", count: occurrences.size,
-        diagnosis: occurrence[:diagnosis], sample_occurrence_ids: occurrences.first(3).map { |item| item[:occurrence_id] },
+        diagnosis: occurrence[:diagnosis], findings: occurrence[:findings], sample_occurrence_ids: occurrences.first(3).map { |item| item[:occurrence_id] },
         policy_identity_count: policy_provenance.size, policy_provenance: displayed_provenance,
         additional_policy_identity_count: [ policy_provenance.size - displayed_provenance.size, 0 ].max }
     end

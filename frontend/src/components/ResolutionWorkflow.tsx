@@ -10,7 +10,7 @@ import { fetchIssueOccurrence, type IssueDetailResponse } from "../api/issue";
 import { ContextSidebar, EvidenceLink, ObservedAccessFlow, TechnicalEvidenceDisclosure, evidenceRecord, valueText } from "./WorkbenchEvidence";
 import { clearIntent, createDraft, exportDraft, fetchDrafts, fetchResolutions, removeEntry, selectIntent, stagePermission,
   type ChangePlan as PlanData, type HomeContentReview, type PolicyDraftExport, type ResolutionWorkflow as Workflow } from "../api/resolution";
-import { activeResolutionResource, fileResourceLabel, resolutionResources } from "./resolutionResources";
+import { activeResolutionResource, candidateFilePath, fileResourceLabel, resolutionResources } from "./resolutionResources";
 import { InspectionCommands, OperatorChecks, OperatorVerification, ReadOnlyCommands } from "./OperatorGuidance";
 import { Disclosure as ExpandableSection } from "./Disclosure";
 
@@ -110,7 +110,7 @@ function candidateNextStep(candidate: Candidate): string | null {
   if (state === "unsupported") return "Inspect the policy-evidence blocker below; no applicable change plan is supported by the retained evidence.";
   if (candidate.kind === "restore_configured_label") return "Inspect current object identity and host-configured labeling before reviewing targeted restoration.";
   if (candidate.requires_home_content_review) return "Identify the file, inspect its labels and configured home location, and confirm intentional home-content access before reviewing a Boolean change.";
-  if (candidate.kind === "enable_boolean") return "Inspect runtime and persistent Boolean state, then review the host-wide impact before choosing an intent.";
+  if (candidate.kind === "enable_boolean") return "Inspect runtime and persistent Boolean state, then review the host-wide impact before saving a plan.";
   return null;
 }
 
@@ -119,7 +119,7 @@ function FocusedResource({ issueId, workflow, detail, stage, onShowTechnicalEvid
   const active = activeResolutionResource(workflow, params.get("resource"), detail?.operator_guidance?.source);
   const candidate = active?.candidates[0];
   const source = detail?.operator_guidance?.source;
-  const path = active?.source?.path ?? valueText(candidate?.evidence_basis.path) ?? (!active ? source?.path : null);
+  const path = active?.path ?? (!active ? source?.path : null);
   const occurrenceId = active?.port?.occurrence_id ?? active?.source?.occurrence_id ?? candidate?.evidence_basis.occurrence_id ?? source?.occurrence_id;
   const hostId = active?.port?.host_id ?? active?.source?.host_id ?? candidate?.host_id ?? source?.host_id;
   const needsOccurrence = typeof occurrenceId === "number" && (occurrenceId !== workflow.observed_access?.occurrence_id || hostId !== workflow.observed_access?.host_id || !!path && path !== workflow.observed_access?.resource);
@@ -205,7 +205,7 @@ function PortTypeSelection({ investigation, candidates, workflow, busy, onSelect
           {choices.map((option) => <FormSelectOption key={option.type} value={option.type} label={`${option.service ? `${option.service.label} — ` : ""}${option.type} · ${option.state.replaceAll("_", " ")}${option.service ? "" : " · description unavailable"}`} />)}
         </FormSelect>
       </FormGroup><small>{choices.length} of {investigation.type_count} discovered policy types. Generated changes are not an exhaustive remedy list.</small>
-      {reviewed && <p>Browsing service intent and types does not change the reviewed plan below. Confirm intent for another option to replace that review.</p>}
+      {reviewed && <p>Browsing services and types does not change the reviewed plan below. Review another change to replace that plan.</p>}
       {(service || search) && <Button variant="link" onClick={clearFilters}>Show all policy types</Button>}
       {!choices.length && <p role="status">No policy types match these filters. Clear the filters to inspect all discovered possibilities.</p>}</StackItem>
     </Stack>
@@ -278,8 +278,8 @@ function ResolutionCandidateCard({ candidate, selected, freshness, busy, onSelec
         <label>Identified absolute file path<TextInput aria-label="Identified home-content file path" value={homePath} onChange={(_event, value) => { setHomePath(value); setHomeConfirmed(false); }} /></label>
         <label><input type="checkbox" checked={homeConfirmed} onChange={(event) => setHomeConfirmed(event.target.checked)} /> I completed these checks and intend Apache to serve this home content.</label>
       </>}
-      <Button variant="primary" isDisabled={busy || (candidate.requires_home_content_review && (!homeConfirmed || !homePath.startsWith("/")))} onClick={() => onSelect(candidate, candidate.requires_home_content_review ? { path: homePath, confirmed: homeConfirmed } : undefined)}>Confirm intent</Button><Button variant="link" onClick={() => { setConfirming(false); setHomeConfirmed(false); }}>Cancel</Button></div>
-          : <><Button variant="primary" isDisabled={busy} onClick={() => setConfirming(true)}>{selected ? "Review updated option" : path ? "Review label restoration" : candidate.kind === "enable_boolean" ? "Review Boolean change" : "Choose intent"}</Button><p className="workbench-caption">Review impact, then confirm intent to see the proposed runbook. Selection does not apply or verify a change.</p></>)}
+      <Button variant="primary" isDisabled={busy || (candidate.requires_home_content_review && (!homeConfirmed || !homePath.startsWith("/")))} onClick={() => onSelect(candidate, candidate.requires_home_content_review ? { path: homePath, confirmed: homeConfirmed } : undefined)}>Save reviewed plan</Button><Button variant="link" onClick={() => { setConfirming(false); setHomeConfirmed(false); }}>Cancel</Button></div>
+          : <><Button variant="primary" isDisabled={busy} onClick={() => setConfirming(true)}>{selected ? "Review updated change" : "Review this change"}</Button><p className="workbench-caption">Review scope and prerequisites before saving a runbook. This does not apply a host change.</p></>)}
     <p>{candidate.scope_warning}</p>
     {visibleLimitations.length > 0 && <ul>{visibleLimitations.map((text) => <li key={text}>{text}</li>)}</ul>}
     <ExpandableSection toggleText="Evidence & limitations">
@@ -295,8 +295,8 @@ function CandidateGroup({ candidates, workflow, busy, onSelect }: { candidates: 
   const labels = candidates.filter((c) => c.kind === "restore_configured_label");
   const others = candidates.filter((c) => c.kind !== "restore_configured_label" && c.kind !== "set_port_mapping");
   const card = (candidate: Candidate) => <ResolutionCandidateCard key={`${candidate.id}:${candidate.evidence_version}`} candidate={candidate} selected={workflow.intent?.candidate_id === candidate.id} freshness={workflow.freshness} busy={busy} onSelect={onSelect} />;
-  if (labels.length === 1 && workflow.intent?.candidate_id === labels[0].id && !others.length) return card(labels[0]);
-  return <>{labels.length > 0 && <section className="candidate-group" aria-label="Restore configured SELinux labeling"><h3>Restore configured SELinux labeling <span aria-hidden="true">· </span><small>{labels.length} signature-scoped candidate{labels.length === 1 ? "" : "s"}</small></h3><div className="candidate-grid candidate-paths">{labels.map(card)}</div></section>}
+  if (labels.length === 1 && !others.length) return card(labels[0]);
+  return <>{labels.length > 0 && <section className="candidate-group" aria-label="Restore configured SELinux labeling"><h3>Restore configured SELinux labeling</h3><div className="candidate-grid candidate-paths">{labels.map(card)}</div></section>}
     {others.length > 0 && <div className="candidate-grid">{others.map(card)}</div>}</>;
 }
 
@@ -350,12 +350,12 @@ function DraftWorkspace({ issueId, occurrenceId }: { issueId: number; occurrence
 }
 
 export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpdatedAt, detail, onShowTechnicalEvidence, children }: { issueId: number; stage: "observed" | "intent" | "context" | "actions" | "draft"; initialData?: Workflow; initialDataUpdatedAt?: number; detail?: IssueDetailResponse; onShowTechnicalEvidence?: () => void; children?: ReactNode }) {
+  const resourceFieldId = useId();
   const client = useQueryClient();
   const query = useQuery({ queryKey: ["issue-resolutions", issueId], queryFn: () => fetchResolutions(issueId), initialData, initialDataUpdatedAt, staleTime: 30_000 });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [params, setParams] = useSearchParams();
-  const [resourceSearch, setResourceSearch] = useState("");
   const phase = params.get("phase");
   const requestedResource = params.get("resource");
   useEffect(() => {
@@ -377,7 +377,7 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true); setError(null);
     try { await action(); }
-    catch (e) { setError(e instanceof Error ? e.message : "Intent update failed"); }
+    catch (e) { setError(e instanceof Error ? e.message : "Change review failed"); }
     finally { await client.invalidateQueries({ queryKey: ["issue-resolutions", issueId] }); setBusy(false); }
   };
   if (query.isPending || query.isError) return stage === "intent" ? <Card isCompact className="resolution-options"><CardBody><section aria-label="Resolution options"><h2>Resolution workspace</h2>
@@ -406,14 +406,14 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
   const plan = selectedHere && workflow.freshness === "current" ? workflow.change_plan : null;
   const sameCheckScope = !!source && !!selected && selected.host_id === source.host_id &&
     (selected.kind === "set_port_mapping" ? selected.evidence_basis.port === source.port && selected.evidence_basis.protocol === source.protocol && selected.evidence_basis.operation === source.operation
-      : selected.kind === "restore_configured_label" ? selected.evidence_basis.path === source.path : selected.evidence_basis.occurrence_id === source.occurrence_id);
+      : selected.kind === "restore_configured_label" ? candidateFilePath(selected) === source.path : selected.evidence_basis.occurrence_id === source.occurrence_id);
   const inspectionElsewhere = !!active && !!source && (active.port ? active.port.host_id === source.host_id &&
     (active.port.occurrence_id === source.occurrence_id || (active.port.port === source.port && active.port.protocol === source.protocol && active.port.operation === source.operation))
-    : active.source?.occurrence_id === source.occurrence_id || active.candidates.some((candidate) => candidate.host_id === source.host_id && (source.path ? candidate.evidence_basis.path === source.path : candidate.evidence_basis.occurrence_id === source.occurrence_id)));
+    : active.source?.occurrence_id === source.occurrence_id || active.candidates.some((candidate) => candidate.host_id === source.host_id && (source.path ? candidateFilePath(candidate) === source.path : candidate.evidence_basis.occurrence_id === source.occurrence_id)));
   const nextCandidate = selectedHere ? selected : primaryOptions.find((candidate) => candidatePresentation(candidate).state === "observed_on") ?? primaryOptions.find((candidate) => candidatePresentation(candidate).state === "verify") ?? primaryOptions[0];
-  const missingPath = detail && ["file", "dir"].includes(detail.issue?.target_class) && source && !source.path && (!active || inspectionElsewhere);
+  const missingPath = detail && ["file", "dir"].includes(detail.issue?.target_class) && (active ? !active.port && !active.path : source && !source.path);
   const nextStep = plan ? "Inspect the reviewed host/resource baseline before making any change."
-    : selectedHere && workflow.freshness && workflow.freshness !== "current" ? "Review the changed evidence and prerequisites below before confirming updated intent."
+    : selectedHere && workflow.freshness && workflow.freshness !== "current" ? "Review the changed evidence and prerequisites below before saving an updated plan."
     : missingPath ? "Identify the complete target path before considering a file-label modification."
     : nextCandidate && candidatePresentation(nextCandidate).state !== "review" ? candidateNextStep(nextCandidate)
     : active?.port && ["ready", "no_change"].includes(active.port.state) && (active.port.classification_differs === true || active.port.policy_differs === true) ? "Recheck effective/local mappings and retry the intended confined workload; the historical denial and latest retained state differ."
@@ -431,7 +431,7 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
     if (compactPorts && resource.port) return `${resource.port.protocol.toUpperCase()}/${resource.port.port ?? "port not recorded"}`;
     return fileResourceLabel(resource, resources);
   };
-  const useTabs = resources.length <= 5 && !(resources.length > 3 && resources.some((resource) => resource.candidates.some((candidate) => candidate.evidence_basis.path)));
+  const useTabs = resources.length <= 5 && !(resources.length > 3 && resources.some((resource) => resource.path));
   const resourceLabel = (resource: typeof resources[number]) => `${resourceName(resource)}${resource.port?.occurrence_count != null ? ` (${resource.port.occurrence_count} denial${resource.port.occurrence_count === 1 ? "" : "s"})` : ""}${resource === reviewedResource ? workflow.freshness === "current" ? " · Review current" : " · Review required" : ""}`;
   const navigateResource = (key: string) => setParams((previous) => {
     const next = new URLSearchParams(previous);
@@ -441,8 +441,8 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
   });
   const choose: SelectCandidate = (candidate, review) => void run(() => selectIntent(issueId, candidate.id, candidate.evidence_version, review));
   return <Card isCompact className="resolution-options"><CardBody>
-    <section aria-label="Resolution options"><header className="workbench-section-header"><h2>Resolution workspace</h2>{workflow.intent && <Button variant="link" isDisabled={busy} onClick={() => void run(() => clearIntent(issueId))}>Clear selected intent</Button>}</header>
-      {error && <Alert variant="danger" isInline title="Intent update failed">{error}</Alert>}
+    <section aria-label="Resolution options"><header className="workbench-section-header"><h2>Resolution workspace</h2>{workflow.intent && <Button variant="link" isDisabled={busy} onClick={() => void run(() => clearIntent(issueId))}>Clear reviewed plan</Button>}</header>
+      {error && <Alert variant="danger" isInline title="Change review failed">{error}</Alert>}
       {workflow.freshness && workflow.freshness !== "current" && <div className="stale-plan" role="alert"><h3><ExclamationTriangleIcon aria-hidden="true" /> {workflow.freshness === "no_longer_supported" ? "Plan no longer supported" : "Evidence changed"}</h3><p>This plan was reviewed against older SELinux state. Commands are hidden until the updated evidence is reviewed.</p><EvidenceChangeSummary workflow={workflow} /><strong>Review this option again before using its commands.</strong></div>}
       {workflow.intent && !selectedHere && <p role="status" className="resource-review-notice">
         {reviewedResource ? <>Viewing {active ? resourceName(active) : "another resource"}; the reviewed plan is on {resourceName(reviewedResource)}. <Button variant="link" onClick={() => navigateResource(reviewedResource.key)}>Switch to reviewed plan</Button></>
@@ -450,12 +450,11 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
       </p>}
       {resources.length > 1 && (useTabs ? <Tabs activeKey={active.key} onSelect={(_event, key) => navigateResource(String(key))} aria-label="Investigation resources" isBox>
         {resources.map((resource) => <Tab key={resource.key} eventKey={resource.key} aria-label={`${resource.label}${resourceLabel(resource).slice(resourceName(resource).length)}`} title={<TabTitleText><span title={resource.label}>{resourceLabel(resource)}</span></TabTitleText>} tabContentId="issue-resource-panel" />)}
-      </Tabs> : <Stack hasGutter>
-        <StackItem><SearchInput aria-label="Search investigation resources" value={resourceSearch} onChange={(_event, value) => setResourceSearch(value)} onClear={() => setResourceSearch("")} /></StackItem>
-        <StackItem><FormSelect aria-label="Active investigation resource" value={active.key} onChange={(_event, key) => navigateResource(key)}>
-          {resources.filter((resource) => resource.key === active.key || resource.label.toLowerCase().includes(resourceSearch.toLowerCase())).map((resource) => <FormSelectOption key={resource.key} value={resource.key} label={resource.label + resourceLabel(resource).slice(resourceName(resource).length)} />)}
-        </FormSelect></StackItem>
-      </Stack>)}
+      </Tabs> : <FormGroup label="Host / resource" fieldId={resourceFieldId}>
+        <FormSelect id={resourceFieldId} aria-label="Active investigation resource" value={active.key} onChange={(_event, key) => navigateResource(key)}>
+          {resources.map((resource) => <FormSelectOption key={resource.key} value={resource.key} label={resource.label + resourceLabel(resource).slice(resourceName(resource).length)} />)}
+        </FormSelect>
+      </FormGroup>)}
       <section id="issue-resource-panel" role={resources.length > 1 && useTabs ? "tabpanel" : undefined} tabIndex={0} aria-label={`Active resource: ${active?.label ?? "Investigation example"}`}>
       {active && !active.port && <p><strong>Inspecting:</strong> {active.label}</p>}
       {nextStep && <p className="suggested-next-step" aria-label="Suggested next step"><strong>Suggested next step</strong> · {nextStep}</p>}
@@ -467,7 +466,6 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
       {plan && <ChangePlan plan={plan} detail={sameCheckScope ? detail : undefined} />}
       {selectedHere ? alternatives.length > 0 && <ExpandableSection className="other-options" toggleText={`Alternative approaches · ${alternatives.length}${alternatives.some((candidate) => candidate.scope_kind === "host_boolean") ? " · Host-wide Boolean; broader access" : ""}`}><CandidateGroup candidates={alternatives} workflow={workflow} busy={busy} onSelect={choose} /></ExpandableSection>
          : <><CandidateGroup candidates={primaryOptions} workflow={workflow} busy={busy} onSelect={choose} />{technicalOptions.length > 0 && <ExpandableSection className="other-options" toggleText={`Alternative policy approaches · ${technicalOptions.length} · Host-wide scope`}><p>Matching policy paths do not establish workload intent. Identify the resource, inspect its configuration and review the capability's broader effects.</p><CandidateGroup candidates={technicalOptions} workflow={workflow} busy={busy} onSelect={choose} /></ExpandableSection>}</>}
-      {workflow.candidates.length > 0 && !selected && <p className="workbench-caption">You can choose neither and continue investigating.</p>}
       {!plan && detail?.triage_guidance && (!active || inspectionElsewhere) && <ExpandableSection toggleText="Post-restoration verification checklist"><OperatorVerification detail={detail} inline /></ExpandableSection>}
       </section>
     </section>

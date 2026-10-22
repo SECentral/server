@@ -1178,13 +1178,13 @@
   border-radius: var(--pf-t--global--border--radius--medium);
 }
 
-.issue-context-comparison article h3,
+.issue-context-comparison article h4,
 .issue-policy-conditions article h3 {
   margin: 0 0 var(--pf-t--global--spacer--sm);
   font-size: var(--pf-t--global--font--size--body--md);
 }
 
-.issue-context-comparison article h3 small {
+.issue-context-comparison article h4 small {
   display: block;
   margin-block-start: var(--pf-t--global--spacer--xs);
   color: var(--pf-t--global--text--color--subtle);
@@ -1596,7 +1596,7 @@
 .issue-workspace .issue-finding-lead { font-size: .9375rem; margin: .5rem 0; }
 .issue-workspace .issue-context-comparison { gap: .65rem; margin: .75rem 0; }
 .issue-workspace .issue-context-comparison article { padding: .65rem .75rem; }
-.issue-workspace .issue-context-comparison h3 { font-size: .8125rem; }
+.issue-workspace .issue-context-comparison h4 { font-size: .8125rem; }
 .issue-workspace .issue-context-type { font-size: 1rem; }
 .issue-workspace .issue-context-path { font-size: .8125rem; overflow-wrap: anywhere; }
 .issue-context-evidence { grid-column: 1 / -1; font-size: .8125rem; }
