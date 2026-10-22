@@ -2,7 +2,7 @@
   "ignored_warnings": [
     {
       "warning_type": "SQL Injection",
-      "fingerprint": "ff275b23f2b360880f5510cba30c0810d299d930ec630551b5c6edcc10ec7d35",
+      "fingerprint": "76f9045aa67ea6d9d2f3eb69f5bd59594c43ac8203dcc67f1bef09bf05a9a870",
       "check_name": "SQL",
       "file": "app/queries/host_selinux_activity.rb",
       "location": {
