@@ -37,7 +37,8 @@ class RelatedIssueActivity
           basis: same_event ? "same_audit_event" : "same_process_window" }
       end
     end
-    matches.uniq { |m| [m[:issue_id], m[:host_id]] }.first(10)
+    matches.sort_by { |m| [m[:basis] == "same_audit_event" ? 0 : 1, -m[:occurred_at].to_f, -m[:occurrence_id]] }
+      .uniq { |m| [m[:issue_id], m[:host_id]] }.first(10)
   end
 
   private

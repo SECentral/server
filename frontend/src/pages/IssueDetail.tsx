@@ -240,15 +240,15 @@ function FindingCard({ detail }: { detail: IssueDetailResponse }) {
 
 function fleetSummary(state: string, affectedHosts: number): string {
   if (affectedHosts === 1) return ({
-    consistent: "Same supported findings across recorded denials",
+    consistent: "Same supported findings across recorded occurrences",
     disagreement: "Finding evidence varies between occurrences",
-    partially_explained: "Some denials lack a supported finding",
+    partially_explained: "Some occurrences lack a supported finding",
     insufficient_evidence: "Some causes remain unconfirmed; use the investigation checks"
   } as Record<string, string>)[state] ?? "Occurrence findings unavailable";
   return ({
-    consistent: "Same explanation across affected hosts",
-    disagreement: "Explanations differ across affected hosts",
-    partially_explained: "Some hosts are not fully explained",
+    consistent: "Same supported findings across affected hosts",
+    disagreement: "Finding evidence or observed permissions vary across affected hosts",
+    partially_explained: "Some hosts have occurrences without supported findings",
     insufficient_evidence: "Some host causes remain unconfirmed; inspect their evidence"
   } as Record<string, string>)[state] ?? "Host explanations unavailable";
 }
@@ -337,11 +337,11 @@ const FleetSection = memo(function FleetSection({
           const occurrenceSummary = host.status === "disagreement"
             ? `Mixed findings across ${host.occurrence_count} occurrences`
             : host.status === "insufficient_evidence"
-              ? `${unexplained} of ${host.occurrence_count} occurrences lack a complete explanation`
-              : `Same explanation across ${host.occurrence_count} occurrences`;
+              ? `${unexplained} of ${host.occurrence_count} occurrences lack a supported finding`
+              : `Same supported findings across ${host.occurrence_count} occurrence${host.occurrence_count === 1 ? "" : "s"}`;
           return <Tr key={host.host_id}>
             <Td dataLabel="Host"><Link to={`/hosts/${host.host_id}`}>{host.hostname ?? `Host ${host.host_id}`}</Link></Td>
-            <Td dataLabel="Finding coverage"><p>{host.occurrence_count - unexplained} with supported findings · {unexplained} without a complete explanation</p><small>{occurrenceSummary}</small></Td>
+            <Td dataLabel="Finding coverage"><p>{host.occurrence_count - unexplained} with supported findings · {unexplained} without a supported finding</p><small>{occurrenceSummary}</small></Td>
             <Td dataLabel="Finding groups"><ul>{groups.map((group, index) => <li key={index}>{diagnosisVariantDetail(group.diagnosis) ?? "Cause not confirmed"} · {group.count} occurrence{group.count === 1 ? "" : "s"}</li>)}</ul>
               {host.additional_diagnosis_group_count > 0 && <small>{host.additional_diagnosis_group_count} more groups; inspect occurrence records</small>}
             </Td>
@@ -537,8 +537,8 @@ export function IssueDetail() {
       <header className="issue-investigation-header">
         <div>
            <Title headingLevel="h1" size="2xl" className="pf-v6-u-mt-0">{issueHeadline(detailQuery.data)}</Title>
-          <p className="issue-operation-label">{issue.occurrences_count.toLocaleString()} denial{issue.occurrences_count === 1 ? "" : "s"} · {issue.affected_hosts} server{issue.affected_hosts === 1 ? "" : "s"}{(intelligence.resource_summary?.name_count ?? 0) > 1 && ` · ${intelligence.resource_summary!.name_count.toLocaleString()} filenames`} · First {timeAgo(issue.first_seen_at)} · Last {timeAgo(issue.last_seen_at)}</p>
-          {(intelligence.resource_summary?.destination_ports?.length ?? 0) > 0 && <p className="issue-operation-label">Recorded destination ports: {intelligence.resource_summary!.destination_ports!.map((item) => `TCP/${item.port} (${item.occurrence_count} denial${item.occurrence_count === 1 ? "" : "s"})`).join(" · ")}{intelligence.resource_summary!.destination_port_count! > 3 && ` · ${intelligence.resource_summary!.destination_port_count! - 3} more ports`}</p>}
+          <p className="issue-operation-label">{issue.occurrences_count.toLocaleString()} occurrence{issue.occurrences_count === 1 ? "" : "s"} · {issue.affected_hosts} server{issue.affected_hosts === 1 ? "" : "s"}{(intelligence.resource_summary?.name_count ?? 0) > 1 && ` · ${intelligence.resource_summary!.name_count.toLocaleString()} filenames`} · First {timeAgo(issue.first_seen_at)} · Last {timeAgo(issue.last_seen_at)}</p>
+          {(intelligence.resource_summary?.destination_ports?.length ?? 0) > 0 && <p className="issue-operation-label">Recorded destination ports: {intelligence.resource_summary!.destination_ports!.map((item) => `TCP/${item.port} (${item.occurrence_count} occurrence${item.occurrence_count === 1 ? "" : "s"})`).join(" · ")}{intelligence.resource_summary!.destination_port_count! > 3 && ` · ${intelligence.resource_summary!.destination_port_count! - 3} more ports`}</p>}
         </div>
         <div className="issue-workflow">
           <Label color={issue.display_status === "resolved" ? "green" : issue.display_status === "ignored" ? "grey" : issue.display_status === "regressed" ? "orange" : "blue"}>{displayState(issue.display_status)}</Label>
@@ -569,8 +569,8 @@ export function IssueDetail() {
       <IssueWorkbench detail={detailQuery.data} updatedAt={detailQuery.dataUpdatedAt} onShowTechnicalEvidence={setTechnicalEvidenceIssueId} />
 
       {((findings?.length ?? 0) > 1 || (issue.target_class === "file" && (intelligence.resource_summary?.without_absolute_path_occurrences ?? 0) > 0) || (additional_finding_count ?? 0) > 0 || policy_analysis.limitations.length > 0) && <ExpandableSection className="workbench-additional" toggleText="Findings & evidence gaps"><section aria-label="Findings & evidence gaps" className="issue-section">
-        {findings?.slice(1).map((finding, index) => <ExpandableSection key={index} toggleText={`${finding.diagnosis.title} · ${finding.occurrence_count.toLocaleString()} denials`}><p>{primaryFindingLead(finding.diagnosis) ?? text(row(finding.diagnosis).finding)}</p><DiagnosisEvidence diagnosis={finding.diagnosis} /><p><strong>Check next:</strong> {finding.diagnosis.next_step}</p><p>{primaryLimitation(finding.diagnosis)}</p><EvidenceLink target="policy-evaluation-evidence" occurrenceId={finding.diagnosis.occurrence_id}>Technical evidence for this finding</EvidenceLink></ExpandableSection>)}
-        {issue.target_class === "file" && (intelligence.resource_summary?.without_absolute_path_occurrences ?? 0) > 0 && <div><h3>Path-based label check unavailable</h3><p>{intelligence.resource_summary!.without_absolute_path_occurrences.toLocaleString()} of {issue.occurrences_count.toLocaleString()} denials contain filenames but no complete filesystem path. SECentral cannot determine whether <code>{issue.target_type}</code> is the expected label for those files.</p></div>}
+        {findings?.slice(1).map((finding, index) => <ExpandableSection key={index} toggleText={`${finding.diagnosis.title} · ${finding.occurrence_count.toLocaleString()} occurrence${finding.occurrence_count === 1 ? "" : "s"}`}><p>{primaryFindingLead(finding.diagnosis) ?? text(row(finding.diagnosis).finding)}</p><DiagnosisEvidence diagnosis={finding.diagnosis} /><p><strong>Check next:</strong> {finding.diagnosis.next_step}</p><p>{primaryLimitation(finding.diagnosis)}</p><EvidenceLink target="policy-evaluation-evidence" occurrenceId={finding.diagnosis.occurrence_id}>Technical evidence for this finding</EvidenceLink></ExpandableSection>)}
+        {issue.target_class === "file" && (intelligence.resource_summary?.without_absolute_path_occurrences ?? 0) > 0 && <div><h3>Path-based label check unavailable</h3><p>{intelligence.resource_summary!.without_absolute_path_occurrences.toLocaleString()} of {issue.occurrences_count.toLocaleString()} occurrences contain filenames but no complete filesystem path. SECentral cannot determine whether <code>{issue.target_type}</code> is the expected label for those files.</p></div>}
         {(additional_finding_count ?? 0) > 0 && <p>{additional_finding_count} finding variant(s) not shown. Inspect host and occurrence evidence for their coverage.</p>}
          {diagnosis && policy_analysis.limitations.length > 0 && <div><p>Some occurrence policy assessments have limitations. These describe occurrence assessments, not the eligibility of a separate reviewed plan.</p><ul>{policy_analysis.limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}</ul><p>Unconfirmed occurrence examples: {host_explanations.flatMap((host) => host.diagnosis_groups.filter((group) => !group.diagnosis).flatMap((group) => group.sample_occurrence_ids.map((id) => <Link key={`${host.host_id}-${id}`} to={`/hosts/${host.host_id}/occurrences/${id}`}>{host.hostname} · #{id} </Link>)))}</p></div>}
       </section></ExpandableSection>}
@@ -635,7 +635,7 @@ export function IssueDetail() {
 
       <section id="issue-occurrences" tabIndex={-1} aria-labelledby="occurrences-title" className="issue-section issue-occurrences-section">
         {signatureFilter && <p>Showing occurrences for {issue.signatures?.find((signature) => String(signature.id) === signatureFilter)?.permissions.join(", ") ?? "the selected permission set"}. <Button variant="link" onClick={() => showSignatureOccurrences(null)}>Show all operations</Button></p>}
-        <header><div><h3 id="occurrences-title">Retained occurrences</h3><p>{issue.occurrences_count} retained denial{issue.occurrences_count === 1 ? "" : "s"}{occurrencesQuery.data && ` · ${(occurrencesQuery.data.meta.page - 1) * occurrencesQuery.data.meta.page_size + (occurrencesQuery.data.meta.total ? 1 : 0)}–${Math.min(occurrencesQuery.data.meta.page * occurrencesQuery.data.meta.page_size, occurrencesQuery.data.meta.total)} of ${occurrencesQuery.data.meta.total}`}</p></div></header>
+        <header><div><h3 id="occurrences-title">Retained occurrences</h3><p>{issue.occurrences_count} retained occurrence{issue.occurrences_count === 1 ? "" : "s"}{occurrencesQuery.data && ` · ${(occurrencesQuery.data.meta.page - 1) * occurrencesQuery.data.meta.page_size + (occurrencesQuery.data.meta.total ? 1 : 0)}–${Math.min(occurrencesQuery.data.meta.page * occurrencesQuery.data.meta.page_size, occurrencesQuery.data.meta.total)} of ${occurrencesQuery.data.meta.total}`}</p></div></header>
         {!showOccurrences ? <Button variant="secondary" onClick={() => setShowOccurrences(true)}>Show recent occurrences</Button>
           : occurrencesQuery.isPending ? <div aria-label="Loading occurrences"><Spinner /></div>
           : occurrencesQuery.isError ? <Alert variant="warning" isInline title="Could not load occurrences">{occurrencesQuery.error instanceof Error ? occurrencesQuery.error.message : "Unknown error"}</Alert>

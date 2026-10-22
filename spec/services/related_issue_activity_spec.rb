@@ -28,6 +28,39 @@ RSpec.describe RelatedIssueActivity do
     expect(other.reload.status).to eq("ignored")
   end
 
+  it "prefers an exact audit-event link over a newer process-window link in both directions" do
+    issue, first, = port_fixture
+    raw = first.raw_event
+    raw.raw_audit_records.create!(position: 0, record_type: 1300, type_name: "SYSCALL", audit_timestamp: raw.audit_timestamp,
+      sequence: raw.audit_sequence, payload: 'type=SYSCALL pid=123 exe="/usr/libexec/mariadbd" subj=u:r:mysqld_t:s0')
+    other = issue.dup
+    other.assign_attributes(target_class: "file", fingerprint_digest: "other")
+    other.save!
+    denial = first.normalized_denial.dup
+    denial.assign_attributes(ordinal: 1, target_class: "file")
+    denial.save!
+    exact = first.dup
+    exact.assign_attributes(issue: other, normalized_denial: denial)
+    exact.save!
+
+    event = raw.dup
+    event.assign_attributes(audit_sequence: 2, audit_timestamp: raw.audit_timestamp + 0.1.seconds)
+    event.save!
+    event.raw_audit_records.create!(position: 0, record_type: 1300, type_name: "SYSCALL", audit_timestamp: event.audit_timestamp,
+      sequence: 2, payload: raw.raw_audit_records.sole.payload)
+    newer_denial = first.normalized_denial.dup
+    newer_denial.assign_attributes(raw_event: event, ordinal: 0)
+    newer_denial.save!
+    newer = first.dup
+    newer.assign_attributes(issue: other, raw_event: event, normalized_denial: newer_denial, occurred_at: event.audit_timestamp)
+    newer.save!
+
+    expect(described_class.call(issue)).to contain_exactly(include(issue_id: other.id, basis: "same_audit_event",
+      source_occurrence_id: first.id, occurrence_id: exact.id))
+    expect(described_class.call(other)).to contain_exactly(include(issue_id: issue.id, basis: "same_audit_event",
+      source_occurrence_id: exact.id, occurrence_id: first.id))
+  end
+
   it "requires same host, boot and complete process identity within a bounded time window" do
     issue, first, = port_fixture
     raw = first.raw_event

@@ -306,6 +306,7 @@ function renderDetail(initialEntry = "/issues/7") {
 describe("issue investigation", () => {
   it("shows related issues as evidence links and compares AVC modes separately from event outcomes", async () => {
     const payload = detailPayload("004");
+    payload.fleet_explanation = { ...payload.fleet_explanation, state: "disagreement", affected_host_count: 2 };
     payload.related_activity = [{ issue_id: 31, host_id: 10, hostname: "db-enforcing", occurrence_id: 201,
       source_occurrence_id: 104, occurred_at: "2026-10-22T15:05:36Z", source_occurred_at: "2026-10-22T15:05:36Z",
       target_type: "var_t", target_class: "dir", basis: "same_audit_event" }];
@@ -327,6 +328,11 @@ describe("issue investigation", () => {
     expect(outcomes).toHaveTextContent("6 occurrences / 2 audit events");
     expect(outcomes).toHaveTextContent("Succeeded: 2");
     expect(outcomes).toHaveTextContent("Failed: 4");
+    expect(document.querySelector(".issue-operation-label")).toHaveTextContent(`${payload.issue.occurrences_count} occurrences`);
+    expect(screen.getByText("Fleet Scope & Occurrences").parentElement).toHaveTextContent("Finding evidence or observed permissions vary across affected hosts");
+    const coverage = await screen.findByRole("region", { name: "Finding coverage" });
+    expect(coverage).toHaveTextContent("0 occurrences lack a supported finding");
+    expect(coverage).not.toHaveTextContent("complete explanation");
   });
 
   it("updates the workbench and fleet table when refreshed issue evidence arrives", async () => {
@@ -523,7 +529,8 @@ describe("issue investigation", () => {
     expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("denied local TCP binding on ports 23451, 12345");
     const scope = screen.getByRole("region", { name: "Finding coverage" });
     expect(scope).toHaveTextContent("Supported findings: 4 of 6 occurrences");
-    expect(scope).toHaveTextContent("2 occurrences lack a complete explanation");
+    expect(scope).toHaveTextContent("2 occurrences lack a supported finding");
+    expect(scope).toHaveTextContent("Finding coverage does not establish resource identity, workload intent or a verified root cause.");
     expect(scope).toHaveTextContent("Displayed finding: 1");
     await userEvent.setup().hover(within(scope).getByText("Supported findings: 4 of 6 occurrences"));
     expect(await screen.findByRole("tooltip")).toHaveTextContent("not verified root causes or confirmed remediation");
@@ -805,7 +812,7 @@ describe("issue investigation", () => {
     const user = userEvent.setup();
     renderDetail();
     expect(await screen.findByRole("heading", { level: 1, name: "httpd was denied reading files labeled user_home_t." })).toBeInTheDocument();
-    expect(screen.getByText(/2,057 denials · 1 server · 2,050 filenames/)).toBeInTheDocument();
+    expect(screen.getByText(/2,057 occurrences · 1 server · 2,050 filenames/)).toBeInTheDocument();
     expect(screen.getByText(/httpd_read_user_content/, { selector: ".issue-condition-summary code" })).not.toBeVisible();
     await user.click(screen.getByRole("button", { name: "Conditional policy paths" }));
     expect(screen.getByText(/httpd_read_user_content/, { selector: ".issue-condition-summary code" })).toBeVisible();
@@ -833,7 +840,7 @@ describe("issue investigation", () => {
     renderDetail();
     expect(await screen.findByRole("heading", { name: "Potential file-context mismatch" })).toBeVisible();
     await userEvent.setup().click(screen.getByRole("button", { name: "Findings & evidence gaps" }));
-    expect(screen.getByText("A matching SELinux read rule was inactive · 2 denials")).toBeVisible();
+    expect(screen.getByText("A matching SELinux read rule was inactive · 2 occurrences")).toBeVisible();
     expect(screen.getByLabelText("Finding coverage")).toHaveTextContent("Displayed finding: 2");
     expect(screen.getByText(/Finding evidence varies between occurrences/)).toBeInTheDocument();
   });
@@ -916,7 +923,7 @@ describe("issue investigation", () => {
     const user = userEvent.setup();
     renderDetail();
     expect(await screen.findByRole("heading", {level: 1, name: "httpd was denied outbound TCP connections."})).toBeInTheDocument();
-    expect(screen.getByText(/TCP\/12345 \(2 denials\).*TCP\/12346 \(1 denial\)/)).toBeVisible();
+    expect(screen.getByText(/TCP\/12345 \(2 occurrences\).*TCP\/12346 \(1 occurrence\)/)).toBeVisible();
     expect(await screen.findByRole("region", { name: "Finding coverage" })).toHaveTextContent("Displayed finding: 1");
     await user.click(screen.getByRole("button", { name: "Findings & evidence gaps" }));
     expect(screen.getByText(/Some occurrence policy assessments have limitations/)).toBeVisible();
@@ -988,9 +995,9 @@ describe("issue investigation", () => {
     expect(await screen.findByRole("heading", { name: "No matching SELinux allow was found for this access" })).toBeInTheDocument();
     expect(screen.getByText(/The evaluated policy has no allow rule for this launch/)).toBeInTheDocument();
     expect(document.querySelector(".issue-primary-finding .issue-selinux-explanation")).toBeNull();
-    expect(screen.getByText(/16 retained denials/)).toBeInTheDocument();
+    expect(screen.getByText(/16 retained occurrences/)).toBeInTheDocument();
     expect(screen.getByText(/3 affected hosts/)).toBeInTheDocument();
-    expect(screen.getByText("Fleet Scope & Occurrences").parentElement).toHaveTextContent("Same explanation across affected hosts");
+    expect(screen.getByText("Fleet Scope & Occurrences").parentElement).toHaveTextContent("Same supported findings across affected hosts");
 
     await user.click(screen.getByRole("button", { name: "Technical details & audit provenance" }));
     const why = document.querySelector("#issue-technical-evidence .issue-selinux-explanation");
@@ -1004,7 +1011,7 @@ describe("issue investigation", () => {
     const host = await screen.findByRole("link", { name: "secentral-agent-test" });
     const listItem = host.closest("tr");
     expect(listItem).not.toBeNull();
-    expect(within(listItem!).getByText("Same explanation across 4 occurrences")).toBeInTheDocument();
+    expect(within(listItem!).getByText("Same supported findings across 4 occurrences")).toBeInTheDocument();
     expect(within(listItem!).queryByText(/sha256:/)).not.toBeInTheDocument();
     await user.click(within(listItem!).getByRole("link", { name: "View group evidence" }));
     const evidence = document.getElementById("host-evidence-1138")!;
@@ -1078,9 +1085,9 @@ describe("issue investigation", () => {
     const user = userEvent.setup();
     renderDetail();
 
-    expect(await screen.findByText("5 retained denials")).toBeInTheDocument();
+    expect(await screen.findByText("5 retained occurrences")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Show recent occurrences" }));
-    expect(await screen.findByText("5 retained denials · 1–5 of 5")).toBeInTheDocument();
+    expect(await screen.findByText("5 retained occurrences · 1–5 of 5")).toBeInTheDocument();
     expect(screen.getByRole("table", { name: "Occurrence summary" })).toBeInTheDocument();
     expect(fetchMock.mock.calls.map(([url]) => String(url)).some((url) => /occurrences\/\d+$/.test(url))).toBe(false);
     await user.click(screen.getAllByRole("button", { name: /Inspect occurrence/ })[0]);
