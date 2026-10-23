@@ -112,6 +112,10 @@ class AvcNormalizer
     identity
   end
 
+  def syscall_records
+    @records.map { |record| parse_record(record) }.select { |record| record[:type_name] == "SYSCALL" }.map { |record| record[:fields] }
+  end
+
   private
 
   def parse_record(record)

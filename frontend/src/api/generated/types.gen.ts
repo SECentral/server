@@ -1828,6 +1828,15 @@ export type IssueDetailResponse = {
 };
 
 export type OperatorGuidance = {
+    /**
+     * Optional occurrence-scoped capability explanation. Evidence decodes retained audit fields; hypothesis is an investigation lead, not a diagnosis or recommendation to grant access. Absent for non-capability resources and on older servers.
+     */
+    capability?: {
+        explanation: string;
+        evidence?: string;
+        hypothesis?: string;
+        outcome?: string;
+    };
     source: {
         occurrence_id: number;
         host_id: number;

@@ -27,6 +27,7 @@ class IssueOperatorGuidance
     retained_paths = paths(occurrence)
     path = @diagnosis&.dig(:path) || @triage&.dig(:path) || (retained_paths.first if retained_paths.one?)
     path = nil unless retained_paths.include?(path) && valid_path?(path)
+    path = nil if CapabilityGuidance::CLASSES.include?(denial.target_class)
     permissions = Array(denial.permissions)
     checks = []
     if path && %w[file dir lnk_file fifo_file chr_file blk_file sock_file].include?(denial.target_class)
@@ -65,6 +66,20 @@ class IssueOperatorGuidance
       end
     end
     checks.concat(boolean_checks) if permissions.include?("name_bind")
+    capability = CapabilityGuidance.call(occurrence)
+    if capability
+      if valid_path?(denial.executable)
+        since = (occurrence.occurred_at - 1.minute).utc.strftime("%Y-%m-%d %H:%M:%S UTC")
+        until_time = (occurrence.occurred_at + 1.minute).utc.strftime("%Y-%m-%d %H:%M:%S UTC")
+        checks << check("Review executable logs around the occurrence", Shellwords.join(["journalctl", "--utc", "--since", since, "--until", until_time, "_EXE=#{denial.executable}"]), "Look for startup, module or network-option messages around the recorded request.")
+      end
+      checks << check("Inspect current process contexts", "ps -eZ -o label,pid,comm", "Find the workload's current processes and compare their SELinux domain with the recorded source domain.")
+      if [denial.source_type, denial.target_type, *permissions].all? { |value| value.to_s.match?(/\A[A-Za-z][A-Za-z0-9_]*\z/) }
+        permissions.each do |permission|
+          checks << check("Inspect current capability policy: #{permission}", Shellwords.join(["sesearch", "-A", "-s", denial.source_type, "-t", denial.target_type, "-c", denial.target_class, "-p", permission]), "Queries the host's currently loaded policy. Historical evaluation requires the exact policy identity retained with the occurrence.")
+        end
+      end
+    end
     manual, possible_fix, verification = next_steps(denial, permissions, path)
     {
       source: { occurrence_id: occurrence.id, host_id: occurrence.host_id, hostname: occurrence.host.hostname,
@@ -72,7 +87,7 @@ class IssueOperatorGuidance
       checks: checks, manual_check: manual, possible_fix: possible_fix, verification: verification,
       verification_limit: "Record the test time and check fresh AVCs, enforcement/domain permissiveness and event-delivery health alongside the workload result.",
       restriction: "Keep unwanted access denied and correct the calling workload or exposure. Verify legitimate work still succeeds and record your decision in a note."
-    }
+    }.tap { |guidance| guidance[:capability] = capability if capability }
   end
 
   private
@@ -91,7 +106,11 @@ class IssueOperatorGuidance
 
   def next_steps(denial, permissions, path)
     object_class = denial.target_class
-    if permissions.include?("name_bind")
+    if CapabilityGuidance::CLASSES.include?(object_class)
+      ["Review the linked audit event's system call and the executable's configuration to identify which operation requested the privilege.",
+       "If optional startup or module settings trigger the request, review whether they are needed. No reviewed capability change is available; investigate the workload before considering broader privileges.",
+       "Repeat the intended workload operation and verify its expected response under the intended SELinux enforcement mode. Review new capability requests alongside the application result."]
+    elsif permissions.include?("name_bind")
       ["Confirm the service's intended listener and inspect its actual configuration.",
        "Compare correcting unintended Listen configuration, using an appropriate existing endpoint, reviewing a relevant Boolean, or classifying a required nonstandard port. Mapping options require exact policy support and complete effective/local range evidence.",
        "After an approved configuration validation and reload/restart, check the intended listener address/port and application response. Check that no unintended interface is exposed; account for service interruption."]

@@ -4734,6 +4734,15 @@ components:
       type: object
       required: [source, checks, manual_check, possible_fix, verification, verification_limit, restriction]
       properties:
+        capability:
+          description: Optional occurrence-scoped capability explanation. Evidence decodes retained audit fields; hypothesis is an investigation lead, not a diagnosis or recommendation to grant access. Absent for non-capability resources and on older servers.
+          type: object
+          required: [explanation]
+          properties:
+            explanation: {type: string}
+            evidence: {type: string}
+            hypothesis: {type: string}
+            outcome: {type: string}
         source:
           type: object
           required: [occurrence_id, host_id, hostname, occurred_at, path, observed_type]

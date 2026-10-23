@@ -304,6 +304,79 @@ function renderDetail(initialEntry = "/issues/7") {
 }
 
 describe("issue investigation", () => {
+  function capabilityPayload() {
+    const payload = detailPayload("basename");
+    payload.issue.target_class = "capability";
+    payload.issue.target_type = "httpd_t";
+    payload.issue.permissions = ["net_admin"];
+    payload.intelligence.names = [];
+    payload.intelligence.resource_summary = { process_command: "httpd", path_count: 0, name_count: 0, absolute_path_occurrences: 0, without_absolute_path_occurrences: 0 };
+    payload.policy_analysis = { status: "unavailable", limitations: ["exact policy identity is unavailable"] };
+    payload.findings = [];
+    payload.host_explanations[0].occurrence_count = 2;
+    payload.host_explanations[0].unexplained_occurrence_count = 2;
+    payload.host_explanations[0].diagnosis_groups[0].count = 2;
+    payload.triage.signals = [{ code: "new_issue", label: "New issue", explanation: "This issue was first observed within the last 7 days.", evidence: {}, temporal_scope: "retained_occurrence_history" }];
+    payload.operator_guidance = {
+      source: { occurrence_id: 101, host_id: 10, hostname: "web-1", occurred_at: "2026-10-22T17:40:36Z", path: null, observed_type: "httpd_t", object_class: "capability" },
+      capability: { explanation: "Linux capabilities are individual administrator privileges. net_admin includes privileged socket settings.", outcome: "SELinux recorded the request in permissive mode; the associated system call succeeded.", evidence: "The recorded x86-64 setsockopt call selected SO_SNDBUFFORCE.", hypothesis: "The service or a loaded module may be tuning socket buffers." },
+      checks: [
+        { title: "Review executable logs around the occurrence", command: "journalctl --utc --since '2026-10-22 17:39:36 UTC' --until '2026-10-22 17:41:36 UTC' _EXE=/usr/sbin/httpd", interpretation: "Look for startup or module messages." },
+        { title: "Inspect current process contexts", command: "ps -eZ -o label,pid,comm", interpretation: "Compare current processes with the recorded domain." },
+        { title: "Inspect current capability policy", command: "sesearch -A -s httpd_t -t httpd_t -c capability -p net_admin", interpretation: "Queries the host's currently loaded policy." }
+      ], manual_check: "Review the recorded system call and executable configuration.", possible_fix: "No reviewed capability change is available; investigate optional startup settings.", verification: "Repeat the intended workload operation under the intended enforcement mode.", verification_limit: "Check the workload result.", restriction: "Keep unwanted access denied."
+    };
+    payload.resolutions = { candidates: [], rejected_candidates: [], intent: null, freshness: null, history: [], change_plan: null,
+      observed_access: { occurrence_id: 101, host_id: 10, hostname: "web-1", actor: "httpd", source_type: "httpd_t", resource: "Resource identity not established", target_type: "httpd_t", object_class: "capability", permissions: ["net_admin"], operation_label: "net_admin", outcome: "DENIED", observed_at: "2026-10-22T17:40:36Z" } };
+    return payload;
+  }
+
+  it("explains capability requests with scoped investigation without empty disclosures or repeated novelty", async () => {
+    const payload = capabilityPayload();
+    vi.stubGlobal("fetch", vi.fn(async () => response(200, payload)));
+    renderDetail();
+    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("SELinux recorded httpd requesting the net_admin capability.");
+    const diagnosis = screen.getByRole("region", { name: "Diagnosis" });
+    expect(diagnosis).toHaveTextContent("Historical policy analysis unavailable");
+    expect(diagnosis).toHaveTextContent("exact SELinux policy identity is unavailable");
+    expect(diagnosis).toHaveTextContent("administrator privileges");
+    expect(diagnosis).toHaveTextContent("SO_SNDBUFFORCE");
+    expect(diagnosis).toHaveTextContent("Investigation hypothesis:");
+    expect(diagnosis).toHaveTextContent("permissive mode; the associated system call succeeded");
+    expect(diagnosis).not.toHaveTextContent("blocked");
+    expect(diagnosis).not.toHaveTextContent("Cause not confirmed; start with the checks below");
+    expect(within(diagnosis).getByRole("link", { name: /Inspect capability request/ })).toHaveAttribute("href", expect.stringContaining("evidence_occurrence=101"));
+    expect(screen.queryByRole("button", { name: "Retained evidence & analysis availability" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Findings & evidence gaps" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Occurrence pattern" })).not.toBeInTheDocument();
+    expect(screen.queryByText("2 retained occurrences")).not.toBeInTheDocument();
+    expect(screen.queryByText("Resource identity not established")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Observed access" })).toHaveTextContent("Capability");
+    expect(screen.getByRole("complementary", { name: "Investigation context" })).toHaveTextContent("Capabilitynet_admin");
+    expect(screen.getByRole("region", { name: "Finding coverage" })).toHaveTextContent("Supported findings: 0 of 2 occurrences");
+    const checks = screen.getByRole("region", { name: "Check" });
+    expect(within(checks).getByRole("button", { name: "Copy command: ps -eZ -o label,pid,comm" })).toBeVisible();
+    expect(within(checks).getByRole("heading", { name: "Verify the workload" })).toBeVisible();
+    expect(checks).toHaveTextContent("No reviewed capability change is available");
+    expect(screen.queryByText(/No reviewed change plan yet/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Copy command:.*(setsebool|restorecon|semanage)/ })).not.toBeInTheDocument();
+    await userEvent.setup().click(within(checks).getByRole("button", { name: "Policy inspection" }));
+    expect(within(checks).getByRole("button", { name: "Copy command: sesearch -A -s httpd_t -t httpd_t -c capability -p net_admin" })).toBeVisible();
+  });
+
+  it("keeps meaningful occurrence patterns and does not invent a syscall hypothesis when evidence is absent", async () => {
+    const payload = capabilityPayload();
+    payload.operator_guidance!.capability = { explanation: "Linux capabilities are individual administrator privileges." };
+    payload.triage.signals.push({ ...payload.triage.signals[0], code: "frequency_increase", label: "Occurrence rate increased", explanation: "Recent rate is twice the baseline." });
+    vi.stubGlobal("fetch", vi.fn(async () => response(200, payload)));
+    renderDetail();
+    const pattern = await screen.findByRole("button", { name: "Occurrence pattern" });
+    await userEvent.setup().click(pattern);
+    expect(screen.getByText("Occurrence rate increased:")).toBeVisible();
+    expect(screen.queryByText(/This issue was first observed within/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Investigation hypothesis:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/SO_SNDBUFFORCE/)).not.toBeInTheDocument();
+  });
   it("shows related issues as evidence links and compares AVC modes separately from event outcomes", async () => {
     const payload = detailPayload("004");
     payload.fleet_explanation = { ...payload.fleet_explanation, state: "disagreement", affected_host_count: 2 };
@@ -646,7 +719,7 @@ describe("issue investigation", () => {
     payload.triage_guidance = null;
     payload.operator_guidance = null;
     renderDetail();
-    expect(await screen.findByText("Cause not confirmed; start with the checks below.")).toBeVisible();
+    expect(await screen.findByText("Cause not confirmed.")).toBeVisible();
     expect(screen.queryByRole("button", { name: /Copy command: matchpathcon/ })).not.toBeInTheDocument();
   });
 
@@ -932,7 +1005,7 @@ describe("issue investigation", () => {
     expect(screen.getByText(/TCP\/12345 \(2 occurrences\).*TCP\/12346 \(1 occurrence\)/)).toBeVisible();
     expect(await screen.findByRole("region", { name: "Finding coverage" })).toHaveTextContent("Displayed finding: 1");
     await user.click(screen.getByRole("button", { name: "Findings & evidence gaps" }));
-    expect(screen.getByText(/Some occurrence policy assessments have limitations/)).toBeVisible();
+    expect(screen.getByText(/a matching conditional rule was active at the associated checkpoint/)).toBeVisible();
     expect(screen.getByText(/Some causes remain unconfirmed/)).toBeVisible();
     await user.click(screen.getByRole("button", {name: "Show recent occurrences"}));
     const table = await screen.findByRole("table", {name: "Occurrence summary"});
@@ -1001,7 +1074,7 @@ describe("issue investigation", () => {
     expect(await screen.findByRole("heading", { name: "No matching SELinux allow was found for this access" })).toBeInTheDocument();
     expect(screen.getByText(/The evaluated policy has no allow rule for this launch/)).toBeInTheDocument();
     expect(document.querySelector(".issue-primary-finding .issue-selinux-explanation")).toBeNull();
-    expect(screen.getByText(/16 retained occurrences/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Retained occurrences" })).toBeInTheDocument();
     expect(screen.getByText(/3 affected hosts/)).toBeInTheDocument();
     expect(screen.getByText("Fleet Scope & Occurrences").parentElement).toHaveTextContent("Same supported findings across affected hosts");
 
@@ -1091,9 +1164,9 @@ describe("issue investigation", () => {
     const user = userEvent.setup();
     renderDetail();
 
-    expect(await screen.findByText("5 retained occurrences")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Retained occurrences" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Show recent occurrences" }));
-    expect(await screen.findByText("5 retained occurrences · 1–5 of 5")).toBeInTheDocument();
+    expect(await screen.findByText("1–5 of 5 occurrences")).toBeInTheDocument();
     expect(screen.getByRole("table", { name: "Occurrence summary" })).toBeInTheDocument();
     expect(fetchMock.mock.calls.map(([url]) => String(url)).some((url) => /occurrences\/\d+$/.test(url))).toBe(false);
     await user.click(screen.getAllByRole("button", { name: /Inspect occurrence/ })[0]);
@@ -1153,7 +1226,7 @@ describe("issue investigation", () => {
     renderDetail();
 
     expect(await screen.findByText(/No event-linked expected-context observation is available/)).toBeInTheDocument();
-    expect(screen.getByText("user_home_t", { selector: ".issue-unexplained code" })).toBeInTheDocument();
+    expect(await screen.findByRole("complementary", { name: "Investigation context" })).toHaveTextContent("user_home_t");
   });
 
   it("keeps workflow available in compact Actions and updates lifecycle status", async () => {

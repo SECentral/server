@@ -345,7 +345,11 @@ class ResolutionCandidates
     else
       IssueIntelligence.destination_ports(denial.details)
     end
-    resource = paths.one? ? paths.first : %w[tcp_socket udp_socket].include?(denial.target_class) && ports.one? ? "#{denial.target_class == 'udp_socket' ? 'UDP' : 'TCP'}/#{ports.first}" : "Resource identity not established"
+    resource = if CapabilityGuidance::CLASSES.include?(denial.target_class)
+      "Capability: #{denial.permissions.join(', ')}"
+    else
+      paths.one? ? paths.first : %w[tcp_socket udp_socket].include?(denial.target_class) && ports.one? ? "#{denial.target_class == 'udp_socket' ? 'UDP' : 'TCP'}/#{ports.first}" : "Resource identity not established"
+    end
     { occurrence_id: occurrence.id, host_id: occurrence.host_id, hostname: occurrence.host.hostname,
       actor: denial.command.presence || denial.source_type, source_type: denial.source_type, resource: resource,
       target_type: denial.target_type, object_class: denial.target_class, permissions: denial.permissions,

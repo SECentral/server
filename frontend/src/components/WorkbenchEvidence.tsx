@@ -7,6 +7,7 @@ import FolderIcon from "@patternfly/react-icons/dist/esm/icons/folder-icon";
 import PlugIcon from "@patternfly/react-icons/dist/esm/icons/plug-icon";
 import ClockIcon from "@patternfly/react-icons/dist/esm/icons/clock-icon";
 import TimesCircleIcon from "@patternfly/react-icons/dist/esm/icons/times-circle-icon";
+import ShieldAltIcon from "@patternfly/react-icons/dist/esm/icons/shield-alt-icon";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { fetchHost } from "../api/hosts";
@@ -68,16 +69,21 @@ export function TechnicalEvidenceDisclosure({ basis, title = "Evidence & provena
   </ExpandableSection>;
 }
 
+export function isCapability(objectClass: string) {
+  return ["capability", "capability2", "cap_userns", "cap2_userns"].includes(objectClass);
+}
+
 export function ResourceIcon({ objectClass }: { objectClass: string }) {
-  return objectClass.endsWith("socket") ? <PlugIcon aria-hidden="true" /> : objectClass === "dir" ? <FolderIcon aria-hidden="true" /> : <FileIcon aria-hidden="true" />;
+  return isCapability(objectClass) ? <ShieldAltIcon aria-hidden="true" /> : objectClass.endsWith("socket") ? <PlugIcon aria-hidden="true" /> : objectClass === "dir" ? <FolderIcon aria-hidden="true" /> : <FileIcon aria-hidden="true" />;
 }
 
 export function ObservedAccessFlow({ access }: { access: NonNullable<ResolutionWorkflow["observed_access"]> }) {
+  const resource = isCapability(access.object_class) ? access.permissions.join(", ") : access.resource;
   return <section className="workbench-observed" aria-label="Observed access"><h2>What happened</h2>
     <div className="access-flow">
       <div className="access-node access-subject"><span className="entity-label"><CogsIcon aria-hidden="true" /> Subject</span><strong>{access.actor}</strong><code>{access.source_type}</code></div>
       <div className="access-edge"><span className="access-action">{access.operation_label}</span><span className="access-line" aria-hidden="true" /><span className="access-denied"><TimesCircleIcon aria-hidden="true" /> POLICY DENIAL</span></div>
-      <div className="access-node access-target"><span className="entity-label"><ResourceIcon objectClass={access.object_class} /> Target</span><strong title={access.resource}>{access.resource}</strong><code>{access.target_type}</code></div>
+      <div className="access-node access-target"><span className="entity-label"><ResourceIcon objectClass={access.object_class} /> {isCapability(access.object_class) ? "Capability" : "Target"}</span><strong title={resource}>{resource}</strong><code>{access.target_type}</code></div>
     </div>
   </section>;
 }
@@ -99,7 +105,8 @@ export function ContextSidebar({ detail, workflow, focusedAccess, onShowTechnica
   const hostId = access?.host_id ?? source?.host_id ?? diagnosisHost?.host_id ?? diagnosis?.host_id;
   const findingOccurrenceId = diagnosis?.occurrence_id;
   const findingHostId = diagnosis?.host_id ?? diagnosisHost?.host_id;
-  const resource = access?.resource ?? source?.path ?? diagnosis?.path;
+  const capability = isCapability(access?.object_class ?? detail.issue.target_class);
+  const resource = capability ? (access?.permissions ?? detail.issue.permissions).join(", ") : access?.resource ?? source?.path ?? diagnosis?.path;
   const host = useQuery({ queryKey: ["host", hostId], queryFn: () => fetchHost(hostId!), enabled: !!hostId, staleTime: 60_000 });
   const platform = host.data?.host?.platform;
   const unexplained = detail.finding_coverage?.unexplained ?? detail.host_explanations.reduce((total, host) => total + host.unexplained_occurrence_count, 0);
@@ -113,7 +120,7 @@ export function ContextSidebar({ detail, workflow, focusedAccess, onShowTechnica
       {reviewed && <small>Reviewed resource: {reviewed.label}</small>}
       {workflow.freshness === "current" && workflow.change_plan && <><Link to={planLink("inspection")}>Next safe step: {workflow.change_plan.preview_steps[0]?.title}</Link><Link to={planLink("rollback")}>View rollback</Link></>}</section>}
     <section><h3><CogsIcon aria-hidden="true" /> Process</h3><strong>{valueText(access?.actor) ?? valueText(diagnosis?.process_command) ?? valueText(detail.intelligence.resource_summary?.process_command) ?? "Process not recorded"}</strong><small>Domain <code>{access?.source_type ?? detail.issue.source_type}</code></small></section>
-    <section><h3><ResourceIcon objectClass={detail.issue.target_class} /> {detail.issue.target_class.endsWith("socket") ? "Observed target" : "Observed resource"}</h3><span className="context-resource">{resource ?? "Identity not established"}</span>
+    <section><h3><ResourceIcon objectClass={detail.issue.target_class} /> {capability ? "Capability" : detail.issue.target_class.endsWith("socket") ? "Observed target" : "Observed resource"}</h3><span className="context-resource">{resource ?? "Identity not established"}</span>
       <small>{access?.object_class ?? detail.issue.target_class} · AVC label <code>{access?.target_type ?? source?.observed_type ?? detail.issue.target_type}</code></small></section>
     <section><h3>Permission</h3><code>{(access?.permissions ?? detail.issue.permissions).join(", ")}</code></section>
     {diagnosis?.kind === "file_context_mismatch" && (!access || diagnosis.occurrence_id === access.occurrence_id) && <section><h3>Host-configured label</h3><code>{diagnosis.expected_type ?? "Not available"}</code><small><ClockIcon aria-hidden="true" /> Looked up after the denial</small></section>}

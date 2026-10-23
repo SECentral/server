@@ -14,7 +14,7 @@ import {
    type OccurrencePage,
   type OccurrenceDetail
 } from "../api/issue";
-import { EvidenceLink } from "../components/WorkbenchEvidence";
+import { EvidenceLink, isCapability } from "../components/WorkbenchEvidence";
 import { Disclosure as ExpandableSection } from "../components/Disclosure";
 import { IssueTechnicalEvidence } from "../components/IssueTechnicalEvidence";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
@@ -97,6 +97,7 @@ function practicalHeadline(issue: { source_type: string; target_type: string; ta
   const diagnosisEvidence = row(diagnosis);
   const process = text(diagnosisEvidence.process_command) ?? occurrences.find((occurrence) => occurrence.normalized_denial.command)?.normalized_denial.command;
   const actor = process ?? processCommand ?? `The ${issue.source_type} domain`;
+  if (isCapability(issue.target_class)) return `SELinux recorded ${actor} requesting the ${issue.permissions.join(", ")} ${issue.permissions.length === 1 ? "capability" : "capabilities"}.`;
   const resource = resourceFor(issue, diagnosis, occurrences, paths, names, destinationPort);
   const blocked = diagnosisEvidence.syscall_failed === true && diagnosisEvidence.enforcement_mode === "enforcing";
   if (permission === "name_connect") return `${actor} was ${blocked ? "blocked from" : "denied permission for"} connecting to ${resource}.`;
@@ -127,7 +128,7 @@ function primaryFindingLead(diagnosis: Diagnosis): string | null {
 
 function issueHeadline(detail: IssueDetailResponse): string {
   const { issue, intelligence } = detail;
-  if ((issue.signatures?.length ?? 0) > 1) return `${issue.source_type} access to ${issue.target_class} objects labeled ${issue.target_type}`;
+  if (!isCapability(issue.target_class) && (issue.signatures?.length ?? 0) > 1) return `${issue.source_type} access to ${issue.target_class} objects labeled ${issue.target_type}`;
   const summary = intelligence.resource_summary;
   if (["tcp_socket", "udp_socket"].includes(issue.target_class) && issue.permissions.includes("name_bind") && (summary?.bind_port_count ?? 0) > 0) {
     const protocol = issue.target_class === "udp_socket" ? "UDP" : "TCP";
@@ -210,7 +211,15 @@ function FindingCard({ detail }: { detail: IssueDetailResponse }) {
   const findingHost = detail.host_explanations.find((host) => host.host_id === diagnosis?.host_id);
   const conditionalTitle = diagnosis?.kind === "conditional_allow_inactive" ? `${diagnosis.source_domain ?? issue.source_type} was denied ${diagnosis.operation === "name_bind" ? "binding" : diagnosis.operation === "name_connect" ? "connecting to" : diagnosis.operation === "read" ? "reading" : "executing"} ${diagnosis.path ?? (diagnosis.bind_port || diagnosis.destination_port ? `${issue.target_class === "udp_socket" ? "UDP" : "TCP"}/${diagnosis.bind_port ?? diagnosis.destination_port}` : `objects labeled ${diagnosis.target_type ?? issue.target_type}`)}.` : null;
   return <section aria-labelledby="finding-title" className="issue-section issue-primary-finding"><h2 id="finding-title">Diagnosis</h2>
-    {policy_analysis.status !== "evaluated" && <p role="status">Policy analysis: {displayState(policy_analysis.status)}. Retained facts and local checks remain available; this is not a completed policy assessment.</p>}
+    {policy_analysis.status !== "evaluated" && <div role="status"><p><strong>{policy_analysis.status === "unavailable" ? "Historical policy analysis unavailable" : policy_analysis.status === "pending" ? "Policy evaluation is pending" : `Policy analysis: ${displayState(policy_analysis.status)}`}</strong></p>
+      {policy_analysis.limitations.map((limitation) => <p key={limitation}>{limitation === "exact policy identity is unavailable" ? "The exact SELinux policy identity is unavailable for these occurrences." : limitation.replaceAll("_", " ")}</p>)}
+    </div>}
+    {detail.operator_guidance?.capability && <section aria-label="Capability request"><p>{detail.operator_guidance.capability.explanation}</p>
+      {detail.operator_guidance.capability.outcome && <p>{detail.operator_guidance.capability.outcome}</p>}
+      {detail.operator_guidance.capability.evidence && <p>{detail.operator_guidance.capability.evidence}</p>}
+      {detail.operator_guidance.capability.hypothesis && <p><strong>Investigation hypothesis:</strong> {detail.operator_guidance.capability.hypothesis}</p>}
+      <EvidenceLink target="audit-evidence" occurrenceId={detail.operator_guidance.source.occurrence_id}>Inspect capability request · occurrence #{detail.operator_guidance.source.occurrence_id}</EvidenceLink>
+    </section>}
      {triage_guidance && diagnosis?.kind !== "file_context_mismatch" && <LabelMismatchGuidance guidance={triage_guidance} />}
      {diagnosis ? <article>
        <Title headingLevel="h3" size="xl">{conditionalTitle ?? diagnosis.title}</Title>
@@ -222,7 +231,7 @@ function FindingCard({ detail }: { detail: IssueDetailResponse }) {
         {diagnosis.kind === "file_context_mismatch" && (policyFinding ? <><p className="issue-finding-lead">{primaryFindingLead(policyFinding) ?? text(row(policyFinding).finding)}</p><DiagnosisEvidence diagnosis={policyFinding} /></> : <p>Policy explanation unavailable for this occurrence.</p>)}
       {diagnosis.kind === "no_matching_allow" && ["name_bind", "name_connect"].includes(diagnosis.operation ?? "") && <p><strong>Investigate:</strong> {diagnosis.next_step}</p>}
        {primaryLimitation(diagnosis) && <p className="issue-limitation"><strong>Limitation:</strong> {primaryLimitation(diagnosis)}</p>}
-     </article> : !triage_guidance && <MissingExplanation issue={issue} paths={intelligence.paths} names={intelligence.names} hasFindings={(findings?.length ?? 0) > 0} policyAnalysis={policy_analysis} />}
+      </article> : !triage_guidance && <MissingExplanation issue={issue} paths={intelligence.paths} names={intelligence.names} hasFindings={(findings?.length ?? 0) > 0} policyAnalysis={policy_analysis} />}
   </section>;
 }
 
@@ -254,32 +263,15 @@ function MissingExplanation({
   hasFindings: boolean;
   policyAnalysis: IssueDetailResponse["policy_analysis"];
 }) {
-  const status = policyAnalysis.status;
-  const limitations = policyAnalysis.limitations;
   const fileTarget = ["file", "dir", "fifo_file", "chr_file", "blk_file", "lnk_file", "sock_file"].includes(issue.target_class);
-  const nextChecks = [
-    ...(fileTarget && paths.length === 0 ? ["Identify the complete absolute path from the host or workload configuration before path-specific checks."] : []),
-    ...(fileTarget && paths.length > 0 ? ["Review the path's configured expected context and why no event-linked inspection result is available."] : []),
-    ...(status === "pending" ? ["Review the exact policy result after evaluation finishes."] : []),
-    ...(["unavailable", "error"].includes(status) ? ["Confirm the occurrence's loaded policy identity and availability of its policy evidence."] : []),
-    ...(!fileTarget && !["pending", "unavailable", "error"].includes(status) ? ["Review the retained AVC and the policy evidence for the associated occurrence."] : [])
-  ];
   return (
-    <div className="issue-unexplained" role="status">
-      <p><strong>{hasFindings ? "Individual occurrences have findings; check their scope." : "Cause not confirmed; start with the checks below."}</strong></p>
-      <p>SELinux recorded target label <code>{issue.target_type}</code> for this denied access.</p>
-      {fileTarget && paths.length === 0 && <p><strong>No absolute path was retained.</strong> SECentral cannot compare the recorded label with expected path labeling without a complete path.</p>}
-      <ExpandableSection toggleText="Retained evidence & analysis availability">
-       {fileTarget && paths.length > 0 && <p>Observed paths: {paths.slice(0, 3).map((path) => <span key={path}><code>{path}</code> </span>)}</p>}
+    <div className="issue-unexplained">
+      {hasFindings ? <p>Individual occurrences have findings; check their scope.</p> : policyAnalysis.status === "evaluated" && <p>Cause not confirmed.</p>}
+      {policyAnalysis.status === "evaluated" && policyAnalysis.limitations.map((limitation) => <p key={limitation}>{limitation.replaceAll("_", " ")}</p>)}
+      {fileTarget && paths.length === 0 && <p><strong>No absolute path was retained.</strong> Identify the complete absolute path on the host before checking its configured label.</p>}
+        {fileTarget && paths.length > 0 && <p>Observed paths: {paths.slice(0, 3).map((path) => <span key={path}><code>{path}</code> </span>)}</p>}
       {fileTarget && names.length > 0 && <p>Resource examples: {names.slice(0, 3).join(", ")}. Inspect occurrences for individual evidence.</p>}
       {fileTarget && paths.length > 0 && <p>No event-linked expected-context observation is available. Check current labeling on the host.</p>}
-      {status === "pending" && <p>Policy evaluation is pending for the correlated occurrence.</p>}
-      {status === "unavailable" && <p>Policy knowledge is unavailable for the correlated occurrence.</p>}
-      {status === "error" && <p>Policy evaluation encountered an error; treat policy knowledge as unavailable until it can be checked.</p>}
-      {limitations.map((limitation) => <p key={limitation}>{limitation.replaceAll("_", " ")}</p>)}
-      {!status && limitations.length === 0 && <p>Review the occurrence evidence and policy availability for the affected host.</p>}
-      <div className="issue-next-check"><h3>Check next</h3><ul>{nextChecks.map((check) => <li key={check}>{check}</li>)}</ul></div>
-      </ExpandableSection>
     </div>
   );
 }
@@ -517,6 +509,8 @@ export function IssueDetail() {
   if (detailQuery.isPending) return <div aria-label="Loading issue" className="issue-loading"><Spinner size="xl" /></div>;
 
   const { issue, intelligence, diagnosis, triage, host_explanations, fleet_explanation, policy_analysis, findings, additional_finding_count } = detailQuery.data;
+  const supplementaryPolicyLimits = !!diagnosis && policy_analysis.status === "evaluated" && policy_analysis.limitations.length > 0;
+  const patternSignals = triage.signals.filter((signal) => signal.code !== "new_issue");
   const disposition = pendingDisposition ?? issue.disposition;
 
   return (
@@ -556,11 +550,11 @@ export function IssueDetail() {
 
       <IssueWorkbench detail={detailQuery.data} updatedAt={detailQuery.dataUpdatedAt} onShowTechnicalEvidence={setTechnicalEvidenceIssueId} />
 
-      {((findings?.length ?? 0) > 1 || (issue.target_class === "file" && (intelligence.resource_summary?.without_absolute_path_occurrences ?? 0) > 0) || (additional_finding_count ?? 0) > 0 || policy_analysis.limitations.length > 0) && <ExpandableSection className="workbench-additional" toggleText="Findings & evidence gaps"><section aria-label="Findings & evidence gaps" className="issue-section">
+      {((findings?.length ?? 0) > 1 || (issue.target_class === "file" && (intelligence.resource_summary?.without_absolute_path_occurrences ?? 0) > 0) || (additional_finding_count ?? 0) > 0 || supplementaryPolicyLimits) && <ExpandableSection className="workbench-additional" toggleText="Findings & evidence gaps"><section aria-label="Findings & evidence gaps" className="issue-section">
         {findings?.slice(1).map((finding, index) => <ExpandableSection key={index} toggleText={`${finding.diagnosis.title} · ${finding.occurrence_count.toLocaleString()} occurrence${finding.occurrence_count === 1 ? "" : "s"}`}><p>{primaryFindingLead(finding.diagnosis) ?? text(row(finding.diagnosis).finding)}</p><DiagnosisEvidence diagnosis={finding.diagnosis} /><p><strong>Check next:</strong> {finding.diagnosis.next_step}</p><p>{primaryLimitation(finding.diagnosis)}</p><EvidenceLink target="policy-evaluation-evidence" occurrenceId={finding.diagnosis.occurrence_id}>Technical evidence for this finding</EvidenceLink></ExpandableSection>)}
         {issue.target_class === "file" && (intelligence.resource_summary?.without_absolute_path_occurrences ?? 0) > 0 && <div><h3>Path-based label check unavailable</h3><p>{intelligence.resource_summary!.without_absolute_path_occurrences.toLocaleString()} of {issue.occurrences_count.toLocaleString()} occurrences contain filenames but no complete filesystem path. SECentral cannot determine whether <code>{issue.target_type}</code> is the expected label for those files.</p></div>}
         {(additional_finding_count ?? 0) > 0 && <p>{additional_finding_count} finding variant(s) not shown. Inspect host and occurrence evidence for their coverage.</p>}
-         {diagnosis && policy_analysis.limitations.length > 0 && <div><p>Some occurrence policy assessments have limitations. These describe occurrence assessments, not the eligibility of a separate reviewed plan.</p><ul>{policy_analysis.limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}</ul><p>Unconfirmed occurrence examples: {host_explanations.flatMap((host) => host.diagnosis_groups.filter((group) => !group.diagnosis).flatMap((group) => group.sample_occurrence_ids.map((id) => <Link key={`${host.host_id}-${id}`} to={`/hosts/${host.host_id}/occurrences/${id}`}>{host.hostname} · #{id} </Link>)))}</p></div>}
+          {supplementaryPolicyLimits && <div><ul>{policy_analysis.limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}</ul><p>Unconfirmed occurrence examples: {host_explanations.flatMap((host) => host.diagnosis_groups.filter((group) => !group.diagnosis).flatMap((group) => group.sample_occurrence_ids.map((id) => <Link key={`${host.host_id}-${id}`} to={`/hosts/${host.host_id}/occurrences/${id}`}>{host.hostname} · #{id} </Link>)))}</p></div>}
       </section></ExpandableSection>}
 
       <Card isCompact className="issue-fleet-occurrences"><CardBody>
@@ -593,7 +587,7 @@ export function IssueDetail() {
         onRelatedToggle={setShowRelatedFleet}
       />
 
-      {triage.signals.length > 0 && <ExpandableSection className="issue-activity-context" toggleText="Occurrence pattern"><ul>{triage.signals.map((signal) => <li key={signal.code}><strong>{signal.label}:</strong> {signal.explanation}</li>)}</ul></ExpandableSection>}
+      {patternSignals.length > 0 && <ExpandableSection className="issue-activity-context" toggleText="Occurrence pattern"><ul>{patternSignals.map((signal) => <li key={signal.code}><strong>{signal.label}:</strong> {signal.explanation}</li>)}</ul></ExpandableSection>}
 
       {(issue.signatures?.length ?? 0) > 1 && <ExpandableSection toggleText="Denied operations">
         <p>This issue contains different denied permission sets. Compare their occurrences below; use Review separately only when they need different tracking decisions.</p>
@@ -622,7 +616,7 @@ export function IssueDetail() {
 
       <section id="issue-occurrences" tabIndex={-1} aria-labelledby="occurrences-title" className="issue-section issue-occurrences-section">
         {signatureFilter && <p>Showing occurrences for {issue.signatures?.find((signature) => String(signature.id) === signatureFilter)?.permissions.join(", ") ?? "the selected permission set"}. <Button variant="link" onClick={() => showSignatureOccurrences(null)}>Show all operations</Button></p>}
-        <header><div><h3 id="occurrences-title">Retained occurrences</h3><p>{issue.occurrences_count} retained occurrence{issue.occurrences_count === 1 ? "" : "s"}{occurrencesQuery.data && ` · ${(occurrencesQuery.data.meta.page - 1) * occurrencesQuery.data.meta.page_size + (occurrencesQuery.data.meta.total ? 1 : 0)}–${Math.min(occurrencesQuery.data.meta.page * occurrencesQuery.data.meta.page_size, occurrencesQuery.data.meta.total)} of ${occurrencesQuery.data.meta.total}`}</p></div></header>
+        <header><div><h3 id="occurrences-title">Retained occurrences</h3>{showOccurrences && occurrencesQuery.data && <p>{(occurrencesQuery.data.meta.page - 1) * occurrencesQuery.data.meta.page_size + (occurrencesQuery.data.meta.total ? 1 : 0)}–{Math.min(occurrencesQuery.data.meta.page * occurrencesQuery.data.meta.page_size, occurrencesQuery.data.meta.total)} of {occurrencesQuery.data.meta.total} occurrences</p>}</div></header>
         {!showOccurrences ? <Button variant="secondary" onClick={() => setShowOccurrences(true)}>Show recent occurrences</Button>
           : occurrencesQuery.isPending ? <div aria-label="Loading occurrences"><Spinner /></div>
           : occurrencesQuery.isError ? <Alert variant="warning" isInline title="Could not load occurrences">{occurrencesQuery.error instanceof Error ? occurrencesQuery.error.message : "Unknown error"}</Alert>

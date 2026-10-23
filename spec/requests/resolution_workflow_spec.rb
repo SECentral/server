@@ -47,6 +47,23 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
     JSON.parse(response.body)
   end
 
+  it "identifies a capability without a file target and keeps absent policy evidence separate from investigation" do
+    issue, occurrence, = fixture(network: false)
+    issue.update!(target_class: "capability", target_type: "httpd_t", permissions: ["net_admin"])
+    occurrence.normalized_denial.update!(target_class: "capability", target_type: "httpd_t", permissions: ["net_admin"],
+      source_context: "system_u:system_r:httpd_t:s0", executable: "/usr/sbin/httpd", details: { "permissive" => true })
+    occurrence.update!(host_snapshot: nil)
+    occurrence.raw_event.update!(host_snapshot: nil)
+    result = workflow(issue)
+    expect(result["observed_access"]).to include("resource" => "Capability: net_admin")
+    expect(result["candidates"]).to be_empty
+    get "/api/v1/issues/#{issue.id}"
+    body = JSON.parse(response.body)
+    expect(body["policy_analysis"]).to include("status" => "unavailable", "limitations" => include("exact policy identity is unavailable"))
+    expect(body.dig("operator_guidance", "capability", "explanation")).to include("administrator privileges")
+    expect(body.dig("operator_guidance", "checks").map { |item| item["command"] }).to include("ps -eZ -o label,pid,comm")
+  end
+
   def home_content_fixture(path: nil)
     issue, occurrence, host, snapshot = fixture(network: false, path: path)
     issue.update!(permissions: ["read"])

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import type { IssueDetailResponse } from "../api/issue";
 import { CopyCommand } from "./ResolutionWorkflow";
 import { Disclosure } from "./Disclosure";
+import { isCapability } from "./WorkbenchEvidence";
 
 export function ReadOnlyCommands({ checks }: { checks: NonNullable<IssueDetailResponse["operator_guidance"]>["checks"] }) {
   if (!checks.length) return null;
@@ -25,7 +26,8 @@ export function OperatorChecks({ detail, runbookCommands = [], supplemental = fa
   const latest = detail.resolutions?.observed_access;
   const different = latest && (latest.occurrence_id !== source.occurrence_id || (source.path && latest.resource !== source.path));
   const expected = detail.diagnosis?.occurrence_id === source.occurrence_id ? detail.diagnosis : null;
-  const primaryCount = source.path || source.operation === "name_bind" ? 3 : ["file", "dir"].includes(source.object_class ?? detail.issue?.target_class ?? "") ? 0 : 1;
+  const capability = isCapability(source.object_class ?? detail.issue?.target_class ?? "");
+  const primaryCount = capability ? guidance.checks.filter((check) => !check.command.startsWith("sesearch ")).length : source.path || source.operation === "name_bind" ? 3 : ["file", "dir"].includes(source.object_class ?? detail.issue?.target_class ?? "") ? 0 : 1;
   const primary = guidance.checks.slice(0, primaryCount).filter((check) => !runbookCommands.includes(check.command));
   const secondary = guidance.checks.slice(primaryCount).filter((check) => !runbookCommands.includes(check.command));
   if (supplemental && !primary.length && !secondary.length) return null;
@@ -38,6 +40,7 @@ export function OperatorChecks({ detail, runbookCommands = [], supplemental = fa
     {!source.path && ["file", "dir"].includes(detail.issue?.target_class) ? <Alert variant="info" isInline isPlain title="Complete target path not recorded">Identify the files this workload is accessing before considering a labeling or Boolean change.</Alert> : <p>{guidance.manual_check}</p>}
     </>}
     <InspectionCommands primary={primary} secondary={secondary} />
+    {!supplemental && capability && <><p>{guidance.possible_fix}</p><h3>Verify the workload</h3><p>{guidance.verification}</p></>}
   </section>;
 }
 

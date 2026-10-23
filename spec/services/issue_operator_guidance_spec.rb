@@ -29,6 +29,22 @@ RSpec.describe IssueOperatorGuidance do
     expect(result[:verification]).not_to match(/query|database|initialize/)
   end
 
+  it "supplies scoped read-only capability checks without an invented service unit, PID or historical policy" do
+    item = occurrence(path: nil, permissions: ["net_admin"], object_class: "capability")
+    allow(item).to receive(:raw_event).and_return(nil)
+    allow(item.normalized_denial).to receive(:executable).and_return("/usr/sbin/a 'quoted';$(bad)")
+    result = described_class.call(issue_with(item))
+    commands = result[:checks].map { |check| Shellwords.split(check[:command]) }
+    expect(commands.first).to eq(["journalctl", "--utc", "--since", "2026-09-30 23:59:00 UTC", "--until", "2026-10-01 00:01:00 UTC", "_EXE=/usr/sbin/a 'quoted';$(bad)"])
+    expect(commands[1]).to eq(["ps", "-eZ", "-o", "label,pid,comm"])
+    expect(commands.last).to eq(["sesearch", "-A", "-s", "httpd_t", "-t", "user_home_t", "-c", "capability", "-p", "net_admin"])
+    expect(result[:capability]).to include(explanation: include("administrator privileges"))
+    expect(result[:possible_fix]).to include("No reviewed capability change")
+    expect(result[:verification]).to include("workload operation", "enforcement mode")
+    allow(item.normalized_denial).to receive(:executable).and_return(nil)
+    expect(described_class.call(issue_with(item))[:checks].first[:command]).to start_with("ps ")
+  end
+
   it "ties the investigation to the diagnosis or triage path's actual occurrence and host" do
     latest = occurrence(id: 2, host_id: 2, path: "/var/www/html/z")
     older = occurrence(path: "/var/www/html/a")
