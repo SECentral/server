@@ -323,7 +323,7 @@ describe("issue investigation", () => {
     const related = await screen.findByRole("region", { name: "Related issue activity" });
     expect(within(related).getByRole("link", { name: "Issue #31" })).toHaveAttribute("href", "/issues/31");
     expect(related).toHaveTextContent("Same audit event");
-    expect(related).toHaveTextContent("not a shared diagnosis, remedy or lifecycle decision");
+    expect(related).not.toHaveTextContent("not a shared diagnosis, remedy or lifecycle decision");
     const outcomes = screen.getByRole("table", { name: "Host outcome comparison" });
     expect(outcomes).toHaveTextContent("6 occurrences / 2 audit events");
     expect(outcomes).toHaveTextContent("Succeeded: 2");
@@ -530,7 +530,7 @@ describe("issue investigation", () => {
     const scope = screen.getByRole("region", { name: "Finding coverage" });
     expect(scope).toHaveTextContent("Supported findings: 4 of 6 occurrences");
     expect(scope).toHaveTextContent("2 occurrences lack a supported finding");
-    expect(scope).toHaveTextContent("Finding coverage does not establish resource identity, workload intent or a verified root cause.");
+    expect(scope).not.toHaveTextContent("Finding coverage does not establish resource identity, workload intent or a verified root cause.");
     expect(scope).toHaveTextContent("Displayed finding: 1");
     await userEvent.setup().hover(within(scope).getByText("Supported findings: 4 of 6 occurrences"));
     expect(await screen.findByRole("tooltip")).toHaveTextContent("not verified root causes or confirmed remediation");
@@ -598,7 +598,7 @@ describe("issue investigation", () => {
     renderDetail("/issues/7?tab=occurrences");
     const table = await screen.findByRole("table", { name: "Audit activity" });
     expect(within(table).getAllByRole("row")).toHaveLength(3);
-    expect(screen.getByText(/can split at page or permission-filter boundaries/)).toBeVisible();
+    expect(screen.getByText(/may split at page or permission-filter boundaries/)).toBeVisible();
     await user.click(within(table).getByRole("button", { name: "2 audit events" }));
     expect(within(table).getByRole("button", { name: "Inspect occurrence #102" })).toBeVisible();
     expect(within(table).getByRole("button", { name: "Inspect occurrence #103" })).toBeVisible();
@@ -617,7 +617,7 @@ describe("issue investigation", () => {
     expect(screen.getAllByText("/var/www/html/a file.txt", { selector: "code" }).length).toBeGreaterThan(0);
     expect(screen.getByText("matchpathcon -- '/var/www/html/a file.txt'")).toBeVisible();
     expect(await screen.findByText("restorecon -v -- '/var/www/html/a file.txt'")).toBeVisible();
-    expect(screen.getByRole("region", { name: "Check" })).toHaveTextContent("local results have not been observed");
+    expect(screen.getByRole("region", { name: "Check" })).toHaveTextContent("Label at denial: user_home_t");
     expect(screen.getByRole("region", { name: "Check" })).toHaveTextContent("Read-only restoration preview");
     expect(screen.getByRole("region", { name: "Optional restoration after verification" })).toHaveTextContent("including local customizations");
     expect(screen.getByText(/Targeted scope:/)).toBeVisible();
@@ -627,7 +627,7 @@ describe("issue investigation", () => {
     expect(screen.getByText("restorecon -Rv -- /var/www/html")).not.toBeVisible();
     await user.click(screen.getByText("Broader alternative: recursive restoration"));
     expect(screen.getByText("restorecon -Rv -- /var/www/html")).toBeVisible();
-    expect(screen.getByText(/2 of 2 qualifying retained paths/)).toBeVisible();
+    expect(screen.getByText(/2 of 2 distinct recorded paths/)).toBeVisible();
     expect(screen.queryByText("Options not offered")).not.toBeInTheDocument();
     expect(screen.queryByText(/Complete path unavailable for/)).not.toBeInTheDocument();
   });
@@ -800,7 +800,7 @@ describe("issue investigation", () => {
     renderDetail();
     const diagnosis = await screen.findByRole("region", { name: "Diagnosis" });
     expect(diagnosis).toHaveTextContent("The policy SECentral checked has no rule allowing mariadbd to inspect file attributes such as ownership and permissions on files labeled shadow_t");
-    expect(diagnosis).toHaveTextContent("Host-configured label: not established by this policy finding");
+    expect(diagnosis).not.toHaveTextContent("Host-configured label: not established by this policy finding");
     expect(within(diagnosis).queryByLabelText("AVC and host-configured label comparison")).not.toBeInTheDocument();
     expect(within(diagnosis).queryByRole("button", { name: "Label observation details" })).not.toBeInTheDocument();
   });
@@ -972,7 +972,7 @@ describe("issue investigation", () => {
     expect(screen.getByRole("heading", { name: "No matching SELinux allow was found for this access" })).toBeInTheDocument();
     expect(screen.getByText(/no rule allowing mariadbd to inspect file attributes such as ownership and permissions on files labeled var_t/)).toBeInTheDocument();
     expect(screen.getByText(/\/srv\/secentral-s004-mariadb\/ibdata1/)).toBeInTheDocument();
-    expect(screen.getByText(/cannot infer the intended database path or label/)).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Diagnosis" })).queryByText(/cannot infer the intended database path or label/)).not.toBeInTheDocument();
     expect(within(await screen.findByRole("complementary", { name: "Investigation context" })).getByRole("link", { name: "#104" })).toHaveAttribute("href", "/hosts/10/occurrences/104");
     expect(screen.queryByText(/generate custom policy/i)).not.toBeInTheDocument();
   });
@@ -987,7 +987,7 @@ describe("issue investigation", () => {
     expect(screen.getByRole("heading", { name: /httpd_t was denied executing/ })).toBeInTheDocument();
     expect(screen.getAllByText(/\/var\/www\/cgi-bin\/secentral-s005-helper\.sh/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("httpd_unified").length).toBeGreaterThan(0);
-    expect(screen.getByText(/does not establish that a domain transition was attempted or intended/)).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Diagnosis" })).queryByText(/does not establish that a domain transition was attempted or intended/)).not.toBeInTheDocument();
   });
 
   it("keeps Issue 1932 in fleet agreement while disclosing its two policy identities", async () => {

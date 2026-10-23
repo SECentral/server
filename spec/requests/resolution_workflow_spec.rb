@@ -574,7 +574,7 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
     get "/api/v1/issues/#{issue.id}"
     body = JSON.parse(response.body)
     expect(body.dig("operator_guidance", "source")).to include("host_id" => later.host_id, "occurrence_id" => later.id, "path" => "/srv/other-launch")
-    expect(body.dig("operator_guidance", "possible_fix")).to include("does not establish that restoration will permit execution")
+    expect(body.dig("operator_guidance", "possible_fix")).to include("inspect its current and configured labels", "Confirm execution is intended")
     expect(body["resolutions"]["candidates"].map { |c| [c["host_id"], c.dig("evidence_basis", "occurrence_id"), c.dig("evidence_basis", "path")] }).to contain_exactly(
       [first.host_id, first.id, "/var/www/earlier-launch"], [later.host_id, later.id, "/srv/other-launch"])
     expect(body["triage_guidance"]).to be_nil

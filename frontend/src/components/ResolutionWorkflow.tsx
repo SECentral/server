@@ -50,10 +50,10 @@ function ChangePlan({ plan, detail }: { plan: PlanData; detail?: IssueDetailResp
   const showRollback = rollbackOpen || params.get("phase") === "rollback";
   const file = plan.scope_kind === "single_object";
   const port = plan.scope_kind === "host_port";
-  return <section className="selected-change-plan" aria-label="Selected change plan"><header className="workbench-section-header"><h3>Reviewed runbook</h3><Label color="blue">Review current against retained evidence</Label></header>
+  return <section className="selected-change-plan" aria-label="Selected change plan"><header className="workbench-section-header"><h3>Reviewed runbook</h3></header>
     <div className="plan-scope"><ShieldAltIcon aria-hidden="true" /><strong>{port ? "Host protocol/port classification" : file ? "Single evidenced object · no recursion" : "Host-wide SELinux boolean"}</strong><a href="#plan-rollback" onClick={() => setRollbackOpen(true)}>Rollback</a></div>
     <p>{plan.scope_description}</p>
-    {evidenceRecord(plan.evidence_basis.home_content_review).confirmed === true && <p>Operator-confirmed home-content path: <code>{String(evidenceRecord(plan.evidence_basis.home_content_review).path)}</code>. This is a review statement, not a filesystem observation collected by SECentral.</p>}
+    {evidenceRecord(plan.evidence_basis.home_content_review).confirmed === true && <p>Operator-confirmed home-content path: <code>{String(evidenceRecord(plan.evidence_basis.home_content_review).path)}</code></p>}
     <ExpandableSection className="plan-mechanism" toggleText="Why this affects the denial"><p>{plan.explanation}</p></ExpandableSection>
     <section id="plan-inspection" tabIndex={-1}><h3>1. Inspect host baseline <Label isCompact color="blue">Read-only</Label></h3>
       {port && <PriorPortMappings basis={plan.evidence_basis} />}
@@ -61,7 +61,7 @@ function ChangePlan({ plan, detail }: { plan: PlanData; detail?: IssueDetailResp
       {detail && <OperatorChecks detail={detail} runbookCommands={plan.preview_steps.map((step) => step.command)} supplemental />}
     </section>
     <section><h3>2. Apply after inspection</h3>
-    {!file && !port && <><p>{plan.persistence}</p><p>{plan.scope_warning}</p><p className="plan-warning"><ExclamationTriangleIcon aria-hidden="true" /> May affect other policy rules beyond this occurrence.</p><p>{plan.expected_effect}</p></>}
+    {!file && !port && <><p>{plan.persistence}</p><p>{plan.scope_warning}</p><p>{plan.expected_effect}</p></>}
       {file ? <ExpandableSection className="file-apply-disclosure" toggleText="Apply — only after successful inspection"><p>Stop if the object is missing, replaced, unintended, or its configured label is unsuitable.</p><p>{plan.scope_warning}</p><p>{plan.expected_effect}</p><p>{plan.persistence}</p>{plan.apply_steps.map((step) => <ChangePlanStep key={step.command} step={step} />)}</ExpandableSection>
         : plan.apply_steps.map((step) => <ChangePlanStep key={step.command} step={step} explanation={port ? "Persistently maps this protocol/port; may affect other workloads on this host." : undefined} />)}</section>
     <section aria-label={port ? "Verify port change" : "Verify workload"}><h3>{port ? "3. Verify classification & workload" : "3. Verify workload"}</h3>
@@ -85,7 +85,7 @@ function CandidateSupport({ candidate }: { candidate: Candidate }) {
   const support = candidate.supporting_observations;
   if (!support?.length) return candidate.permissions && <p>Supporting signature: <code>{candidate.permissions.join(", ")}</code></p>;
   return <section aria-label="Remedy support">
-    <p>Supporting permission sets: {support.map((item, index) => <span key={item.occurrence_id}>{index > 0 && " · "}<code>{item.permissions.join(", ")}</code></span>)}. Shared mechanics do not establish that every permission becomes allowed or that the workload succeeds.</p>
+    <p>Supporting permission sets: {support.map((item, index) => <span key={item.occurrence_id}>{index > 0 && " · "}<code>{item.permissions.join(", ")}</code></span>)}</p>
     <ExpandableSection toggleText="Supporting observations"><ul>{support.map((item) => <li key={item.occurrence_id}>
       <Link to={`/hosts/${candidate.host_id}/occurrences/${item.occurrence_id}`}>Example #{item.occurrence_id}</Link> · <code>{item.permissions.join(", ")}</code> · {item.enforcement_modes.join(", ")} · {item.occurrence_count} supporting occurrence{item.occurrence_count === 1 ? "" : "s"}
     </li>)}</ul><p>Current support is separate from the reviewed plan's evidence snapshot and from tracking decisions for each permission set.</p></ExpandableSection>
@@ -282,7 +282,7 @@ function ResolutionCandidateCard({ candidate, selected, freshness, busy, onSelec
         <label><input type="checkbox" checked={homeConfirmed} onChange={(event) => setHomeConfirmed(event.target.checked)} /> I completed these checks and intend Apache to serve this home content.</label>
       </>}
       <Button variant="primary" isDisabled={busy || (candidate.requires_home_content_review && (!homeConfirmed || !homePath.startsWith("/")))} onClick={() => onSelect(candidate, candidate.requires_home_content_review ? { path: homePath, confirmed: homeConfirmed } : undefined)}>Save reviewed plan</Button><Button variant="link" onClick={() => { setConfirming(false); setHomeConfirmed(false); }}>Cancel</Button></div>
-          : <><Button variant="primary" isDisabled={busy} onClick={() => setConfirming(true)}>{selected ? "Review updated change" : "Review this change"}</Button><p className="workbench-caption">Review scope and prerequisites before saving a runbook. This does not apply a host change.</p></>)}
+           : <Button variant="primary" isDisabled={busy} onClick={() => setConfirming(true)}>{selected ? "Review updated change" : "Review this change"}</Button>)}
     <p>{candidate.scope_warning}</p>
     {visibleLimitations.length > 0 && <ul>{visibleLimitations.map((text) => <li key={text}>{text}</li>)}</ul>}
     <ExpandableSection toggleText="Evidence & limitations">

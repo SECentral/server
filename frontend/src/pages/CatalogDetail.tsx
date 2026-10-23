@@ -65,7 +65,7 @@ function CatalogHeader({ catalog }: { catalog: CatalogData }) {
           <Button variant="plain" icon={<PencilAltIcon />} aria-label="Rename catalog" aria-controls={editing ? "catalog-name-edit" : undefined} isExpanded={editing} isDisabled={mutation.isPending} onClick={() => { setEditing(!editing); setName(null); }} />
           <Label color="grey" isCompact>{catalog.lifecycle === "archived" ? "Archived" : "Active"}</Label>
         </Flex>
-        <p className="pf-v6-u-color-200">Imported reference knowledge, not observed host state. Import does not establish vendor review.</p>
+        <p className="pf-v6-u-color-200">Imported SELinux policy reference</p>
         {mutation.isError && <Alert isInline variant="danger" title="Could not update catalog">{mutation.error.message}</Alert>}
         {mutation.isSuccess && <Alert isInline variant="success" title="Catalog management updated" />}
         {editing && <Form id="catalog-name-edit" onSubmit={(event) => { event.preventDefault(); mutation.mutate("rename"); }} className="pf-v6-u-mt-md">
@@ -220,7 +220,7 @@ export function CatalogDetail() {
               </Tab>
               <Tab eventKey="effective_permissive_domains" title={<TabTitleText>Effective permissive domains ({permissive?.status === "observed" ? permissive.domains?.length : "unavailable"})</TabTitleText>}>
                 <Card component="section" aria-label="Permissive-domain reference"><CardTitle component="h2">Effective permissive domains</CardTitle><CardBody>
-                  <p>Inline catalog extraction, collector-reported; not server-verified binary extraction. Membership does not establish administrator intent or that a permissive domain is safe.</p>
+                   <p>Source: collector-reported inline catalog extraction.</p>
                   {permissive?.status === "observed" ? <>
                     <p>Complete reference membership · semantics {permissive.semantics_version} · {permissive.evaluator_version}</p>
                     <ExpandableSection toggleText={`Reference membership (${permissive.domains?.length})`} isExpanded={membershipCatalogId === id} onToggle={(_event, open) => setMembershipCatalogId(open ? id ?? null : null)}>
@@ -240,7 +240,7 @@ export function CatalogDetail() {
 
             <ExpandableSection toggleText="Technical details & policy digests" isExpanded={technicalExpanded} onToggle={(_event, open) => setTechnicalCatalogId(open ? id ?? null : null)}>
               {technicalExpanded && <Stack hasGutter>
-                <p>Acquisition metadata is submitted evidence. Import and a valid digest do not establish review, trusted publisher identity or certified vendor origin.</p>
+                 <p>Acquisition metadata supplied with the imported artifact.</p>
                 <DescriptionList orientation={{ sm: "horizontal" }} isCompact isFluid>
                   <DescriptionListGroup><DescriptionListTerm>Immutable revision ID</DescriptionListTerm><DescriptionListDescription>{catalog.id}</DescriptionListDescription></DescriptionListGroup>
                   <DescriptionListGroup><DescriptionListTerm>Loaded-policy digest</DescriptionListTerm><DescriptionListDescription><ClipboardCopy variant="inline-compact" isReadOnly isCode copyAriaLabel="Copy loaded-policy digest" textAriaLabel="Loaded-policy digest">{catalog.loaded_policy_digest}</ClipboardCopy></DescriptionListDescription></DescriptionListGroup>

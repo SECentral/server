@@ -31,11 +31,11 @@ class IssueOperatorGuidance
     checks = []
     if path && %w[file dir lnk_file fifo_file chr_file blk_file sock_file].include?(denial.target_class)
       q = Shellwords.escape(path)
-      checks << check("Current object label", "ls -ldZ -- #{q}", "Read the current object's context on this host. This is not the historical AVC label; stop if the path is missing or refers to a different object.")
+      checks << check("Current object label", "ls -ldZ -- #{q}", "Read the current object's context; stop if the path is missing or refers to a different object.")
       checks << check("Host-configured context", "matchpathcon -- #{q}", "The third colon-separated context field is the type. Compare this configured type with the current object label, not just the historical AVC label.")
       checks << check("Read-only restoration preview", "restorecon -n -v -- #{q}", "Shows a proposed label change without applying it. If current and configured types agree, restoration may do nothing. If lookup fails or the configured label is unsuitable, investigate configuration instead.")
       if @diagnosis&.dig(:kind) == "no_matching_allow"
-        checks << check("Local file-context customizations", "semanage fcontext -l -C", "A configured label can agree with the current object yet be unsuitable for an intended relocated workload. Review its effective data path and mappings; this check does not establish a preferred type or authorize a new mapping.")
+        checks << check("Local file-context customizations", "semanage fcontext -l -C", "Compare local mappings with the workload's effective data path and intended file role.")
       end
     end
     # Bind investigation starts with listener ownership and classification, not a matching Boolean.
@@ -46,7 +46,7 @@ class IssueOperatorGuidance
         name = item["name"] || item[:name]
         next unless name.to_s.match?(/\A[A-Za-z][A-Za-z0-9_]*\z/)
 
-        boolean_checks << check("Current Boolean: #{name}", "getsebool #{name}", "Check runtime state on the selected host before retrying the intended workload. Stored checkpoint and latest observed values are historical observations, not a fresh host inspection. A matching rule is not a recommendation to enable this capability.")
+        boolean_checks << check("Current Boolean: #{name}", "getsebool #{name}", "Check the current runtime state on this host before retrying the intended workload.")
       end
     end
     boolean_checks.uniq! { |item| item[:command] }
@@ -55,13 +55,13 @@ class IssueOperatorGuidance
     if port_checks.any?
       checks.concat(port_checks.map { |item| check(item[:reason], InvestigationCommandRenderer.call(item), item[:expected]) })
     elsif %w[tcp_socket udp_socket].include?(denial.target_class)
-      checks << check("Current listeners", denial.target_class == "udp_socket" ? "ss -lunp" : "ss -ltnp", "Check the intended listening address, port and owner. No listener alone does not establish the cause; a shell connection does not test confined workload access.") if permissions.include?("name_bind")
-      checks << check("Configured port classifications", "semanage port -l", "Find the observed protocol/port in the current ranges. Classification alone does not establish which type is appropriate.")
+      checks << check("Current listeners", denial.target_class == "udp_socket" ? "ss -lunp" : "ss -ltnp", "Compare the listening address, port and process owner with the intended service.") if permissions.include?("name_bind")
+      checks << check("Configured port classifications", "semanage port -l", "Find the observed protocol/port within individual entries or ranges and compare its type with the recorded AVC label.")
       checks << check("Local port customizations", "semanage port -l -C", "Review local overrides before considering any manual configuration change.")
       endpoint = PortMappingGuidance.endpoint(denial)
       if endpoint && denial.source_type.to_s.match?(/\A[A-Za-z][A-Za-z0-9_]*\z/)
         checks << check("Current local policy alternatives", InvestigationCommandRenderer.call(kind: :port_policy_alternatives, source_type: denial.source_type, object_class: denial.target_class, operation: endpoint[:operation]),
-          "Queries the host's currently loaded policy, not the stored checkpoint. Inspect target attributes and conditions; a matching rule does not establish service intent or an appropriate replacement classification. Use this when central evaluation is pending or failed.")
+          "Inspect matching target types, attributes and conditions in the host's currently loaded policy.")
       end
     end
     checks.concat(boolean_checks) if permissions.include?("name_bind")
@@ -70,8 +70,8 @@ class IssueOperatorGuidance
       source: { occurrence_id: occurrence.id, host_id: occurrence.host_id, hostname: occurrence.host.hostname,
         occurred_at: occurrence.occurred_at, path: path, observed_type: denial.target_type, object_class: denial.target_class }.merge(PortMappingGuidance.endpoint(denial) || {}),
       checks: checks, manual_check: manual, possible_fix: possible_fix, verification: verification,
-      verification_limit: "Absence of new AVCs alone proves neither workload success nor safety. Record the test time and check fresh AVCs, enforcement/domain permissiveness and event-delivery health.",
-      restriction: "If this access is unwanted, keep it denied and correct the calling workload or exposure. Verify the unwanted operation remains denied and legitimate work still succeeds. Acknowledge your decision with a note; intentional denial does not mean harmless or fixed."
+      verification_limit: "Record the test time and check fresh AVCs, enforcement/domain permissiveness and event-delivery health alongside the workload result.",
+      restriction: "Keep unwanted access denied and correct the calling workload or exposure. Verify legitimate work still succeeds and record your decision in a note."
     }
   end
 
@@ -92,17 +92,17 @@ class IssueOperatorGuidance
   def next_steps(denial, permissions, path)
     object_class = denial.target_class
     if permissions.include?("name_bind")
-      ["Confirm the service's intended listener and inspect its actual configuration; the unit and desired endpoint are not established by this denial.",
-       "Compare correcting unintended Listen configuration, using an appropriate existing endpoint, reviewing a relevant Boolean, or classifying a required nonstandard port. Mapping options require exact policy support and complete effective/local range evidence; they are not always preferable. Do not enable an unrelated Boolean merely because its rule matches. Generated options are not exhaustive.",
+      ["Confirm the service's intended listener and inspect its actual configuration.",
+       "Compare correcting unintended Listen configuration, using an appropriate existing endpoint, reviewing a relevant Boolean, or classifying a required nonstandard port. Mapping options require exact policy support and complete effective/local range evidence.",
        "After an approved configuration validation and reload/restart, check the intended listener address/port and application response. Check that no unintended interface is exposed; account for service interruption."]
     elsif permissions.include?("name_connect")
-      ["Confirm the actual backend destination in workload configuration; a port number does not identify its IP or service. Test through the confined workload, not only a shell client.",
-       "Check the relevant Boolean's current runtime state and retry the intended workload first if the capability is already observed On. Otherwise compare correcting an unintended destination, using an appropriate existing endpoint, reviewing a relevant Boolean or an evidence-backed port classification. A mapping affects host protocol/port classification, not a remote IP or firewall. Matching policy paths are alternatives, not a request to enable them all; generated options are not exhaustive.",
-       "Retry the same application or proxy request through the affected workload and verify the intended backend response. A successful shell connection alone is insufficient."]
+      ["Confirm the backend address, port and service in workload configuration. Test through the confined workload.",
+       "Check the relevant Boolean's current runtime state and retry the intended workload first if the capability is already observed On. Otherwise compare correcting an unintended destination, using an appropriate existing endpoint, reviewing a relevant Boolean or an evidence-backed port classification. Port mappings affect other workloads using the same host/protocol/port.",
+       "Retry the same application or proxy request through the affected workload and verify the intended backend response."]
     elsif (permissions & %w[execute entrypoint execute_no_trans transition]).any?
-      ["Confirm the intended launch and executable identity, including the requested execution context. An entrypoint/execute denial is not a web-read violation and does not establish an intended destination domain or failed transition.",
-       "Restoring configured labeling and enabling execution are separate decisions. A label mismatch alone does not establish that restoration will permit execution. If this object belongs here and its configured labeling is appropriate, review an eligible targeted-restoration option; otherwise correct unintended execution. Compound Boolean changes and inferred executable types are not offered.",
-       "Retry only the intended launch and verify its expected status and output, not just absence of denials. If resulting-domain behavior matters, inspect the actual child process context separately. For a confirmed CGI workload, retry its actual request."]
+      ["Confirm the intended launch, executable identity and requested execution context.",
+       "If this executable belongs here, inspect its current and configured labels before reviewing targeted restoration. Confirm execution is intended before reviewing any broader capability change; otherwise correct the calling workload.",
+       "Retry only the intended launch and verify its expected status and output. If resulting-domain behavior matters, inspect the actual child process context separately. For a confirmed CGI workload, retry its actual request."]
     elsif %w[file dir lnk_file fifo_file chr_file blk_file sock_file].include?(object_class)
       fix = if !path && denial.source_type == "httpd_t" && denial.target_type == "user_home_t" && (permissions & %w[read open]).any?
         "Identify the object and decide whether serving home-directory content is intentional. Once the path is known, inspect its current label (ls -ldZ), configured context (matchpathcon), and read-only restoration preview (restorecon -n -v) on the selected host. Restore only if current labeling differs from suitable configured labeling; do not relabel intentional home content merely to allow access. If serving home content is intended, compare the home-content Boolean's broader host-wide read access with workload configuration changes. If website content was misplaced or exposed accidentally, investigate deployment paths and web configuration instead of broadening access. No path-specific restoration command is supported without a retained absolute path."
@@ -116,7 +116,7 @@ class IssueOperatorGuidance
       else
         "Repeat the intended file access through the affected workload and check expected output. For confirmed web content, retry the actual request and verify its status and content."
       end
-      [path ? "Confirm the file's role and the workload's effective configured path; application intent is not established by the AVC." : "Identify the complete absolute path and intended use from the host/workload configuration before path-specific checks. Do not reconstruct it from a basename.", fix, verification]
+      [path ? "Confirm the file's role and the workload's effective configured path." : "Identify the complete absolute path and intended use from the host/workload configuration before path-specific checks. Do not reconstruct it from a basename.", fix, verification]
     else
       ["Review the exact denied operation and workload intent with the affected host's operator.",
        "Use a manual configuration/policy review if no supported reviewed option fits; keeping the restriction is a valid choice.",

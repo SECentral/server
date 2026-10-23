@@ -51,7 +51,7 @@ describe("Catalog product import", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/catalogs/import-preview?display_name=Named%20reference", expect.objectContaining({ body: file, method: "POST", headers: expect.objectContaining({ "Content-Type": "application/octet-stream" }) }));
     expect(screen.getByText(payload.preview.content_digest)).toBeInTheDocument();
     expect(screen.getByText(/Booleans: complete \(350\)/)).toBeInTheDocument();
-    expect(screen.getByText(/not a trusted-publisher claim/)).toBeInTheDocument();
+    expect(screen.getByText(/verify its source before importing/)).toBeInTheDocument();
     fetchMock.mockResolvedValue(jsonResponse(201, { outcome: "create_new_revision", catalog: { id: 7 } }));
     await user.click(screen.getByRole("button", { name: "Import new catalog revision" }));
     expect(await screen.findByText("Catalog detail: create_new_revision")).toBeInTheDocument();

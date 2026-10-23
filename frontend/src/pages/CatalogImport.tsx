@@ -39,9 +39,7 @@ export function CatalogImport() {
       <Breadcrumb className="pf-v6-u-mb-sm"><BreadcrumbItem><Link to="/catalogs">Catalogs</Link></BreadcrumbItem><BreadcrumbItem isActive>Import catalog</BreadcrumbItem></Breadcrumb>
       <Title headingLevel="h1" size="2xl">Import catalog</Title>
       <p>Choose a UTF-8 JSON catalog artifact (up to 2 MiB). Validation previews the import without saving catalog data. Confirmation uploads the same file again and revalidates it.</p>
-      <Alert isInline variant="info" title="Validation is not vendor review" className="pf-v6-u-my-md">
-        A valid supported artifact does not establish that it was produced or reviewed by the distribution vendor or SECentral. Acquisition metadata is submitted evidence, not a trusted-publisher claim.
-      </Alert>
+      <p>Validation checks artifact structure and compatibility; verify its source before importing.</p>
       {error && <Alert isInline variant="danger" title="Catalog import could not proceed">{error.message}</Alert>}
       <Form onSubmit={(event) => { event.preventDefault(); setPreview(null); confirmation.reset(); validation.mutate(); }}>
         <FormGroup label="JSON artifact" fieldId="catalog-artifact" isRequired>

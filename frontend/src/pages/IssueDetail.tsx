@@ -142,13 +142,7 @@ function issueHeadline(detail: IssueDetailResponse): string {
 }
 
 function primaryLimitation(diagnosis: Diagnosis): string | null {
-  if (diagnosis.kind === "no_matching_allow" && ["name_bind", "name_connect"].includes(diagnosis.operation ?? "")) return null;
-  if (diagnosis.kind === "file_context_mismatch") return null;
-  if (diagnosis.kind === "conditional_allow_inactive" && diagnosis.operation === "execute") return "This denial does not establish that a domain transition was attempted or intended.";
-  if (diagnosis.kind === "conditional_allow_inactive") return null;
-  if (diagnosis.kind === "no_matching_allow" && diagnosis.permissions?.includes("entrypoint")) return "Audit evidence does not establish whether this launch is part of expected workload behavior.";
-  if (diagnosis.kind === "no_matching_allow" && diagnosis.source_domain === "mysqld_t") return "SECentral cannot infer the intended database path or label from this denial.";
-  if (diagnosis.kind === "no_matching_allow") return "No matching allow does not establish that this workload should receive the access.";
+  if (["file_context_mismatch", "conditional_allow_inactive", "no_matching_allow"].includes(diagnosis.kind)) return null;
   return diagnosis.limitation;
 }
 
@@ -226,7 +220,6 @@ function FindingCard({ detail }: { detail: IssueDetailResponse }) {
       {diagnosis.kind === "conditional_allow_inactive" && <p>Recorded target type: <code>{diagnosis.target_type ?? issue.target_type}</code></p>}
        <DiagnosisEvidence diagnosis={diagnosis} />
         {diagnosis.kind === "file_context_mismatch" && (policyFinding ? <><p className="issue-finding-lead">{primaryFindingLead(policyFinding) ?? text(row(policyFinding).finding)}</p><DiagnosisEvidence diagnosis={policyFinding} /></> : <p>Policy explanation unavailable for this occurrence.</p>)}
-       {diagnosis.kind !== "file_context_mismatch" && issue.target_class === "file" && <p>Host-configured label: not established by this policy finding. Use the workspace checks to inspect current and configured labeling.</p>}
       {diagnosis.kind === "no_matching_allow" && ["name_bind", "name_connect"].includes(diagnosis.operation ?? "") && <p><strong>Investigate:</strong> {diagnosis.next_step}</p>}
        {primaryLimitation(diagnosis) && <p className="issue-limitation"><strong>Limitation:</strong> {primaryLimitation(diagnosis)}</p>}
      </article> : !triage_guidance && <MissingExplanation issue={issue} paths={intelligence.paths} names={intelligence.names} hasFindings={(findings?.length ?? 0) > 0} policyAnalysis={policy_analysis} />}
@@ -365,7 +358,7 @@ const FleetSection = memo(function FleetSection({
 
 function ActivityTable({ page, onInspect }: { page: OccurrencePage; onInspect: (id: number) => void }) {
   return <>
-    <p>Activity groups use only events on this page and can split at page or permission-filter boundaries. Correlation does not establish one application request or read-only mapping. Occurrence counts and decisions remain unchanged.</p>
+    <p>Activity groups cover events on this page and may split at page or permission-filter boundaries.</p>
     <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Audit activity"><Thead><Tr><Th>Time (UTC)</Th><Th>Host</Th><Th>Resource</Th><Th>Observed activity</Th><Th>Audit events</Th></Tr></Thead><Tbody>
       {page.activity_groups?.map((group) => {
         const members = group.occurrence_ids.flatMap((id) => { const item = page.occurrences.find((occurrence) => occurrence.id === id); return item ? [item] : []; });
@@ -573,7 +566,7 @@ export function IssueDetail() {
       <Card isCompact className="issue-fleet-occurrences"><CardBody>
       {!!intelligence.observation_summary?.length && <section aria-label="Recorded outcomes" className="pf-v6-u-mb-lg">
         <h2>Recorded outcomes</h2>
-        <p>Permissive decisions are recorded without SELinux blocking the operation. Syscall success is not proof of application success; counts can include retries and shutdown activity.</p>
+        <p>Audit-event counts by SELinux enforcement mode and recorded syscall result.</p>
         <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Host outcome comparison"><Thead><Tr><Th>Host</Th><Th>Occurrences / audit events</Th><Th>AVC enforcement</Th><Th>Syscall outcomes by event</Th></Tr></Thead><Tbody>
           {intelligence.observation_summary.map((item) => <Tr key={item.host_id}>
             <Td dataLabel="Host"><Link to={`/hosts/${item.host_id}`}>{item.hostname ?? `Host ${item.host_id}`}</Link></Td>
@@ -585,7 +578,6 @@ export function IssueDetail() {
       </section>}
       {!!detailQuery.data.related_activity?.length && <section aria-label="Related issue activity" className="pf-v6-u-mb-lg">
         <h2>Related issue activity</h2>
-        <p>Bounded recent evidence links, not a shared diagnosis, remedy or lifecycle decision. Process-window links do not establish a process lifetime or common root cause.</p>
         <ul>{detailQuery.data.related_activity.map((item) => <li key={`${item.issue_id}:${item.host_id}`}>
           <Link to={`/issues/${item.issue_id}`}>Issue #{item.issue_id}</Link> · <code>{item.target_type}:{item.target_class}</code> · {item.hostname ?? `Host ${item.host_id}`} · {item.basis === "same_audit_event" ? "Same audit event" : "Same host, boot, PID, executable and subject context within 2 seconds"}.
           {" "}<Link to={`/hosts/${item.host_id}/occurrences/${item.source_occurrence_id}`}>This issue's example</Link> ({formatUtc(item.source_occurred_at)}) ↔ <Link to={`/hosts/${item.host_id}/occurrences/${item.occurrence_id}`}>Related example</Link> ({formatUtc(item.occurred_at)}).

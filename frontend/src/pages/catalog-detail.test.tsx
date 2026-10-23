@@ -121,7 +121,7 @@ describe("CatalogDetail", () => {
     const { fetchMock } = renderCatalogDetail();
     expect(await screen.findByText("1 in reference")).toBeVisible();
     await user.click(screen.getByRole("tab", { name: "Effective permissive domains (1)" }));
-    expect(screen.getByText(/Inline catalog extraction, collector-reported/)).toBeVisible();
+    expect(screen.getByText("Source: collector-reported inline catalog extraction.")).toBeVisible();
     expect(screen.getByText(/semantics 1 · SETools 4.5.1/)).toBeVisible();
     const toggle = screen.getByRole("button", { name: "Reference membership (1)" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -180,7 +180,7 @@ describe("CatalogDetail", () => {
     await user.click(screen.getByRole("button", { name: "Technical details & policy digests" }));
     expect(screen.getByText(detailPayload.catalog.content_digest)).toBeVisible();
     expect(screen.getByText(/"source":"distribution-release"/)).toBeInTheDocument();
-    expect(screen.getByText(/Import and a valid digest do not establish review/)).toBeInTheDocument();
+    expect(screen.getByText("Acquisition metadata supplied with the imported artifact.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Unarchive catalog" }));
     await waitFor(() => expect(screen.queryByText("Archived reference")).not.toBeInTheDocument());
     expect(screen.getByText("Active", { exact: true })).toBeInTheDocument();

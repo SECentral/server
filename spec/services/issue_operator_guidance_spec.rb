@@ -59,10 +59,10 @@ RSpec.describe IssueOperatorGuidance do
     expect(connect[:verification]).to include("backend response")
     bind = described_class.call(issue_with(occurrence(path: nil, permissions: ["name_bind"], object_class: "tcp_socket")))
     expect(bind[:checks].first[:command]).to eq("ss -ltnp")
-    expect(bind[:possible_fix]).to include("using an appropriate existing endpoint", "Mapping options require exact policy support", "not exhaustive")
+    expect(bind[:possible_fix]).to include("using an appropriate existing endpoint", "Mapping options require exact policy support")
     execute = described_class.call(issue_with(occurrence(permissions: ["execute"])))
     expect(execute[:verification]).to include("actual child process context")
-    expect(execute[:possible_fix]).to include("Compound Boolean changes", "not offered")
+    expect(execute[:possible_fix]).to include("inspect its current and configured labels", "Confirm execution is intended")
   end
 
   it "starts a missing-path home-content read with object identity and intent, not restoration" do
@@ -75,8 +75,8 @@ RSpec.describe IssueOperatorGuidance do
 
   it "does not turn an entrypoint labeling mismatch into a web-read fix or execution guarantee" do
     result = described_class.call(issue_with(occurrence(permissions: ["entrypoint"])))
-    expect(result[:manual_check]).to include("not a web-read violation")
-    expect(result[:possible_fix]).to include("separate decisions", "does not establish that restoration will permit execution")
+    expect(result[:manual_check]).to include("intended launch", "executable identity", "requested execution context")
+    expect(result[:possible_fix]).to include("inspect its current and configured labels", "Confirm execution is intended")
     expect(result[:verification]).to start_with("Retry only the intended launch")
   end
 
@@ -97,7 +97,7 @@ RSpec.describe IssueOperatorGuidance do
       expect(result[:manual_check]).to include("intended listener", "actual configuration")
       expect(result[:checks].first(3).map { |check| check[:command] }).to eq([object_class == "udp_socket" ? "ss -lunp" : "ss -ltnp", "semanage port -l", "semanage port -l -C"])
       expect(result[:checks].last[:command]).to eq("getsebool nis_enabled")
-      expect(result[:checks].last[:interpretation]).to include("not a recommendation")
+      expect(result[:checks].last[:interpretation]).to include("current runtime state", "retrying the intended workload")
     end
   end
 

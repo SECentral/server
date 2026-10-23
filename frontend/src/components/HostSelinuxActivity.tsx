@@ -104,7 +104,7 @@ function ActivityItem({ item, selected }: { item: SelinuxActivityItem; selected:
                </section> : null}
                {activity.window_avc_count > 0 ? <section aria-label="Unresolved interval AVCs">
                  <strong>{activity.window_avc_count} {activity.window_avc_count === 1 ? "AVC" : "AVCs"} in the unresolved interval.</strong>
-                <p>These AVCs occurred after this observed transition, before a refreshed checkpoint could apply, or before a further transition. This relationship does not establish causation.</p>
+                 <p>AVCs recorded after this transition and before the next applicable checkpoint or transition.</p>
                 <ul>{details.data.item.window_occurrences.map((occurrence) => <li key={occurrence.id}>
                   <Link to={`/hosts/${item.host_id}/occurrences/${occurrence.id}`}>Occurrence #{occurrence.id}</Link>{" "}
                   <time dateTime={occurrence.event_time}>{time(occurrence.event_time)}</time>

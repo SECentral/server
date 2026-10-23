@@ -181,7 +181,7 @@ describe("Monitored-server SELinux activity", () => {
     expect(await screen.findByText("2 AVCs in the unresolved interval.")).toBeVisible();
     expect(await screen.findByRole("link", { name: "Occurrence #26691" })).toHaveAttribute("href", "/hosts/10/occurrences/26691");
     expect(screen.getByRole("link", { name: "Issue #1939" })).toHaveAttribute("href", "/issues/1939");
-    expect(screen.getByText(/This relationship does not establish causation/)).toBeVisible();
+    expect(screen.getByText("AVCs recorded after this transition and before the next applicable checkpoint or transition.")).toBeVisible();
     expect(screen.getByText(/Showing the 1 most recent retained interval occurrences of 2/)).toBeVisible();
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/hosts/10/selinux-activity/26710", expect.anything());
   });

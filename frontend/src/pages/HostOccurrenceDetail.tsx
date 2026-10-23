@@ -74,14 +74,13 @@ export function HostOccurrenceDetail() {
       <OccurrenceInvestigation occurrence={occurrence} />
       {activityQuery.data?.items[0] ? <Alert variant="info" isInline title="SELinux state changed before this occurrence" className="pf-v6-u-mt-lg">
         {activityQuery.data.items[0].transition_type === "file_context_change"
-          ? "The earlier checkpoint's expected-label mapping configuration is untrusted for this occurrence. The AVC target label and path remain direct evidence; the mapping write does not establish relabeling. "
+          ? "File-context mapping configuration is unavailable for this occurrence until a complete checkpoint refresh. The recorded target label and path remain available. "
           : activityQuery.data.items[0].transition_type === "port_change"
-          ? "The earlier checkpoint's port inventory and exact policy identity are untrusted for this occurrence. AVC-local target context remains authoritative; unrelated checkpoint dimensions stay available unless another observed transition invalidated them. "
+          ? "Historical port inventory and policy identity are unavailable for this occurrence until a checkpoint refresh. The recorded target label remains available. "
           : activityQuery.data.items[0].transition_type === "enforcement_change"
-          ? "The earlier checkpoint's host enforcement mode is untrusted for this occurrence. AVC-local permissive evidence remains authoritative, and unchanged policy/boolean evidence can still support analysis. "
+          ? "Checkpoint enforcement mode is unavailable for this occurrence until refresh. Use the enforcement evidence recorded in the AVC. "
           : "No refreshed checkpoint applied to this occurrence, so checkpoint-dependent policy analysis is unavailable. "}
         <Link to={`/hosts/${hostId}?selinux_activity=${activityQuery.data.items[0].id}#selinux-activity`}>View the preceding observed transition</Link>.
-        This timing relationship does not establish causation.
       </Alert> : null}
     </>
   );

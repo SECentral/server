@@ -453,7 +453,7 @@ describe("HostDetail", () => {
     } });
     expect(await screen.findByText("SELinux state changed before this occurrence")).toBeVisible();
     expect(screen.getByRole("link", { name: "View the preceding observed transition" })).toHaveAttribute("href", "/hosts/10?selinux_activity=26710#selinux-activity");
-    expect(screen.getByText(/This timing relationship does not establish causation/)).toBeVisible();
+    expect(screen.queryByText(/This timing relationship does not establish causation/)).not.toBeInTheDocument();
     expect(screen.getByText(/checkpoint-dependent policy analysis is unavailable/)).toBeVisible();
   });
 

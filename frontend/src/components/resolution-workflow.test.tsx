@@ -54,7 +54,7 @@ describe("Evidence-driven resolution UI", () => {
     mount();
     const support = await screen.findByRole("region", { name: "Remedy support" });
     expect(support).toHaveTextContent("Supporting permission sets: read · open, read");
-    expect(support).toHaveTextContent("Shared mechanics do not establish that every permission becomes allowed or that the workload succeeds");
+    expect(support).not.toHaveTextContent("Shared mechanics do not establish");
     expect(screen.getAllByRole("button", { name: "Review this change" })).toHaveLength(1);
     expect(screen.queryByRole("button", { name: /Copy command:.*setsebool/ })).not.toBeInTheDocument();
     await user.click(within(support).getByRole("button", { name: "Supporting observations" }));
@@ -308,7 +308,7 @@ describe("Evidence-driven resolution UI", () => {
     expect(screen.getByRole("region", { name: "Observed access" })).toHaveTextContent("TCP/12345");
     expect(screen.getByText("Host-wide boolean · web-1")).toBeVisible();
     expect(screen.getByText(/Can enable broader access/)).toBeVisible();
-    expect(screen.getByText(/This does not apply a host change/)).toBeVisible();
+    expect(screen.queryByText(/This does not apply a host change/)).not.toBeInTheDocument();
     expect(screen.queryByText("sudo setsebool httpd_can_network_connect on")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Review this change" }));
     expect(screen.getByText(candidate.intent_prompt)).toBeVisible();
@@ -444,7 +444,7 @@ describe("Evidence-driven resolution UI", () => {
     await user.click(screen.getByRole("button", { name: "Copy command: sudo setsebool httpd_can_network_connect on" }));
     expect(write).toHaveBeenCalledWith("sudo setsebool httpd_can_network_connect on");
     await waitFor(() => expect(screen.getByRole("tooltip")).toHaveTextContent("Copied"));
-    expect(screen.getByText("Review current against retained evidence")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Reviewed runbook" })).toBeVisible();
   });
 
   it("replaces a cached current plan immediately when the issue core supplies newer stale evidence", async () => {
