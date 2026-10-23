@@ -725,7 +725,7 @@ describe("issue investigation", () => {
 
     await waitFor(() => expect(screen.getByRole("region", { name: "Observed access" })).toHaveTextContent("getattr"));
     const diagnosis = screen.getByRole("region", { name: "Diagnosis" });
-    expect(diagnosis).toHaveTextContent("checking metadata");
+    expect(diagnosis).toHaveTextContent("inspect file attributes such as ownership and permissions");
     expect(diagnosis).not.toHaveTextContent("denied file read");
     expect(diagnosis).not.toHaveTextContent("Inspection uses a different retained example");
     const context = screen.getByRole("complementary", { name: "Investigation context" });
@@ -772,18 +772,23 @@ describe("issue investigation", () => {
     vi.stubGlobal("fetch", vi.fn(async () => response(200, payload)));
     renderDetail();
     const diagnosis = await screen.findByRole("region", { name: "Diagnosis" });
-    expect(within(diagnosis).getByRole("link", { name: /occurrence #101/ })).toHaveAttribute("href", "/hosts/10/occurrences/101");
-    expect(diagnosis).toHaveTextContent("Other occurrences can have different findings");
+    expect(diagnosis).not.toHaveTextContent("Finding example");
+    expect(diagnosis).not.toHaveTextContent("Other occurrences can have different findings");
     expect(within(diagnosis).getByRole("heading", { name: /Host-configured label/ })).toBeVisible();
-    expect(within(diagnosis).getByRole("region", { name: "Policy explanation" })).toHaveTextContent("no allow rule for this launch");
+    expect(diagnosis).toHaveTextContent("no allow rule for this launch");
+    expect(within(diagnosis).queryByRole("heading", { name: "Policy explanation" })).not.toBeInTheDocument();
     expect(diagnosis).not.toHaveTextContent("Foreign policy evidence");
-    expect(diagnosis).toHaveTextContent("Restoring the configured label does not establish that execution is appropriate or permitted");
+    expect(diagnosis).not.toHaveTextContent("Limitation:");
     expect(within(diagnosis).queryByRole("button", { name: /Copy command/ })).not.toBeInTheDocument();
-    const details = within(diagnosis).getByRole("button", { name: "Label observation details" });
-    expect(details).toHaveAttribute("aria-expanded", "false");
-    await userEvent.setup().click(details);
-    expect(within(diagnosis).getByText(label.expected_context_observed_at!)).toBeVisible();
-    expect(diagnosis).toHaveTextContent("not an inspection of the file's current label");
+    expect(within(diagnosis).queryByRole("button", { name: "Label observation details" })).not.toBeInTheDocument();
+    const context = screen.getByRole("complementary", { name: "Investigation context" });
+    expect(within(context).getByRole("link", { name: "#101" })).toHaveAttribute("href", "/hosts/10/occurrences/101");
+    await userEvent.setup().click(within(context).getByRole("link", { name: "Policy evidence" }));
+    const evidence = screen.getByRole("tabpanel", { name: "Policy evaluation" });
+    expect(within(evidence).getByText(label.expected_context_observed_at!)).toBeVisible();
+    expect(within(evidence).getByRole("heading", { name: "Label comparison · occurrence #101" })).toBeVisible();
+    expect(within(evidence).getByRole("heading", { name: "Policy evaluation · occurrence #101" })).toBeVisible();
+    expect(evidence).not.toHaveTextContent("Foreign policy evidence");
   });
 
   it("keeps a shadow_t policy finding separate from an unavailable configured-label comparison", async () => {
@@ -794,7 +799,7 @@ describe("issue investigation", () => {
     vi.stubGlobal("fetch", vi.fn(async () => response(200, payload)));
     renderDetail();
     const diagnosis = await screen.findByRole("region", { name: "Diagnosis" });
-    expect(diagnosis).toHaveTextContent("The evaluated policy has no allow rule for checking metadata on this file labeled shadow_t");
+    expect(diagnosis).toHaveTextContent("The policy SECentral checked has no rule allowing mariadbd to inspect file attributes such as ownership and permissions on files labeled shadow_t");
     expect(diagnosis).toHaveTextContent("Host-configured label: not established by this policy finding");
     expect(within(diagnosis).queryByLabelText("AVC and host-configured label comparison")).not.toBeInTheDocument();
     expect(within(diagnosis).queryByRole("button", { name: "Label observation details" })).not.toBeInTheDocument();
@@ -860,6 +865,7 @@ describe("issue investigation", () => {
     expect(screen.getByText("Looked up after the denial")).toBeInTheDocument();
     expect(screen.getByText("At the denial")).toBeInTheDocument();
     expect(screen.getByText("Different types")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Diagnosis" })).toHaveTextContent("Policy explanation unavailable for this occurrence.");
     expect(screen.queryByText("unconfined_u:object_r:user_home_t:s0")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Technical details & audit provenance" }));
     const fullContext = document.querySelector("#issue-technical-evidence .issue-selinux-explanation") as HTMLElement;
@@ -964,7 +970,7 @@ describe("issue investigation", () => {
 
     expect(await screen.findByRole("heading", { level: 1, name: /mariadbd was blocked from checking file metadata/ })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "No matching SELinux allow was found for this access" })).toBeInTheDocument();
-    expect(screen.getByText(/no allow rule for checking metadata on this file labeled var_t/)).toBeInTheDocument();
+    expect(screen.getByText(/no rule allowing mariadbd to inspect file attributes such as ownership and permissions on files labeled var_t/)).toBeInTheDocument();
     expect(screen.getByText(/\/srv\/secentral-s004-mariadb\/ibdata1/)).toBeInTheDocument();
     expect(screen.getByText(/cannot infer the intended database path or label/)).toBeInTheDocument();
     expect(within(await screen.findByRole("complementary", { name: "Investigation context" })).getByRole("link", { name: "#104" })).toHaveAttribute("href", "/hosts/10/occurrences/104");

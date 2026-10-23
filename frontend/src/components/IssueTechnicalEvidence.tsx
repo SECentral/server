@@ -97,7 +97,7 @@ export function IssueTechnicalEvidence({ detail, updatedAt }: { detail: IssueDet
     : occurrenceQuery.isPending ? <Spinner aria-label="Loading occurrence evidence" size="md" /> : null;
   const issueDiagnoses = detail.findings?.length ? detail.findings.map((finding) => finding.diagnosis) : detail.diagnosis ? [detail.diagnosis] : [];
   const diagnoses = invalidOccurrence ? [] : params.has("evidence_occurrence")
-    ? [...new Map([...issueDiagnoses, ...detail.host_explanations.flatMap((host) => host.diagnosis_groups.flatMap((group) => group.diagnosis ? [group.diagnosis] : []))]
+    ? [...new Map([...issueDiagnoses, ...detail.host_explanations.flatMap((host) => host.diagnosis_groups.flatMap((group) => [...(group.diagnosis ? [group.diagnosis] : []), ...(group.findings ?? [])]))]
       .filter((diagnosis) => diagnosis.occurrence_id === occurrenceId)
       .map((diagnosis) => [`${diagnosis.host_id}:${diagnosis.occurrence_id}:${diagnosis.kind}`, diagnosis])).values()]
     : issueDiagnoses;

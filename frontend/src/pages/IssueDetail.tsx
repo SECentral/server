@@ -119,7 +119,7 @@ function primaryFindingLead(diagnosis: Diagnosis): string | null {
   if (diagnosis.kind === "no_matching_allow") {
     if (["name_bind", "name_connect"].includes(diagnosis.operation ?? "")) return text(row(diagnosis).lead);
     if (diagnosis.permissions?.includes("entrypoint")) return "The evaluated policy has no allow rule for this launch on the observed file label.";
-    if (diagnosis.permissions?.includes("getattr")) return `The evaluated policy has no allow rule for checking metadata on this file labeled ${diagnosis.target_type ?? "the observed type"}.`;
+    if (diagnosis.permissions?.includes("getattr")) return `The policy SECentral checked has no rule allowing ${diagnosis.process_command ?? diagnosis.source_domain ?? "the recorded process"} to inspect file attributes such as ownership and permissions on files labeled ${diagnosis.target_type ?? "the observed type"}.`;
     return `The evaluated policy has no allow rule for the denied ${permissionLabel(diagnosis.permissions?.[0] ?? "access")}.`;
   }
   return text(row(diagnosis).lead) ?? text(row(diagnosis).finding);
@@ -143,7 +143,7 @@ function issueHeadline(detail: IssueDetailResponse): string {
 
 function primaryLimitation(diagnosis: Diagnosis): string | null {
   if (diagnosis.kind === "no_matching_allow" && ["name_bind", "name_connect"].includes(diagnosis.operation ?? "")) return null;
-  if (diagnosis.kind === "file_context_mismatch") return `Recheck the current file label and host-configured labeling before changing it.${diagnosis.permissions?.some((permission) => ["execute", "entrypoint"].includes(permission)) ? " Restoring the configured label does not establish that execution is appropriate or permitted." : " A configured label is not proof of suitability for this workload."}`;
+  if (diagnosis.kind === "file_context_mismatch") return null;
   if (diagnosis.kind === "conditional_allow_inactive" && diagnosis.operation === "execute") return "This denial does not establish that a domain transition was attempted or intended.";
   if (diagnosis.kind === "conditional_allow_inactive") return null;
   if (diagnosis.kind === "no_matching_allow" && diagnosis.permissions?.includes("entrypoint")) return "Audit evidence does not establish whether this launch is part of expected workload behavior.";
@@ -178,12 +178,7 @@ function BooleanCheckpointSummary({ diagnosis }: { diagnosis: Diagnosis }) {
 
 function DiagnosisEvidence({ diagnosis }: { diagnosis: Diagnosis }) {
   return <>
-    {diagnosis.kind === "file_context_mismatch" && <><ContextComparison diagnosis={diagnosis} />
-      <ExpandableSection toggleText="Label observation details">
-        {diagnosis.expected_context_observed_at && <p>Host matchpathcon lookup: <time dateTime={diagnosis.expected_context_observed_at}>{diagnosis.expected_context_observed_at}</time>. This is a configured-label lookup, not an inspection of the file's current label.</p>}
-        <p>{diagnosis.limitation}</p>
-        <EvidenceLink target="audit-evidence" occurrenceId={diagnosis.occurrence_id}>Inspect this occurrence and its label evidence</EvidenceLink>
-      </ExpandableSection></>}
+    {diagnosis.kind === "file_context_mismatch" && <ContextComparison diagnosis={diagnosis} />}
     {diagnosis.kind === "conditional_allow_inactive" && <ExpandableSection toggleText="Conditional policy paths"><BooleanCheckpointSummary diagnosis={diagnosis} /><EvidenceLink target="policy-evaluation-evidence" occurrenceId={diagnosis.occurrence_id}>Inspect policy evaluation</EvidenceLink></ExpandableSection>}
   </>;
 }
@@ -225,12 +220,12 @@ function FindingCard({ detail }: { detail: IssueDetailResponse }) {
      {triage_guidance && diagnosis?.kind !== "file_context_mismatch" && <LabelMismatchGuidance guidance={triage_guidance} />}
      {diagnosis ? <article>
        <Title headingLevel="h3" size="xl">{conditionalTitle ?? diagnosis.title}</Title>
-       {diagnosis.host_id && <p>Finding example: <Link to={`/hosts/${diagnosis.host_id}/occurrences/${diagnosis.occurrence_id}`}>{findingHost?.hostname ?? `Host ${diagnosis.host_id}`} · occurrence #{diagnosis.occurrence_id}</Link>{diagnosis.permissions?.length ? <> · <code>{diagnosis.permissions.join(", ")}</code></> : diagnosis.operation ? <> · <code>{diagnosis.operation}</code></> : null}. {issue.occurrences_count > 1 && "Other occurrences can have different findings."}{finding.different && " Inspection uses a different retained example; this finding does not establish that example's cause."}</p>}
+        {finding.different && diagnosis.host_id && <p>Finding for <Link to={`/hosts/${diagnosis.host_id}/occurrences/${diagnosis.occurrence_id}`}>{findingHost?.hostname ?? `Host ${diagnosis.host_id}`} · occurrence #{diagnosis.occurrence_id}</Link>. Inspection uses a different retained example; this finding does not establish that example's cause.</p>}
        {lead && <p className="issue-finding-lead">{lead}</p>}
        {otherPermissions.length > 0 && <p>This finding explains <code>{explainedPermissions.join(", ")}</code> only. Other permissions recorded in this event (<code>{otherPermissions.join(", ")}</code>) need independent assessment.</p>}
       {diagnosis.kind === "conditional_allow_inactive" && <p>Recorded target type: <code>{diagnosis.target_type ?? issue.target_type}</code></p>}
        <DiagnosisEvidence diagnosis={diagnosis} />
-       {diagnosis.kind === "file_context_mismatch" && (policyFinding ? <section aria-label="Policy explanation"><h3>Policy explanation</h3><p>{primaryFindingLead(policyFinding) ?? text(row(policyFinding).finding)}</p><DiagnosisEvidence diagnosis={policyFinding} /><EvidenceLink target="policy-evaluation-evidence" occurrenceId={policyFinding.occurrence_id}>Inspect this policy explanation</EvidenceLink></section> : <p>A policy explanation is not available for this example; the label difference alone does not establish the policy mechanism.</p>)}
+        {diagnosis.kind === "file_context_mismatch" && (policyFinding ? <><p className="issue-finding-lead">{primaryFindingLead(policyFinding) ?? text(row(policyFinding).finding)}</p><DiagnosisEvidence diagnosis={policyFinding} /></> : <p>Policy explanation unavailable for this occurrence.</p>)}
        {diagnosis.kind !== "file_context_mismatch" && issue.target_class === "file" && <p>Host-configured label: not established by this policy finding. Use the workspace checks to inspect current and configured labeling.</p>}
       {diagnosis.kind === "no_matching_allow" && ["name_bind", "name_connect"].includes(diagnosis.operation ?? "") && <p><strong>Investigate:</strong> {diagnosis.next_step}</p>}
        {primaryLimitation(diagnosis) && <p className="issue-limitation"><strong>Limitation:</strong> {primaryLimitation(diagnosis)}</p>}
