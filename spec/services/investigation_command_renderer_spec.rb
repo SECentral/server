@@ -10,6 +10,7 @@ RSpec.describe InvestigationCommandRenderer do
   it "filters listeners by the exact local port and protocol" do
     { "tcp" => "-ltnp", "udp" => "-lunp" }.each do |protocol, flags|
       command = described_class.call(kind: :socket_listeners, protocol: protocol, port: 12345, operation: "name_bind")
+      expect(command).to eq("ss #{flags} 'sport = :12345'")
       expect(Shellwords.split(command)).to eq(["ss", flags, "sport = :12345"])
     end
   end

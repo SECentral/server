@@ -71,10 +71,15 @@ describe("Port troubleshooting", () => {
     expect(resource.querySelector(`time[datetime="${latestTime}"]`)).toHaveTextContent("21 Oct 2026");
     expect(within(resource).getByText("Historical and latest evidence differ")).toBeVisible();
     expect(resource).toHaveTextContent("policy identities differ");
-    expect(resource).toHaveTextContent("do not establish when or why configuration changed, that the denial still occurs, or that it is fixed");
+    expect(resource).toHaveTextContent("Check current effective/local mappings and retry the intended workload");
+    expect(resource).not.toHaveTextContent("do not establish when or why");
     expect(screen.getByLabelText("Suggested next step")).toHaveTextContent("retry the intended confined workload");
     expect(document.body.textContent).not.toContain("sha256:");
     const user = userEvent.setup();
+    const review = screen.getByRole("button", { name: "Review port classification" });
+    expect(review).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByLabelText("Policy-supported port type")).not.toBeInTheDocument();
+    await user.click(review);
     await user.selectOptions(screen.getByLabelText("Policy-supported port type"), "http_port_t");
     expect(screen.getByRole("button", { name: "Review this change" })).toBeVisible();
     expect(screen.queryByRole("button", { name: /Copy command: sudo semanage/ })).not.toBeInTheDocument();
@@ -112,11 +117,12 @@ describe("Port troubleshooting", () => {
     expect(screen.getByRole("article", { name: "Port investigation" })).toHaveTextContent("Latest retained classification: unreserved_port_t 1024–32767");
     expect(screen.queryByRole("button", { name: /Copy sudo semanage/ })).not.toBeInTheDocument();
     expect(document.querySelectorAll(".resolution-candidate-card")).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "Review port classification" }));
     expect(screen.getByLabelText("What service should listen on this port?")).toHaveValue("");
     await user.selectOptions(screen.getByLabelText("What service should listen on this port?"), "http");
     await user.selectOptions(screen.getByLabelText("Policy-supported port type"), "http_port_t");
     expect(screen.getByRole("link", { name: "Fixture reference policy" })).toHaveAttribute("href", service.source_url);
-    expect(screen.getByText(/Your stated service intent/)).toHaveTextContent("not observed host evidence");
+    expect(screen.queryByText(/Your stated service intent/)).not.toBeInTheDocument();
     expect(screen.getByText(/Observed endpoint\/range examples:/)).toHaveTextContent("TCP/80");
     await user.click(screen.getByRole("button", { name: "Review this change" }));
     expect(screen.getByText(candidate.intent_prompt)).toBeVisible();
@@ -148,6 +154,7 @@ describe("Port troubleshooting", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("tab", { name: /TCP\/23456/ }));
     const secondary = screen.getByRole("article", { name: "Port investigation" });
+    await user.click(within(secondary).getByRole("button", { name: "Review port classification" }));
     await user.selectOptions(within(secondary).getByLabelText("What remote service does this workload connect to?"), "http");
     await user.selectOptions(within(secondary).getByLabelText("Policy-supported port type"), "http_port_t");
     expect(screen.getByText(other.title)).toBeVisible();
@@ -321,6 +328,7 @@ describe("Port troubleshooting", () => {
       evidence_basis: { ...candidate.evidence_basis, target_port_type: option.type } }));
     mount({ ...workflow(), candidates, port_investigations: [{ ...investigation, type_count: types.length, types }] });
     const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Review port classification" }));
     expect(within(screen.getByLabelText("Policy-supported port type")).getAllByRole("option")).toHaveLength(21);
     await user.type(screen.getByRole("textbox", { name: "Search policy-supported port types" }), "z_service_19");
     await user.selectOptions(screen.getByLabelText("Policy-supported port type"), "z_service_19_port_t");
@@ -337,6 +345,7 @@ describe("Port troubleshooting", () => {
     mount({ ...workflow(), port_investigations: [{ ...investigation, types: [cache, investigation.types[0]], type_count: 2 }] });
     const user = userEvent.setup();
     expect(screen.queryByRole("region", { name: "Selected port type" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Review port classification" }));
     await user.selectOptions(screen.getByLabelText("What service should listen on this port?"), "http");
     const choices = within(screen.getByLabelText("Policy-supported port type"));
     expect(choices.getByRole("option", { name: /HTTP service — http_port_t/ })).toBeInTheDocument();
@@ -352,6 +361,7 @@ describe("Port troubleshooting", () => {
       ] };
     mount({ ...workflow(), candidates: [], port_investigations: [{ ...investigation, state: "blocked", reason: "All matching alternative rules require inactive conditions.", types: [conditionalHttp] }] });
     const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Review port classification" }));
     await user.selectOptions(screen.getByLabelText("What service should listen on this port?"), "http");
     await user.selectOptions(screen.getByLabelText("Policy-supported port type"), "http_port_t");
 
@@ -371,15 +381,17 @@ describe("Port troubleshooting", () => {
       : { ...workflow(), candidates: [], port_investigations: [{ ...investigation, state: "no_change", reason: "Current policy already permits this operation; check runtime state and retry.", types: [{ ...investigation.types[0], state: "no_op" }] }] };
     mount(state);
     const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Review port classification" }));
     await user.selectOptions(screen.getByLabelText("Policy-supported port type"), "http_port_t");
     expect(screen.queryByRole("button", { name: "Review this change" })).not.toBeInTheDocument();
     expect(screen.getByRole("article", { name: "Port investigation" })).toHaveTextContent(kind === "stale" ? "Host state is stale" : "already permits");
     expect(document.body.textContent).not.toContain("sudo semanage port");
   });
 
-  it("asks about listener intent for UDP bind without supplying an HTTP default", () => {
+  it("asks about listener intent for UDP bind without supplying an HTTP default", async () => {
     mount({ ...workflow(), port_investigations: [{ ...investigation, protocol: "udp" }], candidates: [] });
     expect(screen.getByRole("article", { name: "Port investigation" })).toHaveTextContent("UDP/12345 · Local bind");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Review port classification" }));
     expect(screen.getByLabelText("What service should listen on this port?")).toHaveValue("");
     expect(screen.getByLabelText("Policy-supported port type")).toHaveValue("");
   });

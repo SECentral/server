@@ -34,7 +34,7 @@ class InvestigationCommandRenderer
       elsif @check[:kind] == :port_local_classification
         "semanage port -l -C"
       elsif @check[:operation] == "name_bind"
-        Shellwords.join([ "ss", protocol == "tcp" ? "-ltnp" : "-lunp", "sport = :#{port}" ])
+        "ss #{protocol == 'tcp' ? '-ltnp' : '-lunp'} 'sport = :#{port}'"
       end
     end
   end

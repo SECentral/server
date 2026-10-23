@@ -164,9 +164,9 @@ function ResourceInspection({ issueId, occurrenceId, hostId, policyChecks = [] }
     : syscalls.length > 0 && syscalls.every((item) => ["yes", "true", "1"].includes(String(item.success))) ? "Succeeded" : "Not established";
   return <section aria-label="Inspect active resource"><h3>Inspect host baseline</h3>
     {query.isPending ? <Spinner aria-label="Loading resource inspection" size="md" /> : query.isError ? <Alert variant="warning" isInline title="Could not load resource inspection"><Button variant="link" onClick={() => void query.refetch()}>Retry inspection</Button></Alert>
-      : <><p>Investigation example: <Link to={`/hosts/${query.data.host.id}/occurrences/${occurrenceId}`}>{query.data.host.hostname} · #{occurrenceId}</Link>. Inspect current state; a failed check is not a successful comparison.</p>
-        {details && <p><strong>Recorded AVC enforcement:</strong> {details.permissive === true ? "Non-enforced (permissive=1)" : details.permissive === false ? "Enforcing (permissive=0)" : "Not recorded"}. <strong>Recorded syscall result:</strong> {syscallOutcome}. This is event-time evidence, not current listener or application health.</p>}
-        {query.data.guidance ? <>{query.data.normalized_denial?.target_class?.endsWith("_socket") && <p>Confirm the service's intended endpoint and inspect its actual configuration; neither the service role nor the desired endpoint is established by this denial.</p>}
+      : <><p>Inspect on <Link to={`/hosts/${query.data.host.id}/occurrences/${occurrenceId}`}>{query.data.host.hostname} · #{occurrenceId}</Link></p>
+        {details && <p><strong>Recorded AVC enforcement:</strong> {details.permissive === true ? "Non-enforced (permissive=1)" : details.permissive === false ? "Enforcing (permissive=0)" : "Not recorded"}. <strong>Recorded syscall result:</strong> {syscallOutcome}.</p>}
+        {query.data.guidance ? <>
           <InspectionCommands primary={commands(false)} secondary={[...commands(true), ...policyChecks]} />
           {query.data.guidance.checks.filter((check) => !check.command && typeof check.reason === "string").map((check, index) => <p key={index}>{String(check.reason)}</p>)}</>
           : <p>No scoped inspection guidance is available. Review the occurrence record and identify the intended workload.</p>}
@@ -189,30 +189,27 @@ function PortTypeSelection({ investigation, candidates, workflow, busy, onSelect
     [option.type, option.service?.label, option.service?.description, option.state].filter(Boolean).join(" ").toLowerCase().includes(query));
   const clearFilters = () => { setService(""); setSearch(""); setType(""); };
   return <section className="pf-v6-u-mt-md" aria-label="Choose a port type">
-    <h4>Consider a port classification</h4>
-    <p>Policy permission is not service suitability. Confirm the intended service from application configuration; neither the process name nor the port number establishes it.</p>
     <Stack hasGutter>
       <StackItem><FormGroup fieldId={`${fieldId}-service`} label={investigation.operation === "name_bind" ? "What service should listen on this port?" : "What remote service does this workload connect to?"}>
         <FormSelect id={`${fieldId}-service`} value={service} onChange={(_event, value) => { setService(value); setSearch(""); setType(""); }}>
-          <FormSelectOption value="" label="Not sure / another service — show all types" />
+          <FormSelectOption value="" label="All services" />
           {services.map((item) => <FormSelectOption key={item.id} value={item.id} label={item.label} />)}
         </FormSelect>
-      </FormGroup><small>{service ? "Your stated service intent filters documented reference associations. It is not observed host evidence or approval of a change." : "No service filter selected. You can investigate or deliberately select a technical type without choosing a service."}</small></StackItem>
+      </FormGroup></StackItem>
       <StackItem><SearchInput aria-label="Search policy-supported port types" placeholder="Search types or reference service descriptions" value={search} onChange={(_event, value) => { setSearch(value); setType(""); }} onClear={() => { setSearch(""); setType(""); }} /></StackItem>
       <StackItem><FormGroup fieldId={`${fieldId}-type`} label="Policy-supported port type">
         <FormSelect id={`${fieldId}-type`} value={selectedType} onChange={(_event, value) => setType(value)}>
           <FormSelectOption value="" label="Choose a type to inspect" />
           {choices.map((option) => <FormSelectOption key={option.type} value={option.type} label={`${option.service ? `${option.service.label} — ` : ""}${option.type} · ${option.state.replaceAll("_", " ")}${option.service ? "" : " · description unavailable"}`} />)}
         </FormSelect>
-      </FormGroup><small>{choices.length} of {investigation.type_count} discovered policy types. Generated changes are not an exhaustive remedy list.</small>
-      {reviewed && <p>Browsing services and types does not change the reviewed plan below. Review another change to replace that plan.</p>}
+      </FormGroup><small>{choices.length} of {investigation.type_count} policy types</small>
       {(service || search) && <Button variant="link" onClick={clearFilters}>Show all policy types</Button>}
       {!choices.length && <p role="status">No policy types match these filters. Clear the filters to inspect all discovered possibilities.</p>}</StackItem>
     </Stack>
     {selected && <section className="pf-v6-u-mt-md" aria-label="Selected port type">
       <h4>{selected.type} · {selected.permission} · {selected.state.replaceAll("_", " ")}</h4>
-      {selected.service ? <><p>{selected.service.description}</p><p>Reference: <a href={selected.service.source_url}>{selected.service.source}</a> · <code>{selected.service.source_entry}</code> · <a href={selected.service.macro_url}>Type declaration macro</a>. This association is reference knowledge, not a host observation.</p></>
-        : <p>No reference service description is available for this type. Review service documentation; its name alone does not establish suitability.</p>}
+      {selected.service ? <><p>{selected.service.description}</p><p>Reference: <a href={selected.service.source_url}>{selected.service.source}</a> · <code>{selected.service.source_entry}</code> · <a href={selected.service.macro_url}>Type declaration macro</a></p></>
+        : <p>No reference service description is available for this type.</p>}
       <p>{selected.explanation}</p>
       {selected.state === "conditional" && selected.conditional_rules?.length ? <section aria-label="Conditional port policy paths">
         <h5>Possible multi-step path · not a change recommendation</h5>
@@ -227,6 +224,7 @@ function PortTypeSelection({ investigation, candidates, workflow, busy, onSelect
 }
 
 function PortInvestigation({ investigation, workflow, busy, onSelect, children }: { investigation: PortInvestigationData; workflow: Workflow; busy: boolean; onSelect: (c: Candidate) => void; children?: ReactNode }) {
+  const [reviewOpen, setReviewOpen] = useState(false);
   const bind = investigation.operation === "name_bind";
   const candidates = workflow.candidates.filter((item) => item.kind === "set_port_mapping" && item.host_id === investigation.host_id &&
     item.evidence_basis.protocol === investigation.protocol && item.evidence_basis.port === investigation.port && item.evidence_basis.operation === investigation.operation);
@@ -235,18 +233,18 @@ function PortInvestigation({ investigation, workflow, busy, onSelect, children }
     <h3>{investigation.protocol.toUpperCase()}/{investigation.port ?? "port not recorded"} · {bind ? "Local bind" : "Outbound connect"} · {investigation.hostname ?? `Host ${investigation.host_id}`}</h3>
     <p><Link to={`/hosts/${investigation.host_id}/occurrences/${investigation.occurrence_id}`}>Occurrence #{investigation.occurrence_id}</Link> · AVC label <code>{investigation.observed_type}</code>{investigation.occurred_at && <> · recorded <time dateTime={investigation.occurred_at}>{new Date(investigation.occurred_at).toUTCString()}</time></>}</p>
     {!reviewedPort && !["ready", "unavailable"].includes(investigation.state) && <p>{investigation.reason}</p>}
-    {investigation.inventory_status === "observed" && investigation.local_status === "observed" && investigation.current_mappings && <p><strong>Latest retained classification:</strong> {priorPortState({ prior_mappings: investigation.current_mappings })}{investigation.latest_observed_at && <> · observed <time dateTime={investigation.latest_observed_at}>{new Date(investigation.latest_observed_at).toUTCString()}</time></>}. Recheck on the host; this is not a fresh inspection.</p>}
+    {investigation.inventory_status === "observed" && investigation.local_status === "observed" && investigation.current_mappings && <p><strong>Latest retained classification:</strong> {priorPortState({ prior_mappings: investigation.current_mappings })}{investigation.latest_observed_at && <> · observed <time dateTime={investigation.latest_observed_at}>{new Date(investigation.latest_observed_at).toUTCString()}</time></>}</p>}
     {(investigation.classification_differs === true || investigation.policy_differs === true) && <Alert isInline isPlain variant="info" title="Historical and latest evidence differ">
       {investigation.classification_differs === true && <p>The AVC target type differs from the latest retained port classification.</p>}
       {investigation.policy_differs === true && <p>The trusted historical and latest retained policy identities differ.</p>}
       {investigation.policy_differs == null && <p>A trusted historical-to-latest policy comparison is unavailable.</p>}
-      <p>These observations do not establish when or why configuration changed, that the denial still occurs, or that it is fixed. Recheck effective/local mappings and retry the intended confined workload before deciding whether a new mapping is needed.</p>
+      <p>Check current effective/local mappings and retry the intended workload before reviewing a mapping change.</p>
     </Alert>}
     {(investigation.inventory_status !== "observed" || investigation.local_status !== "observed") && investigation.inventory_status && <p>Inventory coverage: effective {investigation.inventory_status} · local overrides {investigation.local_status ?? "unknown"}</p>}
     {children}
-    {investigation.types.length > 0 && <>{!reviewedPort && <p>Before any mapping change, inspect current effective/local ranges and ownership. A port mapping persists on this host and can affect other workloads using this protocol/port; it is not a per-process exception or firewall rule.</p>}
-      {reviewedPort ? <ExpandableSection toggleText="Explore another classification"><PortTypeSelection investigation={investigation} candidates={candidates} workflow={workflow} busy={busy} onSelect={onSelect} /></ExpandableSection>
-        : <PortTypeSelection investigation={investigation} candidates={candidates} workflow={workflow} busy={busy} onSelect={onSelect} />}</>}
+    {investigation.types.length > 0 && <ExpandableSection toggleText={reviewedPort ? "Explore another classification" : "Review port classification"} isExpanded={reviewOpen} onToggle={(_event, open) => setReviewOpen(open)}>
+      {reviewOpen && <PortTypeSelection investigation={investigation} candidates={candidates} workflow={workflow} busy={busy} onSelect={onSelect} />}
+    </ExpandableSection>}
   </article>;
 }
 
@@ -466,7 +464,7 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
       {detail?.operator_guidance && (!active || inspectionElsewhere) && source?.path && <p>{detail.operator_guidance.possible_fix}</p>}
       {active?.port ? <PortInvestigation key={`${issueId}-${active.key}`} investigation={active.port} workflow={workflow} busy={busy} onSelect={choose}>{inspection}</PortInvestigation> : inspection}
       {(!active || inspectionElsewhere) && children}
-      {!workflow.candidates.length && !children && <p>No reviewed change plan yet. Use the checks above and review the workload configuration with its operator; a manual next step can be appropriate.</p>}
+      {!active?.port && !workflow.candidates.length && !children && <p>No reviewed change plan yet. Use the checks above and review the workload configuration with its operator; a manual next step can be appropriate.</p>}
       {selectedHere && (selected.kind === "set_port_mapping" ? <ResolutionCandidateCard candidate={selected} selected freshness={workflow.freshness} busy={busy} onSelect={choose} /> : <CandidateGroup candidates={[selected]} workflow={workflow} busy={busy} onSelect={choose} />)}
       {plan && <ChangePlan plan={plan} detail={sameCheckScope ? detail : undefined} />}
       {selectedHere ? alternatives.length > 0 && <ExpandableSection className="other-options" toggleText={`Alternative approaches · ${alternatives.length}${alternatives.some((candidate) => candidate.scope_kind === "host_boolean") ? " · Host-wide Boolean; broader access" : ""}`}><CandidateGroup candidates={alternatives} workflow={workflow} busy={busy} onSelect={choose} /></ExpandableSection>

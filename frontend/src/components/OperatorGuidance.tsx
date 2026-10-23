@@ -39,7 +39,6 @@ export function OperatorChecks({ detail, runbookCommands = [], supplemental = fa
     {!source.path && ["file", "dir"].includes(detail.issue?.target_class) ? <Alert variant="info" isInline isPlain title="Complete target path not recorded">Identify the files this workload is accessing before considering a labeling or Boolean change.</Alert> : <p>{guidance.manual_check}</p>}
     </>}
     <InspectionCommands primary={primary} secondary={secondary} />
-    {!supplemental && <small>A failed check is not a successful comparison; resolve missing tooling or failures with the host operator.</small>}
   </section>;
 }
 
