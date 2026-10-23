@@ -71,7 +71,8 @@ class IssueOperatorGuidance
       if valid_path?(denial.executable)
         since = (occurrence.occurred_at - 1.minute).utc.strftime("%Y-%m-%d %H:%M:%S UTC")
         until_time = (occurrence.occurred_at + 1.minute).utc.strftime("%Y-%m-%d %H:%M:%S UTC")
-        checks << check("Review executable logs around the occurrence", Shellwords.join(["journalctl", "--utc", "--since", since, "--until", until_time, "_EXE=#{denial.executable}"]), "Look for startup, module or network-option messages around the recorded request.")
+        executable_filter = "'_EXE=#{denial.executable.gsub("'", %q('"'"'))}'"
+        checks << check("Review executable logs around the occurrence", "journalctl --utc --since '#{since}' --until '#{until_time}' #{executable_filter}", "Look for messages from this executable around the recorded request.")
       end
       checks << check("Inspect current process contexts", "ps -eZ -o label,pid,comm", "Find the workload's current processes and compare their SELinux domain with the recorded source domain.")
       if [denial.source_type, denial.target_type, *permissions].all? { |value| value.to_s.match?(/\A[A-Za-z][A-Za-z0-9_]*\z/) }
@@ -81,6 +82,10 @@ class IssueOperatorGuidance
       end
     end
     manual, possible_fix, verification = next_steps(denial, permissions, path)
+    if capability
+      manual = capability.delete(:inspection) || manual
+      verification = capability.delete(:verification) || verification
+    end
     {
       source: { occurrence_id: occurrence.id, host_id: occurrence.host_id, hostname: occurrence.host.hostname,
         occurred_at: occurrence.occurred_at, path: path, observed_type: denial.target_type, object_class: denial.target_class }.merge(PortMappingGuidance.endpoint(denial) || {}),
@@ -108,8 +113,7 @@ class IssueOperatorGuidance
     object_class = denial.target_class
     if CapabilityGuidance::CLASSES.include?(object_class)
       ["Review the linked audit event's system call and the executable's configuration to identify which operation requested the privilege.",
-       "If optional startup or module settings trigger the request, review whether they are needed. No reviewed capability change is available; investigate the workload before considering broader privileges.",
-       "Repeat the intended workload operation and verify its expected response under the intended SELinux enforcement mode. Review new capability requests alongside the application result."]
+       "", ""]
     elsif permissions.include?("name_bind")
       ["Confirm the service's intended listener and inspect its actual configuration.",
        "Compare correcting unintended Listen configuration, using an appropriate existing endpoint, reviewing a relevant Boolean, or classifying a required nonstandard port. Mapping options require exact policy support and complete effective/local range evidence.",

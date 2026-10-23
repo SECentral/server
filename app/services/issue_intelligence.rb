@@ -173,7 +173,25 @@ class IssueIntelligence
 
   def fleet_summary(configuration_hosts, affected_ids, activity_host_count)
     affected = configuration_hosts.select { |host| affected_ids.include?(host.id) }
-    { activity_hosts: activity_host_count, current_configuration_hosts: configuration_hosts.size, hosts_with_occurrence: affected.size, hosts_without_occurrence: configuration_hosts.size - affected.size }
+    { activity_hosts: activity_host_count, current_configuration_hosts: configuration_hosts.size, hosts_with_occurrence: affected.size,
+      hosts_without_occurrence: configuration_hosts.size - affected.size,
+      comparison_requirement: fleet_comparison_requirement(activity_host_count, configuration_hosts.size, affected.size) }
+  end
+
+  def fleet_comparison_requirement(reporting, configured, affected)
+    reporting_window = ActiveSupport::Duration.build(Host::STALE_AFTER.to_i).inspect
+    configuration_window = ActiveSupport::Duration.build(Rails.application.config.x.agent_reporting.stale_after.to_i).inspect
+    if reporting.zero?
+      "Fleet comparison needs hosts reporting within the last #{reporting_window}."
+    elsif configured.zero?
+      "Fleet comparison needs host configuration confirmed within the last #{configuration_window}."
+    elsif configured < 2
+      "Fleet comparison needs at least two hosts with configuration confirmed within the last #{configuration_window}."
+    elsif affected.zero?
+      "Hosts that recorded this issue need to report within the last #{reporting_window} and confirm their configuration within the last #{configuration_window} before fleet comparison."
+    elsif configured == affected
+      "All eligible hosts have recorded this issue. Comparison needs a host with no recorded occurrence."
+    end
   end
 
   def fleet_analysis(configuration_hosts, affected_ids)

@@ -4489,6 +4489,10 @@ components:
         fleet:
           type: object
           additionalProperties: true
+          properties:
+            comparison_requirement:
+              type: [string, 'null']
+              description: Optional explanation of the missing fleet-comparison prerequisite, using the server's actual reporting and configuration-confirmation time windows. Null when eligible hosts include both recorded-occurrence and no-recorded-occurrence groups. Occurrence history is not restricted to these time windows. Older responses may omit this field.
     Diagnosis:
       description: |
         Primary diagnosis. Kind-specific fields vary by diagnosis kind;

@@ -324,7 +324,7 @@ describe("issue investigation", () => {
         { title: "Review executable logs around the occurrence", command: "journalctl --utc --since '2026-10-22 17:39:36 UTC' --until '2026-10-22 17:41:36 UTC' _EXE=/usr/sbin/httpd", interpretation: "Look for startup or module messages." },
         { title: "Inspect current process contexts", command: "ps -eZ -o label,pid,comm", interpretation: "Compare current processes with the recorded domain." },
         { title: "Inspect current capability policy", command: "sesearch -A -s httpd_t -t httpd_t -c capability -p net_admin", interpretation: "Queries the host's currently loaded policy." }
-      ], manual_check: "Review the recorded system call and executable configuration.", possible_fix: "No reviewed capability change is available; investigate optional startup settings.", verification: "Repeat the intended workload operation under the intended enforcement mode.", verification_limit: "Check the workload result.", restriction: "Keep unwanted access denied."
+      ], manual_check: "Review forced send-buffer settings in the service configuration.", possible_fix: "", verification: "Retry the intended request and check the application response under the intended enforcement mode.", verification_limit: "Check the workload result.", restriction: "Keep unwanted access denied."
     };
     payload.resolutions = { candidates: [], rejected_candidates: [], intent: null, freshness: null, history: [], change_plan: null,
       observed_access: { occurrence_id: 101, host_id: 10, hostname: "web-1", actor: "httpd", source_type: "httpd_t", resource: "Resource identity not established", target_type: "httpd_t", object_class: "capability", permissions: ["net_admin"], operation_label: "net_admin", outcome: "DENIED", observed_at: "2026-10-22T17:40:36Z" } };
@@ -357,7 +357,7 @@ describe("issue investigation", () => {
     const checks = screen.getByRole("region", { name: "Check" });
     expect(within(checks).getByRole("button", { name: "Copy command: ps -eZ -o label,pid,comm" })).toBeVisible();
     expect(within(checks).getByRole("heading", { name: "Verify the workload" })).toBeVisible();
-    expect(checks).toHaveTextContent("No reviewed capability change is available");
+    expect(checks).toHaveTextContent("Review forced send-buffer settings");
     expect(screen.queryByText(/No reviewed change plan yet/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Copy command:.*(setsebool|restorecon|semanage)/ })).not.toBeInTheDocument();
     await userEvent.setup().click(within(checks).getByRole("button", { name: "Policy inspection" }));
@@ -367,6 +367,8 @@ describe("issue investigation", () => {
   it("keeps meaningful occurrence patterns and does not invent a syscall hypothesis when evidence is absent", async () => {
     const payload = capabilityPayload();
     payload.operator_guidance!.capability = { explanation: "Linux capabilities are individual administrator privileges." };
+    payload.operator_guidance!.manual_check = "Review the recorded system call and command line.";
+    payload.operator_guidance!.verification = "";
     payload.triage.signals.push({ ...payload.triage.signals[0], code: "frequency_increase", label: "Occurrence rate increased", explanation: "Recent rate is twice the baseline." });
     vi.stubGlobal("fetch", vi.fn(async () => response(200, payload)));
     renderDetail();
@@ -376,6 +378,7 @@ describe("issue investigation", () => {
     expect(screen.queryByText(/This issue was first observed within/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Investigation hypothesis:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/SO_SNDBUFFORCE/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Verify the workload" })).not.toBeInTheDocument();
   });
   it("shows related issues as evidence links and compares AVC modes separately from event outcomes", async () => {
     const payload = detailPayload("004");
@@ -402,10 +405,15 @@ describe("issue investigation", () => {
     expect(outcomes).toHaveTextContent("Succeeded: 2");
     expect(outcomes).toHaveTextContent("Failed: 4");
     expect(document.querySelector(".issue-operation-label")).toHaveTextContent(`${payload.issue.occurrences_count} occurrences`);
-    expect(screen.getByText("Fleet Scope & Occurrences").parentElement).toHaveTextContent("Finding evidence or observed permissions vary across affected hosts");
+    expect(screen.getByText("Fleet scope").parentElement).toHaveTextContent("Finding evidence or observed permissions vary across affected hosts");
     const coverage = await screen.findByRole("region", { name: "Finding coverage" });
-    expect(coverage).toHaveTextContent("0 occurrences lack a supported finding");
+    expect(coverage).not.toHaveTextContent("0 occurrences lack a supported finding");
     expect(coverage).not.toHaveTextContent("complete explanation");
+    const peerCards = ["Recorded outcomes", "Fleet scope", "Retained occurrences"].map((name) => screen.getByRole("heading", { name, level: 2 }).closest(".pf-v6-c-card"));
+    expect(peerCards.every(Boolean)).toBe(true);
+    expect(new Set(peerCards).size).toBe(3);
+    expect(within(related).getByRole("heading", { name: "Related issue activity", level: 3 })).toBeVisible();
+    expect(related.closest(".pf-v6-c-card")).toBe(peerCards[1]);
   });
 
   it("updates the workbench and fleet table when refreshed issue evidence arrives", async () => {
@@ -1076,7 +1084,7 @@ describe("issue investigation", () => {
     expect(document.querySelector(".issue-primary-finding .issue-selinux-explanation")).toBeNull();
     expect(screen.getByRole("heading", { name: "Retained occurrences" })).toBeInTheDocument();
     expect(screen.getByText(/3 affected hosts/)).toBeInTheDocument();
-    expect(screen.getByText("Fleet Scope & Occurrences").parentElement).toHaveTextContent("Same supported findings across affected hosts");
+    expect(screen.getByText("Fleet scope").parentElement).toHaveTextContent("Same supported findings across affected hosts");
 
     await user.click(screen.getByRole("button", { name: "Technical details & audit provenance" }));
     const why = document.querySelector("#issue-technical-evidence .issue-selinux-explanation");
@@ -1090,7 +1098,7 @@ describe("issue investigation", () => {
     const host = await screen.findByRole("link", { name: "secentral-agent-test" });
     const listItem = host.closest("tr");
     expect(listItem).not.toBeNull();
-    expect(within(listItem!).getByText("Same supported findings across 4 occurrences")).toBeInTheDocument();
+    expect(within(listItem!).getByText("4 of 4 with supported findings")).toBeInTheDocument();
     expect(within(listItem!).queryByText(/sha256:/)).not.toBeInTheDocument();
     await user.click(within(listItem!).getByRole("link", { name: "View group evidence" }));
     const evidence = document.getElementById("host-evidence-1138")!;
@@ -1119,11 +1127,11 @@ describe("issue investigation", () => {
     const payload = detailPayload("001");
     payload.issue.affected_hosts = 2;
     payload.fleet_explanation.affected_host_count = 2;
-    payload.intelligence.fleet = { activity_hosts: 1, current_configuration_hosts: 1, hosts_with_occurrence: 1, hosts_without_occurrence: 0 };
+    payload.intelligence.fleet = { activity_hosts: 1, current_configuration_hosts: 1, hosts_with_occurrence: 1, hosts_without_occurrence: 0, comparison_requirement: "Fleet comparison needs at least two hosts with configuration confirmed within the last 15 minutes." };
     const fetchMock = vi.fn(async (url: string) => response(200, url.endsWith("/analysis") ? analysisPayload("001") : payload));
     vi.stubGlobal("fetch", fetchMock);
     renderDetail();
-    expect(await screen.findByText(/1 host currently has usable configuration evidence/)).toHaveTextContent("There are no comparison hosts without this issue");
+    expect(await screen.findByText("Fleet comparison needs at least two hosts with configuration confirmed within the last 15 minutes.")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Fleet correlations" })).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.map(([url]) => url).some((url) => String(url).endsWith("/analysis"))).toBe(false);
   });
@@ -1146,8 +1154,12 @@ describe("issue investigation", () => {
   });
 
   it.each([
-    [{}, /current configuration and comparison-host counts are not available/],
-    [{ current_configuration_hosts: 0, hosts_with_occurrence: 0, hosts_without_occurrence: 0 }, /0 hosts currently have usable configuration evidence/]
+    [{}, /Fleet comparison needs host reporting and configuration data/],
+    [{ current_configuration_hosts: 0, hosts_with_occurrence: 0, hosts_without_occurrence: 0 }, /Fleet comparison needs current configuration from hosts/],
+    [{ activity_hosts: 0, current_configuration_hosts: 0, hosts_with_occurrence: 0, hosts_without_occurrence: 0, comparison_requirement: "Fleet comparison needs hosts reporting within the last 7 minutes." }, /Fleet comparison needs hosts reporting within the last 7 minutes/],
+    [{ activity_hosts: 2, current_configuration_hosts: 0, hosts_with_occurrence: 0, hosts_without_occurrence: 0, comparison_requirement: "Fleet comparison needs host configuration confirmed within the last 1 hour." }, /Fleet comparison needs host configuration confirmed within the last 1 hour/],
+    [{ activity_hosts: 2, current_configuration_hosts: 2, hosts_with_occurrence: 2, hosts_without_occurrence: 0, comparison_requirement: "All eligible hosts have recorded this issue. Comparison needs a host with no recorded occurrence." }, /All eligible hosts have recorded this issue/],
+    [{ activity_hosts: 2, current_configuration_hosts: 2, hosts_with_occurrence: 0, hosts_without_occurrence: 2, comparison_requirement: "Hosts that recorded this issue need to report and confirm their configuration before fleet comparison." }, /Hosts that recorded this issue need to report/]
   ])("does not render missing or empty current fleet evidence as a successful negative correlation (%j)", async (fleet, explanation) => {
     const payload = detailPayload("001");
     payload.intelligence.fleet = fleet;

@@ -34,13 +34,16 @@ RSpec.describe IssueOperatorGuidance do
     allow(item).to receive(:raw_event).and_return(nil)
     allow(item.normalized_denial).to receive(:executable).and_return("/usr/sbin/a 'quoted';$(bad)")
     result = described_class.call(issue_with(item))
+    expect(result[:checks].first[:command]).to start_with("journalctl --utc --since '2026-09-30 23:59:00 UTC' --until '2026-10-01 00:01:00 UTC' ")
     commands = result[:checks].map { |check| Shellwords.split(check[:command]) }
     expect(commands.first).to eq(["journalctl", "--utc", "--since", "2026-09-30 23:59:00 UTC", "--until", "2026-10-01 00:01:00 UTC", "_EXE=/usr/sbin/a 'quoted';$(bad)"])
     expect(commands[1]).to eq(["ps", "-eZ", "-o", "label,pid,comm"])
     expect(commands.last).to eq(["sesearch", "-A", "-s", "httpd_t", "-t", "user_home_t", "-c", "capability", "-p", "net_admin"])
     expect(result[:capability]).to include(explanation: include("administrator privileges"))
-    expect(result[:possible_fix]).to include("No reviewed capability change")
-    expect(result[:verification]).to include("workload operation", "enforcement mode")
+    expect(result[:possible_fix]).to be_empty
+    expect(result[:verification]).to be_empty
+    allow(item.normalized_denial).to receive(:executable).and_return("/usr/bin/chcon")
+    expect(described_class.call(issue_with(item))[:checks].first[:command]).to eq("journalctl --utc --since '2026-09-30 23:59:00 UTC' --until '2026-10-01 00:01:00 UTC' '_EXE=/usr/bin/chcon'")
     allow(item.normalized_denial).to receive(:executable).and_return(nil)
     expect(described_class.call(issue_with(item))[:checks].first[:command]).to start_with("ps ")
   end

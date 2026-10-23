@@ -1516,7 +1516,7 @@
 .issue-workbench { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 3fr); gap: 1.5rem; align-items: start; margin-block-end: 1.5rem; }
 .issue-workspace { display: grid; gap: .9rem; min-width: 0; }
 .issue-workspace > .issue-section { max-width: none; margin: 0; }
-.issue-workspace h2, .workbench-context > h2 { font-size: 1.125rem; font-weight: 650; margin: 0 0 .6rem; }
+.issue-workspace h2, .issue-detail-card h2, .workbench-context > h2 { font-size: 1.125rem; font-weight: 650; margin: 0 0 .6rem; }
 .workbench-section-header { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; justify-content: space-between; margin-block-end: .5rem; }
 .workbench-section-header h2 { margin: 0; }
 .workbench-caption { display: block; color: var(--pf-t--global--text--color--subtle); font-size: .8125rem; margin: .5rem 0 0; }
@@ -1623,28 +1623,29 @@
 .workbench-evidence-fields ul { padding-left: 1rem; }
 .other-approaches, .workbench-additional { font-size: .875rem; color: var(--pf-t--global--text--color--subtle); }
 .other-approaches > section { color: var(--pf-t--global--text--color--regular); padding: 1rem; border: 1px solid var(--pf-t--global--border--color--default); margin-top: 1rem; }
-.issue-workbench p { max-width: 68ch; }
+.issue-workspace p { max-width: none; }
 .issue-occurrences-section { max-width: none; margin-top: 1rem; overflow-x: auto; }
 .issue-occurrences-section th, .issue-occurrences-section td { padding-block: .45rem; }
 .issue-occurrences-section td .pf-v6-c-button { padding-block: 0; font-size: .8125rem; }
 .issue-investigation summary:focus-visible, .command-block pre:focus-visible { outline: 2px solid var(--pf-t--global--border--color--brand--default); outline-offset: 3px; }
 .issue-workflow { flex-wrap: wrap; max-width: 28rem; gap: var(--pf-t--global--spacer--sm); }
 .issue-workflow > section { flex-basis: 100%; }
-.issue-workspace .issue-primary-finding { margin: 0; max-width: none; }
+.issue-workspace .issue-primary-finding { display: grid; gap: var(--pf-t--global--spacer--md); margin: 0; max-width: none; }
+.issue-workspace .issue-primary-finding > h2 { margin: 0; }
 .issue-workspace .issue-primary-finding > article { border: 0; padding: 0; background: transparent; }
 .issue-workspace .pf-v6-c-card__body > .issue-section,
 .resolution-options .issue-section { margin: 0; max-width: none; }
 .resolution-options .selected-change-plan { border: 0; padding: 0; margin-block-start: var(--pf-t--global--spacer--md); background: transparent; }
 .resolution-options .resolution-selected { border: 0; padding-inline: 0; }
 .resolution-options h3 { font-size: var(--pf-t--global--font--size--heading--sm); margin-block: var(--pf-t--global--spacer--sm); }
-.issue-fleet-occurrences .issue-fleet-section { margin-block: 0; max-width: none; }
-.issue-fleet-occurrences .issue-occurrences-section { margin-block-end: 0; }
+.issue-detail-card .issue-fleet-section, .issue-detail-card .issue-occurrences-section { margin-block: 0; max-width: none; }
 .issue-advanced-details { border: 0; }
 #issue-resource-panel, #plan-inspection, #plan-rollback { scroll-margin-block-start: var(--pf-t--global--spacer--md); }
 .resolution-options .pf-v6-c-alert .pf-v6-c-button { max-width: 100%; white-space: normal; text-align: start; }
 .resolution-options .pf-v6-c-alert .pf-v6-c-button__text { white-space: normal; overflow-wrap: anywhere; }
 .issue-workflow > .issue-workflow-panel { display: grid; gap: var(--pf-t--global--spacer--sm); }
 .inspection-commands { display: grid; gap: var(--pf-t--global--spacer--sm); }
+.inspection-commands:not(:first-child) { margin-block-start: var(--pf-t--global--spacer--sm); }
 .inspection-command { min-width: 0; }
 .resource-review-notice { margin-block: var(--pf-t--global--spacer--sm); font-size: var(--pf-t--global--font--size--body--sm); }
 .resource-review-notice .pf-v6-c-button { padding-block: 0; white-space: normal; text-align: start; }

@@ -116,6 +116,10 @@ class AvcNormalizer
     @records.map { |record| parse_record(record) }.select { |record| record[:type_name] == "SYSCALL" }.map { |record| record[:fields] }
   end
 
+  def selinux_error_records
+    @records.map { |record| parse_record(record) }.select { |record| record[:type_name] == "SELINUX_ERR" }.map { |record| record[:fields] }
+  end
+
   private
 
   def parse_record(record)

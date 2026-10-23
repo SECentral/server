@@ -203,6 +203,7 @@ RSpec.describe "Issues API", type: :request do
     expect(body.fetch("intelligence")).to have_key("paths")
     expect(body.fetch("intelligence")).to have_key("occurrence_time")
     expect(body.fetch("intelligence")).to have_key("fleet")
+    expect(body.dig("intelligence", "fleet")).to have_key("comparison_requirement")
     expect(body).to have_key("diagnosis")
     expect(body.fetch("host_explanations").length).to eq(2)
     expect(body.fetch("host_explanations")).to all(include("status" => "insufficient_evidence"))

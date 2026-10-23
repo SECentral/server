@@ -46,7 +46,7 @@ class Api::V1::IssuesController < Api::V1::BaseController
     summary[:names] = intelligence[:names].first(3)
     summary[:resource_summary].merge!(path_count: intelligence[:paths].size, name_count: intelligence[:names].size,
       process_command: intelligence[:commands].one? ? intelligence[:commands].first : nil)
-    summary[:fleet] = intelligence[:fleet].slice(:activity_hosts, :current_configuration_hosts, :hosts_with_occurrence, :hosts_without_occurrence)
+    summary[:fleet] = intelligence[:fleet].slice(:activity_hosts, :current_configuration_hosts, :hosts_with_occurrence, :hosts_without_occurrence, :comparison_requirement)
     diagnosis = displayed_findings.first&.fetch(:diagnosis)
     investigation = IssueInvestigation.call(issue, analyzer: analyzer)
     render json: {

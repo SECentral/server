@@ -40,7 +40,7 @@ export function OperatorChecks({ detail, runbookCommands = [], supplemental = fa
     {!source.path && ["file", "dir"].includes(detail.issue?.target_class) ? <Alert variant="info" isInline isPlain title="Complete target path not recorded">Identify the files this workload is accessing before considering a labeling or Boolean change.</Alert> : <p>{guidance.manual_check}</p>}
     </>}
     <InspectionCommands primary={primary} secondary={secondary} />
-    {!supplemental && capability && <><p>{guidance.possible_fix}</p><h3>Verify the workload</h3><p>{guidance.verification}</p></>}
+    {!supplemental && capability && <>{guidance.possible_fix && <p>{guidance.possible_fix}</p>}{guidance.verification && <><h3>Verify the workload</h3><p>{guidance.verification}</p></>}</>}
   </section>;
 }
 

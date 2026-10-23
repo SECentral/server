@@ -5,9 +5,9 @@ RSpec.describe CapabilityGuidance do
   let(:avc) { "type=AVC avc: denied { net_admin } for pid=2012 comm=\"httpd\" capability=12 scontext=#{context} tcontext=#{context} tclass=capability permissive=1" }
   let(:syscall) { "type=SYSCALL arch=c000003e syscall=54 success=yes exit=0 a0=9 a1=1 a2=20 a3=7ffcdc40a3b4 pid=2012 comm=\"httpd\" exe=\"/usr/sbin/httpd\" subj=#{context}" }
 
-  def guidance(records)
-    denial = NormalizedDenial.new(source_context: context, source_type: "httpd_t", target_type: "httpd_t", target_class: "capability",
-      permissions: ["net_admin"], executable: "/usr/sbin/httpd", details: { "permissive" => true })
+  def guidance(records, permission: "net_admin", object_class: "capability", executable: "/usr/sbin/httpd")
+    denial = NormalizedDenial.new(source_context: context, source_type: "httpd_t", target_type: "httpd_t", target_class: object_class,
+      permissions: [permission], executable: executable, details: { "permissive" => true })
     described_class.call(double(normalized_denial: denial, raw_event: double(raw_audit_records: records)))
   end
 
@@ -16,7 +16,9 @@ RSpec.describe CapabilityGuidance do
     result = guidance(records)
     expect(result[:explanation]).to include("administrator privileges", "privileged socket settings")
     expect(result[:evidence]).to include("x86-64 setsockopt", "SO_SNDBUFFORCE", "send buffer", "memory for outgoing data")
-    expect(result[:hypothesis]).to include("may be tuning socket buffers", "startup configuration")
+    expect(result[:hypothesis]).to include("may be tuning socket buffers")
+    expect(result[:inspection]).to include("startup configuration", "forced send-buffer")
+    expect(result[:verification]).to include("application response", "enforcement mode")
     expect(result[:outcome]).to include("permissive mode", "system call succeeded")
     expect(records).to eq([avc, syscall])
   end
@@ -25,6 +27,19 @@ RSpec.describe CapabilityGuidance do
     result = guidance([avc, syscall.sub("a2=20", "a2=21").sub("success=yes", "success=no")])
     expect(result[:evidence]).to include("SO_RCVBUFFORCE", "receive buffer")
     expect(result[:outcome]).to eq("The associated system call failed.")
+  end
+
+  it "uses a same-event invalid-context error for labeling investigation, not generic startup advice" do
+    records = [avc.sub("net_admin", "mac_admin").sub("tclass=capability", "tclass=capability2"),
+      syscall.sub("/usr/sbin/httpd", "/usr/bin/chcon").sub("syscall=54", "syscall=188").sub("success=yes exit=0", "success=no exit=-22"),
+      'type=SELINUX_ERR op=setxattr invalid_context="system_u:object_r:missing_type_t:s0"']
+    result = guidance(records, permission: "mac_admin", object_class: "capability2", executable: "/usr/bin/chcon")
+    expect(result[:evidence]).to include("invalid SELinux context", "missing_type_t")
+    expect(result[:inspection]).to include("recorded command line", "current label")
+    expect(result[:verification]).to include("intended labeling operation", "resulting label")
+    expect(result).not_to have_key(:hypothesis)
+    expect(result.values.join).not_to include("startup", "module")
+    expect(guidance(records + [records.last], permission: "mac_admin", object_class: "capability2", executable: "/usr/bin/chcon")).not_to have_key(:inspection)
   end
 
   it "requires matching architecture, syscall and hexadecimal arguments for socket-buffer interpretation" do

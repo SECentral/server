@@ -1,4 +1,4 @@
-import { Alert, Breadcrumb, BreadcrumbItem, Button, Card, CardBody, Label, Pagination, Spinner, TextInput, Title, Tooltip } from "@patternfly/react-core";
+import { Alert, Breadcrumb, BreadcrumbItem, Button, Card, CardBody, Label, Pagination, Spinner, Stack, TextInput, Title, Tooltip } from "@patternfly/react-core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { memo, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
@@ -280,10 +280,8 @@ function fleetComparisonLimitation(configuration: IssueDetailResponse["intellige
   const current = configuration.current_configuration_hosts;
   const affected = configuration.hosts_with_occurrence;
   const unaffected = configuration.hosts_without_occurrence;
-  if (typeof current !== "number" || typeof affected !== "number" || typeof unaffected !== "number") return "Fleet comparison unavailable: current configuration and comparison-host counts are not available.";
-  if (current < 2) return `Fleet comparison unavailable: ${current} host${current === 1 ? " currently has" : "s currently have"} usable configuration evidence.${unaffected === 0 ? " There are no comparison hosts without this issue." : " At least two comparable hosts are needed."}`;
-  if (affected === 0) return "Fleet comparison unavailable: no hosts with usable current configuration have a retained occurrence of this issue.";
-  if (unaffected === 0) return "Fleet comparison unavailable: there are no comparison hosts without this issue among hosts with usable current configuration.";
+  if (typeof current !== "number" || typeof affected !== "number" || typeof unaffected !== "number") return "Fleet comparison needs host reporting and configuration data.";
+  if (current < 2 || affected === 0 || unaffected === 0) return text(configuration.comparison_requirement) ?? "Fleet comparison needs current configuration from hosts with recorded occurrences and hosts with no recorded occurrence.";
   return null;
 }
 
@@ -308,20 +306,15 @@ const FleetSection = memo(function FleetSection({
   const comparisonLimitation = fleetComparisonLimitation(configurationFleet);
   return (
     <section className="issue-fleet-section" aria-labelledby="issue-fleet-title">
-      <header><div><h2 id="issue-fleet-title">Fleet Scope & Occurrences</h2><p>{fleet.affected_host_count} affected host{fleet.affected_host_count === 1 ? "" : "s"} · {fleetSummary(fleet.state, fleet.affected_host_count)}</p></div></header>
+      <header><div><h2 id="issue-fleet-title">Fleet scope</h2><p>{fleet.affected_host_count} affected host{fleet.affected_host_count === 1 ? "" : "s"} · {fleetSummary(fleet.state, fleet.affected_host_count)}</p></div></header>
       <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Finding distribution">
         <Thead><Tr><Th>Host</Th><Th><Tooltip content="Supported findings are evidence-backed explanations for occurrences, not verified root causes or successful remediation."><span tabIndex={0}>Finding coverage</span></Tooltip></Th><Th>Finding groups</Th><Th>Evidence</Th></Tr></Thead><Tbody>
         {hostExplanations.map((host) => {
           const groups = host.diagnosis_groups ?? [];
           const unexplained = host.unexplained_occurrence_count;
-          const occurrenceSummary = host.status === "disagreement"
-            ? `Mixed findings across ${host.occurrence_count} occurrences`
-            : host.status === "insufficient_evidence"
-              ? `${unexplained} of ${host.occurrence_count} occurrences lack a supported finding`
-              : `Same supported findings across ${host.occurrence_count} occurrence${host.occurrence_count === 1 ? "" : "s"}`;
           return <Tr key={host.host_id}>
             <Td dataLabel="Host"><Link to={`/hosts/${host.host_id}`}>{host.hostname ?? `Host ${host.host_id}`}</Link></Td>
-            <Td dataLabel="Finding coverage"><p>{host.occurrence_count - unexplained} with supported findings · {unexplained} without a supported finding</p><small>{occurrenceSummary}</small></Td>
+            <Td dataLabel="Finding coverage"><p>{host.occurrence_count - unexplained} of {host.occurrence_count} with supported findings</p>{host.status === "disagreement" && <small>Mixed findings</small>}</Td>
             <Td dataLabel="Finding groups"><ul>{groups.map((group, index) => <li key={index}>{diagnosisVariantDetail(group.diagnosis) ?? "Cause not confirmed"} · {group.count} occurrence{group.count === 1 ? "" : "s"}</li>)}</ul>
               {host.additional_diagnosis_group_count > 0 && <small>{host.additional_diagnosis_group_count} more groups; inspect occurrence records</small>}
             </Td>
@@ -557,10 +550,9 @@ export function IssueDetail() {
           {supplementaryPolicyLimits && <div><ul>{policy_analysis.limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}</ul><p>Unconfirmed occurrence examples: {host_explanations.flatMap((host) => host.diagnosis_groups.filter((group) => !group.diagnosis).flatMap((group) => group.sample_occurrence_ids.map((id) => <Link key={`${host.host_id}-${id}`} to={`/hosts/${host.host_id}/occurrences/${id}`}>{host.hostname} · #{id} </Link>)))}</p></div>}
       </section></ExpandableSection>}
 
-      <Card isCompact className="issue-fleet-occurrences"><CardBody>
-      {!!intelligence.observation_summary?.length && <section aria-label="Recorded outcomes" className="pf-v6-u-mb-lg">
+      <Stack hasGutter>
+      {!!intelligence.observation_summary?.length && <Card isCompact className="issue-detail-card"><CardBody><section aria-label="Recorded outcomes">
         <h2>Recorded outcomes</h2>
-        <p>Audit-event counts by SELinux enforcement mode and recorded syscall result.</p>
         <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Host outcome comparison"><Thead><Tr><Th>Host</Th><Th>Occurrences / audit events</Th><Th>AVC enforcement</Th><Th>Syscall outcomes by event</Th></Tr></Thead><Tbody>
           {intelligence.observation_summary.map((item) => <Tr key={item.host_id}>
             <Td dataLabel="Host"><Link to={`/hosts/${item.host_id}`}>{item.hostname ?? `Host ${item.host_id}`}</Link></Td>
@@ -569,14 +561,8 @@ export function IssueDetail() {
             <Td dataLabel="Syscall outcomes by event">{Object.entries(item.syscall_outcomes).map(([outcome, count]) => `${displayState(outcome)}: ${count}`).join(" · ")}</Td>
           </Tr>)}
         </Tbody></Table>
-      </section>}
-      {!!detailQuery.data.related_activity?.length && <section aria-label="Related issue activity" className="pf-v6-u-mb-lg">
-        <h2>Related issue activity</h2>
-        <ul>{detailQuery.data.related_activity.map((item) => <li key={`${item.issue_id}:${item.host_id}`}>
-          <Link to={`/issues/${item.issue_id}`}>Issue #{item.issue_id}</Link> · <code>{item.target_type}:{item.target_class}</code> · {item.hostname ?? `Host ${item.host_id}`} · {item.basis === "same_audit_event" ? "Same audit event" : "Same host, boot, PID, executable and subject context within 2 seconds"}.
-          {" "}<Link to={`/hosts/${item.host_id}/occurrences/${item.source_occurrence_id}`}>This issue's example</Link> ({formatUtc(item.source_occurred_at)}) ↔ <Link to={`/hosts/${item.host_id}/occurrences/${item.occurrence_id}`}>Related example</Link> ({formatUtc(item.occurred_at)}).
-        </li>)}</ul>
-      </section>}
+      </section></CardBody></Card>}
+      <Card isCompact className="issue-detail-card"><CardBody>
       <FleetSection
         hostExplanations={host_explanations}
         fleet={fleet_explanation}
@@ -586,7 +572,19 @@ export function IssueDetail() {
         relatedError={analysisQuery.isError}
         onRelatedToggle={setShowRelatedFleet}
       />
+      {!!detailQuery.data.related_activity?.length && <section aria-label="Related issue activity" className="pf-v6-u-mt-md">
+        <h3>Related issue activity</h3>
+        <ul>{detailQuery.data.related_activity.map((item) => <li key={`${item.issue_id}:${item.host_id}`}>
+          <Link to={`/issues/${item.issue_id}`}>Issue #{item.issue_id}</Link> · <code>{item.target_type}:{item.target_class}</code> · {item.hostname ?? `Host ${item.host_id}`} · {item.basis === "same_audit_event" ? "Same audit event" : "Same host, boot, PID, executable and subject context within 2 seconds"}.
+          {" "}<Link to={`/hosts/${item.host_id}/occurrences/${item.source_occurrence_id}`}>This issue's example</Link> ({formatUtc(item.source_occurred_at)}) ↔ <Link to={`/hosts/${item.host_id}/occurrences/${item.occurrence_id}`}>Related example</Link> ({formatUtc(item.occurred_at)}).
+        </li>)}</ul>
+      </section>}
+      </CardBody></Card>
 
+      <Card isCompact className="issue-detail-card"><CardBody>
+      <section id="issue-occurrences" tabIndex={-1} aria-labelledby="occurrences-title" className="issue-section issue-occurrences-section">
+        <header><div><h2 id="occurrences-title">Retained occurrences</h2>{showOccurrences && occurrencesQuery.data && <p>{(occurrencesQuery.data.meta.page - 1) * occurrencesQuery.data.meta.page_size + (occurrencesQuery.data.meta.total ? 1 : 0)}–{Math.min(occurrencesQuery.data.meta.page * occurrencesQuery.data.meta.page_size, occurrencesQuery.data.meta.total)} of {occurrencesQuery.data.meta.total} occurrences</p>}</div></header>
+        {signatureFilter && <p>Showing occurrences for {issue.signatures?.find((signature) => String(signature.id) === signatureFilter)?.permissions.join(", ") ?? "the selected permission set"}. <Button variant="link" onClick={() => showSignatureOccurrences(null)}>Show all operations</Button></p>}
       {patternSignals.length > 0 && <ExpandableSection className="issue-activity-context" toggleText="Occurrence pattern"><ul>{patternSignals.map((signal) => <li key={signal.code}><strong>{signal.label}:</strong> {signal.explanation}</li>)}</ul></ExpandableSection>}
 
       {(issue.signatures?.length ?? 0) > 1 && <ExpandableSection toggleText="Denied operations">
@@ -614,9 +612,6 @@ export function IssueDetail() {
         </section>)}
       </ExpandableSection>}
 
-      <section id="issue-occurrences" tabIndex={-1} aria-labelledby="occurrences-title" className="issue-section issue-occurrences-section">
-        {signatureFilter && <p>Showing occurrences for {issue.signatures?.find((signature) => String(signature.id) === signatureFilter)?.permissions.join(", ") ?? "the selected permission set"}. <Button variant="link" onClick={() => showSignatureOccurrences(null)}>Show all operations</Button></p>}
-        <header><div><h3 id="occurrences-title">Retained occurrences</h3>{showOccurrences && occurrencesQuery.data && <p>{(occurrencesQuery.data.meta.page - 1) * occurrencesQuery.data.meta.page_size + (occurrencesQuery.data.meta.total ? 1 : 0)}–{Math.min(occurrencesQuery.data.meta.page * occurrencesQuery.data.meta.page_size, occurrencesQuery.data.meta.total)} of {occurrencesQuery.data.meta.total} occurrences</p>}</div></header>
         {!showOccurrences ? <Button variant="secondary" onClick={() => setShowOccurrences(true)}>Show recent occurrences</Button>
           : occurrencesQuery.isPending ? <div aria-label="Loading occurrences"><Spinner /></div>
           : occurrencesQuery.isError ? <Alert variant="warning" isInline title="Could not load occurrences">{occurrencesQuery.error instanceof Error ? occurrencesQuery.error.message : "Unknown error"}</Alert>
@@ -639,6 +634,7 @@ export function IssueDetail() {
       }}>
         {showTechnicalEvidence && <IssueTechnicalEvidence detail={detailQuery.data} updatedAt={detailQuery.dataUpdatedAt} />}
       </ExpandableSection>
+      </Stack>
     </div>
   );
 }

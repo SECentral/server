@@ -1653,6 +1653,10 @@ export type IssueIntelligenceSummary = {
         [key: string]: unknown;
     };
     fleet: {
+        /**
+         * Optional explanation of the missing fleet-comparison prerequisite, using the server's actual reporting and configuration-confirmation time windows. Null when eligible hosts include both recorded-occurrence and no-recorded-occurrence groups. Occurrence history is not restricted to these time windows. Older responses may omit this field.
+         */
+        comparison_requirement?: string | null;
         [key: string]: unknown;
     };
 };

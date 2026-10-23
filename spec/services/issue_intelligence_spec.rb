@@ -32,6 +32,7 @@ RSpec.describe IssueIntelligence do
 
     expect(result[:occurrence_time][:policy_distribution]).to eq("42" => 2, "43" => 1)
     expect(result[:fleet]).to include(activity_hosts: 2, current_configuration_hosts: 2, hosts_with_occurrence: 1, hosts_without_occurrence: 1)
+    expect(result[:fleet][:comparison_requirement]).to be_nil
     expect(result[:fleet][:with_occurrence_policies]).to eq("43" => 1)
     expect(result[:fleet][:without_occurrence_policies]).to eq("42" => 1)
     expect(result[:fleet][:without_occurrence_modules]).to eq(["local_web", 400, "unknown"] => 1)
@@ -55,6 +56,34 @@ RSpec.describe IssueIntelligence do
 
     expect(result[:affected_hosts]).to eq(2)
     expect(result[:fleet]).to include(activity_hosts: 3, current_configuration_hosts: 1, hosts_with_occurrence: 0, hosts_without_occurrence: 1)
+  end
+
+  it "explains comparison prerequisites with the configured reporting windows and retained occurrence history" do
+    stub_const("Host::STALE_AFTER", 7.minutes)
+    allow(Rails.application.config.x.agent_reporting).to receive(:stale_after).and_return(1.hour)
+    organization = Organization.create!(name: "comparison-windows")
+    issue = Issue.create!(organization: organization, fingerprint_version: 3, fingerprint_digest: "windows", source_type: "httpd_t", target_type: "default_t", target_class: "file", first_seen_at: 1.day.ago, last_seen_at: 1.day.ago)
+    affected = create_host(organization, "affected", "42", [])
+    create_occurrence(issue, affected, affected.current_snapshot, 1.day.ago)
+    affected.update!(last_seen_at: 1.hour.ago)
+    affected.current_state_observation.update!(last_received_at: 2.hours.ago)
+    expect(described_class.call(issue).dig(:fleet, :comparison_requirement)).to eq("Fleet comparison needs hosts reporting within the last 7 minutes.")
+
+    affected.update!(last_seen_at: Time.current)
+    expect(described_class.call(issue).dig(:fleet, :comparison_requirement)).to eq("Fleet comparison needs host configuration confirmed within the last 1 hour.")
+    affected.current_state_observation.update!(last_received_at: Time.current)
+    expect(described_class.call(issue).dig(:fleet, :comparison_requirement)).to eq("Fleet comparison needs at least two hosts with configuration confirmed within the last 1 hour.")
+    other = create_host(organization, "other", "42", [])
+    expect(described_class.call(issue).dig(:fleet, :comparison_requirement)).to be_nil
+
+    affected.current_state_observation.update!(last_received_at: 2.hours.ago)
+    create_host(organization, "another", "42", [])
+    expect(described_class.call(issue).dig(:fleet, :comparison_requirement)).to include("report within the last 7 minutes", "configuration within the last 1 hour")
+    affected.current_state_observation.update!(last_received_at: Time.current)
+    create_occurrence(issue, other, other.current_snapshot, 1.day.ago)
+    another = organization.hosts.find_by!(external_id: "another")
+    create_occurrence(issue, another, another.current_snapshot, 1.day.ago)
+    expect(described_class.call(issue).dig(:fleet, :comparison_requirement)).to eq("All eligible hosts have recorded this issue. Comparison needs a host with no recorded occurrence.")
   end
 
   it "skips analysis-only fleet work when building issue detail intelligence" do
