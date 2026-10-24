@@ -1660,6 +1660,14 @@
 .issue-evidence-source time { color: var(--pf-t--global--text--color--subtle); }
 .issue-evidence-workspace .pf-v6-c-description-list__description { overflow-wrap: anywhere; }
 .issue-evidence-workspace .pf-v6-c-card__body { display: grid; gap: var(--pf-t--global--spacer--sm); }
+.issue-audit-record .detail-facts { grid-template-columns: minmax(0, 1fr); }
+.issue-audit-group > .pf-v6-c-title { margin-block-end: var(--pf-t--global--spacer--sm); }
+.issue-audit-group + .issue-audit-group { margin-block-start: var(--pf-t--global--spacer--md); }
+.issue-selinux-explanation .policy-evaluation-result { display: grid; gap: var(--pf-t--global--spacer--sm); }
+.issue-evaluation-source-json { max-height: none; overflow: visible; }
+.issue-evaluation-source-json .pf-v6-c-code-block__pre,
+.issue-evaluation-source-json .pf-v6-c-code-block__code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.issue-provenance-examples { display: flex; flex-wrap: wrap; gap: var(--pf-t--global--spacer--md); list-style: none; margin: var(--pf-t--global--spacer--sm) 0 0; padding: 0; }
 .evidence-rules { display: grid; gap: var(--pf-t--global--spacer--sm); }
 @media (max-width: 1199px) {
   .issue-workbench { grid-template-columns: 1fr; }

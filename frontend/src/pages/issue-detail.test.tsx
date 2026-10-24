@@ -864,7 +864,9 @@ describe("issue investigation", () => {
     expect(screen.queryByText("sha256:issue-fingerprint")).not.toBeInTheDocument();
     expect(screen.getByText(/allow httpd_t port_type/)).toBeVisible();
     await user.click(screen.getByRole("tab", { name: "Provenance" }));
-    expect(await screen.findByText("sha256:issue-fingerprint")).toBeVisible();
+    expect(await screen.findByRole("link", { name: "Open occurrence" })).toHaveAttribute("href", "/hosts/10/occurrences/101");
+    expect(screen.queryByRole("heading", { name: "Evaluation checkpoint" })).not.toBeInTheDocument();
+    expect(screen.queryByText("sha256:issue-fingerprint")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Technical details & audit provenance" }));
     expect(screen.queryByText("sha256:issue-fingerprint")).not.toBeInTheDocument();
   });
@@ -1005,7 +1007,7 @@ describe("issue investigation", () => {
     expect(within(explanation).getByText(/allow httpd_t user_home_type:file/)).toBeVisible();
     expect(within(explanation).getByText(/user_home_t:file/)).toBeVisible();
     expect(within(explanation).getByText("read", { selector: "code" })).toBeVisible();
-    expect(within(explanation).getByText("sha256:fixture-policy-identity")).toBeVisible();
+    expect(within(explanation).queryByText(/sha256:/)).not.toBeInTheDocument();
     expect(within(explanation).getByText("2026-09-30T16:26:00Z")).toBeVisible();
   });
 
@@ -1080,7 +1082,7 @@ describe("issue investigation", () => {
     const selinuxExplanation = document.querySelector("#issue-technical-evidence .issue-selinux-explanation");
     expect(within(selinuxExplanation as HTMLElement).getByText(/allow httpd_t port_type/)).toBeVisible();
     expect(within(selinuxExplanation as HTMLElement).getByText(/allow nsswitch_domain unreserved_port_t/)).toBeVisible();
-    expect(within(selinuxExplanation as HTMLElement).getByText("sha256:fixture-policy-identity")).toBeVisible();
+    expect(within(selinuxExplanation as HTMLElement).queryByText(/sha256:/)).not.toBeInTheDocument();
     expect(within(selinuxExplanation as HTMLElement).getByText("2026-09-30T16:26:00Z")).toBeVisible();
     expect(screen.getByRole("button", { name: "Conditional policy paths" })).toHaveAttribute("aria-expanded", "true");
     expect(screen.queryByText(/setsebool/i)).not.toBeInTheDocument();
@@ -1249,7 +1251,7 @@ describe("issue investigation", () => {
     expect(within(screen.getByRole("region", { name: "Diagnosis" })).queryByText(/does not establish that a domain transition was attempted or intended/)).not.toBeInTheDocument();
   });
 
-  it("keeps Issue 1932 in fleet agreement while disclosing its two policy identities", async () => {
+  it("summarizes differing policy evidence without exposing digests", async () => {
     const fetchMock = vi.fn();
     mockApi(fetchMock, "fleet-live");
     vi.stubGlobal("fetch", fetchMock);
@@ -1268,11 +1270,13 @@ describe("issue investigation", () => {
     await user.click(screen.getByRole("button", { name: "Technical details & audit provenance" }));
     const why = document.querySelector("#issue-technical-evidence .issue-selinux-explanation");
     expect(within(why as HTMLElement).getAllByText(/entrypoint/).length).toBeGreaterThan(0);
-    const provenance = within(why as HTMLElement).getAllByRole("link", { name: /Policy artifact 646dfbc9/ })[0];
-    expect(provenance.getAttribute("href")).toContain("evidence_tab=provenance");
-    await user.click(provenance);
+    expect(within(why as HTMLElement).queryByText(/sha256:/)).not.toBeInTheDocument();
+    expect(within(why as HTMLElement).queryByRole("button", { name: "Copy exact policy identity" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Provenance" }));
     expect(screen.getByRole("tab", { name: "Provenance" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("sha256:646dfbc98b55dba4e8622f4fbb1b23cb5e0c2c133144361d05cbc2a0c6cd2cff", { selector: "code" })).toBeVisible();
+    const provenance = screen.getByRole("tabpanel", { name: "Provenance" });
+    expect(provenance).not.toHaveTextContent("sha256:");
+    expect(within(provenance).queryByRole("heading", { name: "Evaluation checkpoint" })).not.toBeInTheDocument();
 
     const host = within(screen.getByRole("region", { name: "Fleet scope" })).getByRole("link", { name: "secentral-agent-test" });
     const listItem = host.closest("tr");
@@ -1281,9 +1285,11 @@ describe("issue investigation", () => {
     expect(within(listItem!).queryByText(/sha256:/)).not.toBeInTheDocument();
     await user.click(within(listItem!).getByRole("link", { name: "View group evidence" }));
     const evidence = document.getElementById("host-evidence-1138")!;
-    expect(within(evidence).getAllByRole("link", { name: /Policy artifact/ })).toHaveLength(2);
-    expect(screen.getAllByText(/sha256:6029a986/, { selector: "code" })).toHaveLength(1);
-    expect(screen.getAllByText(/sha256:96604a22/, { selector: "code" })).toHaveLength(1);
+    expect(within(evidence).getByText("Policy evaluation varied across these occurrences.")).toBeVisible();
+    expect(within(evidence).queryByText(/sha256:/)).not.toBeInTheDocument();
+    expect(within(evidence).queryByText("Checkpoint")).not.toBeInTheDocument();
+    expect(within(evidence).queryByText("Example occurrence")).not.toBeInTheDocument();
+    expect(within(evidence).getByRole("list", { name: "Example occurrences" }).querySelectorAll("li")).toHaveLength(3);
     expect(screen.getAllByRole("link", { name: "secentral-alma-9-clean" })).toHaveLength(2);
     expect(screen.getByRole("link", { name: "secentral-alma9-test" })).toBeInTheDocument();
   });
@@ -1350,7 +1356,7 @@ describe("issue investigation", () => {
     expect(screen.queryByText(explanation)).not.toBeInTheDocument();
   });
 
-  it("shows repeated occurrences as scan-friendly rows, then readable detail before raw evidence", async () => {
+  it("shows a readable occurrence summary and links to its full record", async () => {
     const fetchMock = vi.fn();
     mockApi(fetchMock, "repeated");
     vi.stubGlobal("fetch", fetchMock);
@@ -1372,9 +1378,12 @@ describe("issue investigation", () => {
     expect(record).toHaveTextContent("read");
     expect(record).toHaveTextContent("user_home_t:file");
     expect(screen.queryByText(RAW_AVC)).not.toBeInTheDocument();
-
-    await user.click(within(record).getByRole("button", { name: "Raw audit records" }));
-    expect(await screen.findByText(RAW_AVC)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Raw audit records" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Other retained payload" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Normalized source data" })).not.toBeInTheDocument();
+    const occurrenceLinks = screen.getAllByRole("link", { name: "Open occurrence" });
+    expect(occurrenceLinks).toHaveLength(1);
+    expect(occurrenceLinks[0]).toHaveAttribute("href", "/hosts/10/occurrences/101");
     expect(document.querySelector("script")).toBeNull();
   });
 

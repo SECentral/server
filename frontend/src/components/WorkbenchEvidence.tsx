@@ -27,23 +27,6 @@ export function evidenceRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-export function PolicyArtifactReference({ identity }: { identity: string }) {
-  return /^sha256:[a-f0-9]{64}$/.test(identity) ? <EvidenceLink target={`artifact-${identity}`}>Policy artifact {identity.slice(7, 15)}…</EvidenceLink> : <code>{identity}</code>;
-}
-
-export function PolicyArtifacts({ evidence }: { evidence: unknown }) {
-  const identities = new Set<string>();
-  function collect(value: unknown, key = "") {
-    if (typeof value === "string" && key.includes("policy_identity") && /^sha256:[a-f0-9]{64}$/.test(value)) identities.add(value);
-    else if (Array.isArray(value)) value.forEach((item) => collect(item, key));
-    else if (value && typeof value === "object") Object.entries(value).forEach(([name, item]) => collect(item, name));
-  }
-  collect(evidence);
-  return identities.size > 0 ? <section aria-label="Retained policy artifacts"><h3>Retained policy artifacts</h3><p>Identities are listed once; checkpoint, current-observation and review-time references above keep their distinct roles.</p>
-    {[...identities].map((identity) => <div key={identity} id={`artifact-${identity}`} tabIndex={-1}><EvidenceBlock value={identity} label="Policy identity" hasCopyButton /></div>)}
-  </section> : null;
-}
-
 export function EvidenceLink({ target, children, occurrenceId }: { target: string; children: React.ReactNode; occurrenceId?: number }) {
   const [params] = useSearchParams();
   const next = new URLSearchParams(params);
