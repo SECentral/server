@@ -1,6 +1,6 @@
 import { Alert, Breadcrumb, BreadcrumbItem, Button, Card, CardBody, Label, Pagination, Spinner, Stack, Tab, Tabs, TabTitleText, TextInput, Title, Tooltip } from "@patternfly/react-core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useState, type ReactElement } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import {
@@ -37,6 +37,12 @@ function rows(value: unknown): Row[] {
 
 function text(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function technicalText(value: string): (string | ReactElement)[] {
+  return value.split(/(\b(?:mac_admin|net_admin)\b|\b[a-zA-Z_][\w]*:[a-zA-Z_][\w]*:[a-zA-Z_][\w]*:s\d+(?::[a-zA-Z0-9_,.-]+)?\b)/g).map((part, index) =>
+    /^(?:mac_admin|net_admin|[a-zA-Z_][\w]*:[a-zA-Z_][\w]*:[a-zA-Z_][\w]*:s\d+(?::[a-zA-Z0-9_,.-]+)?)$/.test(part) ? <code key={index}>{part}</code> : part
+  );
 }
 
 function displayState(value: string): string {
@@ -110,7 +116,7 @@ function practicalHeadline(issue: { source_type: string; target_type: string; ta
   return `${actor} was denied ${permissionLabel(permission)} on ${resource}.`;
 }
 
-function primaryFindingLead(diagnosis: Diagnosis): string | null {
+function primaryFindingLead(diagnosis: Diagnosis): string | ReactElement | null {
   if (diagnosis.kind === "file_context_mismatch") return null;
   if (diagnosis.kind === "conditional_allow_inactive" && diagnosis.operation === "name_connect") {
     const count = rows(diagnosis.conditional_rules).length;
@@ -120,7 +126,8 @@ function primaryFindingLead(diagnosis: Diagnosis): string | null {
   if (diagnosis.kind === "no_matching_allow") {
     if (["name_bind", "name_connect"].includes(diagnosis.operation ?? "")) return text(row(diagnosis).lead);
     if (diagnosis.permissions?.includes("entrypoint")) return "The evaluated policy has no allow rule for this launch on the observed file label.";
-    if (diagnosis.permissions?.includes("getattr")) return `The policy SECentral checked has no rule allowing ${diagnosis.process_command ?? diagnosis.source_domain ?? "the recorded process"} to inspect file attributes such as ownership and permissions on files labeled ${diagnosis.target_type ?? "the observed type"}.`;
+    if (diagnosis.permissions?.includes("getattr")) return <>The policy SECentral checked has no rule allowing <code>{diagnosis.process_command ?? diagnosis.source_domain ?? "the recorded process"}</code> to inspect file attributes such as ownership and permissions on files labeled <code>{diagnosis.target_type ?? "the observed type"}</code>.</>;
+    if (diagnosis.permissions?.includes("mac_admin")) return <>The evaluated policy has no allow rule for the denied <code>mac_admin</code> capability.</>;
     return `The evaluated policy has no allow rule for the denied ${permissionLabel(diagnosis.permissions?.[0] ?? "access")}.`;
   }
   return text(row(diagnosis).lead) ?? text(row(diagnosis).finding);
@@ -214,10 +221,10 @@ function FindingCard({ detail }: { detail: IssueDetailResponse }) {
     {policy_analysis.status !== "evaluated" && <div role="status"><p><strong>{policy_analysis.status === "unavailable" ? "Historical policy analysis unavailable" : policy_analysis.status === "pending" ? "Policy evaluation is pending" : `Policy analysis: ${displayState(policy_analysis.status)}`}</strong></p>
       {policy_analysis.limitations.map((limitation) => <p key={limitation}>{limitation === "exact policy identity is unavailable" ? "The exact SELinux policy identity is unavailable for these occurrences." : limitation.replaceAll("_", " ")}</p>)}
     </div>}
-    {detail.operator_guidance?.capability && <section aria-label="Capability request"><p>{detail.operator_guidance.capability.explanation}</p>
-      {detail.operator_guidance.capability.outcome && <p>{detail.operator_guidance.capability.outcome}</p>}
-      {detail.operator_guidance.capability.evidence && <p>{detail.operator_guidance.capability.evidence}</p>}
-      {detail.operator_guidance.capability.hypothesis && <p><strong>Investigation hypothesis:</strong> {detail.operator_guidance.capability.hypothesis}</p>}
+     {detail.operator_guidance?.capability && <section aria-label="Capability request"><p>{technicalText(detail.operator_guidance.capability.explanation)}</p>
+      {detail.operator_guidance.capability.outcome && <p>{technicalText(detail.operator_guidance.capability.outcome)}</p>}
+      {detail.operator_guidance.capability.evidence && <p>{technicalText(detail.operator_guidance.capability.evidence)}</p>}
+      {detail.operator_guidance.capability.hypothesis && <p><strong>Investigation hypothesis:</strong> {technicalText(detail.operator_guidance.capability.hypothesis)}</p>}
       <EvidenceLink target="audit-evidence" occurrenceId={detail.operator_guidance.source.occurrence_id}>Inspect capability request · occurrence #{detail.operator_guidance.source.occurrence_id}</EvidenceLink>
     </section>}
      {triage_guidance && diagnosis?.kind !== "file_context_mismatch" && <LabelMismatchGuidance guidance={triage_guidance} />}

@@ -286,8 +286,10 @@ describe("Evidence-driven resolution UI", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(state), { status: 200 })));
     render(<QueryClientProvider client={client}><MemoryRouter><ResolutionWorkflow issueId={7} stage="intent" initialData={state} /></MemoryRouter></QueryClientProvider>);
     const selector = screen.getByRole("combobox", { name: "Active investigation resource" });
+    expect(screen.getByText("Resource / host")).toBeVisible();
     expect(within(selector).getAllByRole("option")).toHaveLength(4);
     expect(within(selector).getByRole("option", { name: "/srv/long-directory/third · web-1" })).toBeInTheDocument();
+    expect(screen.queryByText(/Inspecting:/)).not.toBeInTheDocument();
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Search investigation resources" })).not.toBeInTheDocument();
   });

@@ -453,13 +453,12 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
       </p>}
       {resources.length > 1 && (useTabs ? <Tabs activeKey={active.key} onSelect={(_event, key) => navigateResource(String(key))} aria-label="Investigation resources" isBox>
         {resources.map((resource) => <Tab key={resource.key} eventKey={resource.key} aria-label={`${resource.label}${resourceLabel(resource).slice(resourceName(resource).length)}`} title={<TabTitleText><span title={resource.label}>{resourceLabel(resource)}</span></TabTitleText>} tabContentId="issue-resource-panel" />)}
-      </Tabs> : <FormGroup label="Host / resource" fieldId={resourceFieldId}>
+      </Tabs> : <FormGroup label="Resource / host" fieldId={resourceFieldId}>
         <FormSelect id={resourceFieldId} aria-label="Active investigation resource" value={active.key} onChange={(_event, key) => navigateResource(key)}>
           {resources.map((resource) => <FormSelectOption key={resource.key} value={resource.key} label={resource.label + resourceLabel(resource).slice(resourceName(resource).length)} />)}
         </FormSelect>
       </FormGroup>)}
       <section id="issue-resource-panel" role={resources.length > 1 && useTabs ? "tabpanel" : undefined} tabIndex={0} aria-label={`Active resource: ${active?.label ?? "Investigation example"}`}>
-      {active && !active.port && <p><strong>Inspecting:</strong> {active.label}</p>}
       {nextStep && <p className="suggested-next-step" aria-label="Suggested next step"><strong>Suggested next step</strong> · {nextStep}</p>}
       {detail?.operator_guidance && (!active || inspectionElsewhere) && source?.path && <p>{detail.operator_guidance.possible_fix}</p>}
       {active?.port ? <PortInvestigation key={`${issueId}-${active.key}`} investigation={active.port} workflow={workflow} busy={busy} onSelect={choose}>{inspection}</PortInvestigation> : inspection}

@@ -369,6 +369,21 @@ describe("issue investigation", () => {
     expect(within(checks).getByRole("button", { name: "Copy command: sesearch -A -s httpd_t -t httpd_t -c capability -p net_admin" })).toBeVisible();
   });
 
+  it("renders capability names and SELinux contexts as code in Diagnosis", async () => {
+    const payload = capabilityPayload();
+    payload.issue.permissions = ["mac_admin"];
+    payload.diagnosis = { ...diagnosisFor("004")!, permissions: ["mac_admin"] } as IssueDetailResponse["diagnosis"];
+    payload.operator_guidance!.capability = {
+      explanation: "mac_admin is checked for some security-label administration operations.",
+      evidence: "The same audit event reports an invalid SELinux context: unconfined_u:object_r:secentral_nonexistent_t:s0."
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => detailResponse(url, payload)));
+    renderDetail();
+    const diagnosis = await screen.findByRole("region", { name: "Diagnosis" });
+    expect(within(diagnosis).getAllByText("mac_admin", { selector: "code" })).toHaveLength(2);
+    expect(within(diagnosis).getByText("unconfined_u:object_r:secentral_nonexistent_t:s0", { selector: "code" })).toBeVisible();
+  });
+
   it("keeps meaningful occurrence patterns and does not invent a syscall hypothesis when evidence is absent", async () => {
     const payload = capabilityPayload();
     payload.operator_guidance!.capability = { explanation: "Linux capabilities are individual administrator privileges." };
@@ -933,6 +948,8 @@ describe("issue investigation", () => {
     renderDetail();
     const diagnosis = await screen.findByRole("region", { name: "Diagnosis" });
     expect(diagnosis).toHaveTextContent("The policy SECentral checked has no rule allowing mariadbd to inspect file attributes such as ownership and permissions on files labeled shadow_t");
+    expect(within(diagnosis).getByText("mariadbd", { selector: "code" })).toBeVisible();
+    expect(within(diagnosis).getByText("shadow_t", { selector: "code" })).toBeVisible();
     expect(diagnosis).not.toHaveTextContent("Host-configured label: not established by this policy finding");
     expect(within(diagnosis).queryByLabelText("AVC and host-configured label comparison")).not.toBeInTheDocument();
     expect(within(diagnosis).queryByRole("button", { name: "Label observation details" })).not.toBeInTheDocument();
