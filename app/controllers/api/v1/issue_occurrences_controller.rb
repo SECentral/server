@@ -65,7 +65,12 @@ class Api::V1::IssueOccurrencesController < Api::V1::BaseController
         else
           []
         end
-        resource = ports.one? ? "#{protocol}/#{ports.first}" : ports.any? ? "Multiple #{protocol} ports" : paths.first || names.first
+        capability = CapabilityGuidance::CLASSES.include?(denial.target_class)
+        resource = if capability
+          "Capability: #{denial.permissions.join(', ')}"
+        else
+          ports.one? ? "#{protocol}/#{ports.first}" : ports.any? ? "Multiple #{protocol} ports" : paths.first || names.first
+        end
         syscalls = Array(denial.details["syscall_evidence"])
         outcome = if syscalls.any? { |syscall| %w[no false 0].include?(syscall["success"].to_s) }
           "failed"
@@ -77,7 +82,7 @@ class Api::V1::IssueOccurrencesController < Api::V1::BaseController
         { id: occurrence.id, occurred_at: occurrence.occurred_at, issue_signature_id: occurrence.issue_signature_id,
           enforcement_mode: denial.details.fetch("enforcement_mode", "unknown"), syscall_outcome: outcome,
           host: { id: occurrence.host_id, hostname: occurrence.host.hostname },
-          resource: resource, absolute_path: paths.present?,
+          resource: resource, absolute_path: !capability && paths.present?,
           target_type: denial.target_type, permissions: denial.permissions }
       end,
       meta: { page: page, page_size: page_size, total: total, total_pages: pages }

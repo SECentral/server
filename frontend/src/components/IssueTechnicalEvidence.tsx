@@ -5,7 +5,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { fetchIssueOccurrence, type Diagnosis, type IssueDetailResponse } from "../api/issue";
 import { fetchResolutions } from "../api/resolution";
 import { Disclosure } from "./Disclosure";
-import { EvidenceBlock, EvidenceFacts as Facts, OccurrenceRawEvidence } from "./OccurrenceEvidence";
+import { EvidenceBlock, EvidenceFacts as Facts, formatUtc, OccurrenceRawEvidence } from "./OccurrenceEvidence";
 import { evidenceRecord as row, evidenceTabFor, PolicyArtifactReference, PolicyArtifacts, valueText as text } from "./WorkbenchEvidence";
 
 type Row = Record<string, unknown>;
@@ -42,7 +42,7 @@ function Evaluation({ diagnosis }: { diagnosis: Diagnosis }) {
         ["Expected-context inspection", diagnosis.expected_context_observed_at]
       ]} />
       {evaluations.map((evaluation, index) => <section key={index} className="policy-evaluation-result"><h4>{Array.isArray(evaluation.permissions) ? evaluation.permissions.join(", ") : "Policy result"}</h4>
-        <Facts isHorizontal fields={[["Rule lookup result", text(evaluation.result) ?? "Unavailable"], ["Evaluator version", text(evaluation.evaluator_version) ?? "Not recorded"], ["Evaluated policy", text(evaluation.policy_identity) ? <PolicyArtifactReference identity={String(evaluation.policy_identity)} /> : "Not recorded"]]} />
+         <Facts isHorizontal fields={[["Rule lookup result", evaluation.result === "no_match" ? "No matching allow found" : text(evaluation.result) ?? "Unavailable"], ["Evaluator version", text(evaluation.evaluator_version) ?? "Not recorded"], ["Evaluated policy", text(evaluation.policy_identity) ? <PolicyArtifactReference identity={String(evaluation.policy_identity)} /> : "Not recorded"]]} />
         <Rules rules={evaluation.matching_rules} />
         {Array.isArray(evaluation.limitations) && evaluation.limitations.length > 0 && <ul>{evaluation.limitations.map((value, i) => <li key={i}>{String(value)}</li>)}</ul>}
       </section>)}
@@ -85,6 +85,8 @@ export function IssueTechnicalEvidence({ detail, updatedAt }: { detail: IssueDet
   const occurrenceId = invalidOccurrence ? undefined : requestedOccurrence > 0 ? requestedOccurrence : detail.diagnosis?.occurrence_id ?? workflow?.observed_access?.occurrence_id;
   const occurrenceQuery = useQuery({ queryKey: ["issue-occurrence", detail.issue.id, occurrenceId], queryFn: () => fetchIssueOccurrence(detail.issue.id, occurrenceId!), enabled: tab !== "policy" && !!occurrenceId });
   const occurrence = occurrenceQuery.data;
+  const sourceOccurrenceId = occurrence?.id ?? occurrenceId;
+  const sourceHostname = occurrence?.host.hostname;
   const candidate = workflow?.candidates.find((item) => item.id === params.get("evidence_option") || `option-${item.id}` === target) ?? workflow?.candidates.find((item) => item.id === workflow.intent?.candidate_id) ?? workflow?.candidates[0];
   const selectTab = (key: keyof typeof tabs) => setParams((previous) => {
     const next = new URLSearchParams(previous); next.delete("phase"); next.set("evidence_tab", key); next.set("evidence", targets[key]); return next;
@@ -112,7 +114,11 @@ export function IssueTechnicalEvidence({ detail, updatedAt }: { detail: IssueDet
     <Tabs activeKey={tab} aria-label="Technical evidence" onSelect={(_event, key) => selectTab(key as keyof typeof tabs)}>
       {Object.entries(tabs).map(([key, label]) => <Tab key={key} eventKey={key} title={<TabTitleText>{label}</TabTitleText>} tabContentId={targets[key as keyof typeof tabs]} />)}
     </Tabs>
-    <section id={targets[tab]} role="tabpanel" tabIndex={-1} aria-label={tabs[tab]}>
+     <section id={targets[tab]} role="tabpanel" tabIndex={-1} aria-label={tabs[tab]}>
+       <div className="issue-evidence-source">
+         <strong>{sourceHostname ?? "Selected occurrence"}{sourceOccurrenceId ? ` · Occurrence #${sourceOccurrenceId}` : ""}</strong>
+         {occurrence && <><time dateTime={occurrence.occurred_at}>{formatUtc(occurrence.occurred_at)}</time><Link to={`/hosts/${occurrence.host.id}/occurrences/${occurrence.id}`}>Open occurrence</Link></>}
+       </div>
       {tab === "policy" && <Stack hasGutter>
         {invalidOccurrence ? <StackItem>{recordState}</StackItem> : !diagnoses.length && <StackItem><p>{params.has("evidence_occurrence") ? `No retained policy finding is available for occurrence #${occurrenceId}. No other occurrence's finding has been substituted.` : "No authoritative policy finding is available for this issue."}</p></StackItem>}
         {diagnoses.map((diagnosis, index) => <StackItem key={index}><Evaluation diagnosis={diagnosis} /></StackItem>)}
@@ -129,17 +135,17 @@ export function IssueTechnicalEvidence({ detail, updatedAt }: { detail: IssueDet
       </Stack>}
       {tab === "audit" && <><h2>Audit & occurrence record</h2>{recordState}
         {occurrence && denial && <section aria-label="Selected occurrence evidence">
-          <Card isCompact><CardTitle><h3>Occurrence #{occurrence.id} · {occurrence.host.hostname}</h3></CardTitle><CardBody>
+            <Card isCompact><CardTitle><h3>Audit record</h3></CardTitle><CardBody>
             <p><code>{denial.source_type ?? "Source not recorded"}</code> → <code>{denial.permissions?.join(", ") ?? "Permission not recorded"}</code> → <code>{denial.target_type ?? "Target not recorded"}:{denial.target_class ?? "Class not recorded"}</code></p>
             <Facts isHorizontal fields={[["Occurred at", occurrence.occurred_at], ["Recorded endpoint", protocol && ports.length ? ports.map((port) => `${protocol}/${port}`).join(", ") : "Not recorded"], ["Process", denial.command ?? "Not recorded"], ["Executable", denial.executable ?? "Not recorded"],
               ["Recorded PIDs", Array.isArray(row(denial.details.process_evidence).pids) ? (row(denial.details.process_evidence).pids as unknown[]).join(", ") || "Not recorded" : typeof syscall?.pid === "number" || typeof syscall?.pid === "string" ? String(syscall.pid) : "Not recorded"],
               ["AVC enforcement", text(denial.details.enforcement_mode) ?? (denial.details.permissive === true ? "Permissive" : denial.details.permissive === false ? "Enforcing" : "Not recorded")],
               ["Paths", denial.target_paths.length ? denial.target_paths.join(", ") : "Complete path not recorded"], ["Source context", denial.source_context ?? "Not recorded"], ["Target context", denial.target_context ?? "Not recorded"],
               ["First recorded syscall result", syscall ? `${syscall.syscall ?? "Unknown syscall"} · success=${syscall.success ?? "unknown"} · exit=${syscall.exit ?? "unknown"}` : "Not recorded"]]} />
-            <Disclosure toggleText="Socket, syscall & path fields"><EvidenceBlock value={JSON.stringify({ network: denial.details.network_evidence, syscalls: denial.details.syscall_evidence, target: denial.details.target_evidence }, null, 2)} label="Socket, syscall and path evidence" hasCopyButton isJson /></Disclosure>
+             <Disclosure toggleText="Socket, syscall & path fields"><EvidenceBlock value={JSON.stringify({ network: denial.details.network_evidence, syscalls: denial.details.syscall_evidence, target: denial.details.target_evidence }, null, 2)} label="Socket, syscall and path evidence" hasCopyButton isJson /></Disclosure>
             <Link to={`/hosts/${occurrence.host.id}/occurrences/${occurrence.id}`}>Open occurrence record</Link>
           </CardBody></Card>
-          <OccurrenceRawEvidence occurrence={occurrence} collapsed includeNormalized={false} />
+          <OccurrenceRawEvidence occurrence={occurrence} collapsed includeNormalized={false} omitRawAvc />
           <RawData value={{ occurrence_id: occurrence.id, host: occurrence.host, normalized_denial: denial, guidance: occurrence.guidance }} label="Normalized source data" />
         </section>}
         <Link to={`?${new URLSearchParams({ ...Object.fromEntries(params), tab: "occurrences" })}#issue-occurrences`}>Browse occurrences</Link>
@@ -166,7 +172,7 @@ export function IssueTechnicalEvidence({ detail, updatedAt }: { detail: IssueDet
             {group.additional_policy_identity_count > 0 && <p>{group.additional_policy_identity_count} policy identities omitted; inspect source events.</p>}
           </section>)}
         </CardBody></Card></StackItem>)}
-        <StackItem><Card isCompact><CardTitle><h3>Issue identity</h3></CardTitle><CardBody><Facts isHorizontal fields={[["Fingerprint version", detail.issue.fingerprint_version], ["Fingerprint", <code>{detail.issue.fingerprint_digest}</code>], ["First seen", detail.issue.first_seen_at], ["Last seen", detail.issue.last_seen_at]]} /></CardBody></Card></StackItem>
+        <StackItem><Card isCompact><CardTitle><h3>Issue grouping identity</h3></CardTitle><CardBody><Facts isHorizontal fields={[["Fingerprint version", detail.issue.fingerprint_version], ["Fingerprint", <code>{detail.issue.fingerprint_digest}</code>]]} /></CardBody></Card></StackItem>
       </Stack>}
     </section>
   </div>;

@@ -1,4 +1,4 @@
-import { Alert, Breadcrumb, BreadcrumbItem, Button, Card, CardBody, Label, Pagination, Spinner, Stack, TextInput, Title, Tooltip } from "@patternfly/react-core";
+import { Alert, Breadcrumb, BreadcrumbItem, Button, Card, CardBody, Label, Pagination, Spinner, Stack, Tab, Tabs, TabTitleText, TextInput, Title, Tooltip } from "@patternfly/react-core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { memo, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
@@ -236,18 +236,12 @@ function FindingCard({ detail }: { detail: IssueDetailResponse }) {
 }
 
 function fleetSummary(state: string, affectedHosts: number): string {
-  if (affectedHosts === 1) return ({
-    consistent: "Same supported findings across recorded occurrences",
-    disagreement: "Finding evidence varies between occurrences",
-    partially_explained: "Some occurrences lack a supported finding",
-    insufficient_evidence: "Some causes remain unconfirmed; use the investigation checks"
-  } as Record<string, string>)[state] ?? "Occurrence findings unavailable";
+  if (state === "consistent") return "";
+  if (state === "disagreement") return affectedHosts === 1 ? "Findings differ between occurrences" : "Findings differ between hosts";
   return ({
-    consistent: "Same supported findings across affected hosts",
-    disagreement: "Finding evidence or observed permissions vary across affected hosts",
-    partially_explained: "Some hosts have occurrences without supported findings",
-    insufficient_evidence: "Some host causes remain unconfirmed; inspect their evidence"
-  } as Record<string, string>)[state] ?? "Host explanations unavailable";
+    partially_explained: "Some occurrences still need investigation",
+    insufficient_evidence: "Some occurrences still need investigation"
+  } as Record<string, string>)[state] ?? "Findings unavailable";
 }
 
 function MissingExplanation({
@@ -263,7 +257,7 @@ function MissingExplanation({
   hasFindings: boolean;
   policyAnalysis: IssueDetailResponse["policy_analysis"];
 }) {
-  const fileTarget = ["file", "dir", "fifo_file", "chr_file", "blk_file", "lnk_file", "sock_file"].includes(issue.target_class);
+  const fileTarget = isFilesystem(issue.target_class);
   return (
     <div className="issue-unexplained">
       {hasFindings ? <p>Individual occurrences have findings; check their scope.</p> : policyAnalysis.status === "evaluated" && <p>Cause not confirmed.</p>}
@@ -276,13 +270,11 @@ function MissingExplanation({
   );
 }
 
-function fleetComparisonLimitation(configuration: IssueDetailResponse["intelligence"]["fleet"]): string | null {
+function canCompareHostConfigurations(configuration: IssueDetailResponse["intelligence"]["fleet"]): boolean {
   const current = configuration.current_configuration_hosts;
   const affected = configuration.hosts_with_occurrence;
   const unaffected = configuration.hosts_without_occurrence;
-  if (typeof current !== "number" || typeof affected !== "number" || typeof unaffected !== "number") return "Fleet comparison needs host reporting and configuration data.";
-  if (current < 2 || affected === 0 || unaffected === 0) return text(configuration.comparison_requirement) ?? "Fleet comparison needs current configuration from hosts with recorded occurrences and hosts with no recorded occurrence.";
-  return null;
+  return typeof current === "number" && current >= 2 && typeof affected === "number" && affected > 0 && typeof unaffected === "number" && unaffected > 0;
 }
 
 const FleetSection = memo(function FleetSection({
@@ -303,10 +295,10 @@ const FleetSection = memo(function FleetSection({
   onRelatedToggle: (open: boolean) => void;
 }) {
   const hypotheses = relatedAnalysis?.hypotheses.filter((hypothesis) => ["policy_version_correlation", "local_file_context_difference", "custom_policy_difference"].includes(hypothesis.kind)) ?? [];
-  const comparisonLimitation = fleetComparisonLimitation(configurationFleet);
+  const summary = fleetSummary(fleet.state, fleet.affected_host_count);
   return (
     <section className="issue-fleet-section" aria-labelledby="issue-fleet-title">
-      <header><div><h2 id="issue-fleet-title">Fleet scope</h2><p>{fleet.affected_host_count} affected host{fleet.affected_host_count === 1 ? "" : "s"} · {fleetSummary(fleet.state, fleet.affected_host_count)}</p></div></header>
+      <header><div><h2 id="issue-fleet-title">Fleet scope</h2><p>{fleet.affected_host_count} affected host{fleet.affected_host_count === 1 ? "" : "s"}{summary && <> · {summary}</>}</p></div></header>
       <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Finding distribution">
         <Thead><Tr><Th>Host</Th><Th><Tooltip content="Supported findings are evidence-backed explanations for occurrences, not verified root causes or successful remediation."><span tabIndex={0}>Finding coverage</span></Tooltip></Th><Th>Finding groups</Th><Th>Evidence</Th></Tr></Thead><Tbody>
         {hostExplanations.map((host) => {
@@ -322,7 +314,7 @@ const FleetSection = memo(function FleetSection({
           </Tr>;
         })}
       </Tbody></Table>
-      {comparisonLimitation ? <p>{comparisonLimitation}</p> : <ExpandableSection className="issue-fleet-leads" toggleText="Fleet correlations" onToggle={(_event, open) => onRelatedToggle(open)}>
+      {canCompareHostConfigurations(configurationFleet) && <ExpandableSection className="issue-fleet-leads" toggleText="Compare host configurations" onToggle={(_event, open) => onRelatedToggle(open)}>
         {loadingRelated && <p>Checking supporting fleet evidence…</p>}
         {relatedError && <p>Fleet correlations could not be loaded.</p>}
         {!loadingRelated && !relatedError && hypotheses.length === 0 && <p>No supported policy-version, local file-context or custom-module correlation was returned for the comparison hosts. This does not rule out other shared causes.</p>}
@@ -341,7 +333,16 @@ const FleetSection = memo(function FleetSection({
   );
 });
 
-function ActivityTable({ page, onInspect }: { page: OccurrencePage; onInspect: (id: number) => void }) {
+function isFilesystem(objectClass: string) {
+  return ["file", "dir", "fifo_file", "chr_file", "blk_file", "lnk_file", "sock_file"].includes(objectClass);
+}
+
+function occurrenceResource(item: OccurrencePage["occurrences"][number], objectClass: string) {
+  if (isCapability(objectClass)) return `Capability: ${item.permissions.join(", ")}`;
+  return item.resource ?? (isFilesystem(objectClass) ? "Complete path not recorded" : "Resource not recorded");
+}
+
+function ActivityTable({ page, objectClass, onInspect }: { page: OccurrencePage; objectClass: string; onInspect: (id: number) => void }) {
   return <>
     <p>Activity groups cover events on this page and may split at page or permission-filter boundaries.</p>
     <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Audit activity"><Thead><Tr><Th>Time (UTC)</Th><Th>Host</Th><Th>Resource</Th><Th>Observed activity</Th><Th>Audit events</Th></Tr></Thead><Tbody>
@@ -353,10 +354,10 @@ function ActivityTable({ page, onInspect }: { page: OccurrencePage; onInspect: (
         return <Tr key={group.occurrence_ids.join(":")}>
           <Td dataLabel="Time (UTC)">{formatUtc(first.occurred_at)}</Td>
           <Td dataLabel="Host"><Link to={`/hosts/${first.host.id}`}>{first.host.hostname}</Link></Td>
-          <Td dataLabel="Resource"><code>{resource.resource ?? "Complete path not recorded"}</code></Td>
+          <Td dataLabel="Resource"><code>{occurrenceResource(resource, objectClass)}</code></Td>
           <Td dataLabel="Observed activity">{members.map((item) => item.permissions.join(", ")).join(" → ")}{group.correlated && <Label isCompact>Correlated</Label>}</Td>
           <Td dataLabel="Audit events">{group.correlated ? <ExpandableSection toggleText={`${members.length} audit events`}>
-            <p>{group.basis}</p><ul>{members.map((item) => <li key={item.id}>{formatUtc(item.occurred_at)} · {item.permissions.join(", ")} · <code>{item.resource ?? "Resource not recorded"}</code>{!item.absolute_path && " (complete path not recorded)"} · {displayState(item.enforcement_mode ?? "unknown")} · Syscall: {displayState(item.syscall_outcome ?? "unknown")} <Button variant="link" onClick={() => onInspect(item.id)}>Inspect occurrence #{item.id}</Button></li>)}</ul>
+            <p>{group.basis}</p><ul>{members.map((item) => <li key={item.id}>{formatUtc(item.occurred_at)} · {item.permissions.join(", ")} · <code>{occurrenceResource(item, objectClass)}</code>{isFilesystem(objectClass) && !item.absolute_path && item.resource && " (complete path not recorded)"} · {displayState(item.enforcement_mode ?? "unknown")} · Syscall: {displayState(item.syscall_outcome ?? "unknown")} <Button variant="link" onClick={() => onInspect(item.id)}>Inspect occurrence #{item.id}</Button></li>)}</ul>
           </ExpandableSection> : <Button variant="link" onClick={() => onInspect(first.id)}>Inspect occurrence #{first.id}</Button>}</Td>
         </Tr>;
       })}
@@ -389,10 +390,6 @@ export function IssueDetail() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const detailQuery = useQuery({ queryKey: ["issue", issueId], queryFn: () => fetchIssue(issueId), enabled: validId });
-  const showOccurrences = searchParams.get("tab") === "occurrences";
-  const setShowOccurrences = (open: boolean) => setSearchParams((previous) => {
-    const next = new URLSearchParams(previous); if (open) next.set("tab", "occurrences"); else next.delete("tab"); return next;
-  });
   const [showRelatedFleet, setShowRelatedFleet] = useState(false);
   const [technicalEvidenceIssueId, setTechnicalEvidenceIssueId] = useState<number | null>(null);
   const evidenceTarget = searchParams.get("evidence");
@@ -407,8 +404,8 @@ export function IssueDetail() {
   const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   const perPage = pageSize(searchParams.get("occurrence_limit"), EMBEDDED_PAGE_SIZES, 10);
   const signatureFilter = searchParams.get("signature_id");
-  const occurrenceView = searchParams.get("occurrence_view") === "summary" ? "summary" : "activity";
-  const occurrencesQuery = useQuery({ queryKey: ["issue-occurrence-page", issueId, page, perPage, signatureFilter, occurrenceView], queryFn: () => fetchIssueOccurrencePage(issueId, page, perPage, signatureFilter, occurrenceView), enabled: validId && showOccurrences });
+  const occurrenceView = searchParams.get("occurrence_view") === "activity" ? "activity" : "summary";
+  const occurrencesQuery = useQuery({ queryKey: ["issue-occurrence-page", issueId, page, perPage, signatureFilter, occurrenceView], queryFn: () => fetchIssueOccurrencePage(issueId, page, perPage, signatureFilter, occurrenceView), enabled: validId && detailQuery.isSuccess });
   const setOccurrenceView = (view: "summary" | "activity") => setSearchParams((previous) => { const next = new URLSearchParams(previous); next.set("tab", "occurrences"); next.set("occurrence_view", view); return next; });
   const showSignatureOccurrences = (signatureId: number | null) => {
     const next = new URLSearchParams(searchParams);
@@ -426,7 +423,7 @@ export function IssueDetail() {
   const inspectOccurrence = (occurrenceId: number) => {
     setSearchParams((previous) => { const next = new URLSearchParams(previous); next.delete("phase"); next.set("evidence", "audit-evidence"); next.set("evidence_tab", "audit"); next.set("evidence_occurrence", String(occurrenceId)); return next; });
   };
-  const analysisQuery = useQuery({ queryKey: ["issue-analysis", issueId], queryFn: () => fetchIssueAnalysis(issueId), enabled: validId && showRelatedFleet && !!detailQuery.data && !fleetComparisonLimitation(detailQuery.data.intelligence.fleet) });
+  const analysisQuery = useQuery({ queryKey: ["issue-analysis", issueId], queryFn: () => fetchIssueAnalysis(issueId), enabled: validId && showRelatedFleet && !!detailQuery.data && canCompareHostConfigurations(detailQuery.data.intelligence.fleet) });
   const [pendingDisposition, setPendingDisposition] = useState<string | null>(null);
   const [dispositionNote, setDispositionNote] = useState("");
   const [savingStatus, setSavingStatus] = useState(false);
@@ -583,7 +580,7 @@ export function IssueDetail() {
 
       <Card isCompact className="issue-detail-card"><CardBody>
       <section id="issue-occurrences" tabIndex={-1} aria-labelledby="occurrences-title" className="issue-section issue-occurrences-section">
-        <header><div><h2 id="occurrences-title">Retained occurrences</h2>{showOccurrences && occurrencesQuery.data && <p>{(occurrencesQuery.data.meta.page - 1) * occurrencesQuery.data.meta.page_size + (occurrencesQuery.data.meta.total ? 1 : 0)}–{Math.min(occurrencesQuery.data.meta.page * occurrencesQuery.data.meta.page_size, occurrencesQuery.data.meta.total)} of {occurrencesQuery.data.meta.total} occurrences</p>}</div></header>
+        <header><h2 id="occurrences-title">Retained occurrences</h2></header>
         {signatureFilter && <p>Showing occurrences for {issue.signatures?.find((signature) => String(signature.id) === signatureFilter)?.permissions.join(", ") ?? "the selected permission set"}. <Button variant="link" onClick={() => showSignatureOccurrences(null)}>Show all operations</Button></p>}
       {patternSignals.length > 0 && <ExpandableSection className="issue-activity-context" toggleText="Occurrence pattern"><ul>{patternSignals.map((signal) => <li key={signal.code}><strong>{signal.label}:</strong> {signal.explanation}</li>)}</ul></ExpandableSection>}
 
@@ -612,19 +609,23 @@ export function IssueDetail() {
         </section>)}
       </ExpandableSection>}
 
-        {!showOccurrences ? <Button variant="secondary" onClick={() => setShowOccurrences(true)}>Show recent occurrences</Button>
-          : occurrencesQuery.isPending ? <div aria-label="Loading occurrences"><Spinner /></div>
+        <Tabs isSubtab activeKey={occurrenceView} tabListAriaLabel="Occurrence views" onSelect={(_event, key) => setOccurrenceView(key as "summary" | "activity")}>
+          <Tab eventKey="summary" title={<TabTitleText>Occurrences</TabTitleText>} tabContentId="issue-occurrence-view" />
+          <Tab eventKey="activity" title={<TabTitleText>Grouped activity</TabTitleText>} tabContentId="issue-occurrence-view" />
+        </Tabs>
+        <section id="issue-occurrence-view" role="tabpanel" aria-label={occurrenceView === "summary" ? "Occurrences" : "Grouped activity"} tabIndex={0}>
+        {occurrencesQuery.isPending ? <div aria-label="Loading occurrences"><Spinner /></div>
           : occurrencesQuery.isError ? <Alert variant="warning" isInline title="Could not load occurrences">{occurrencesQuery.error instanceof Error ? occurrencesQuery.error.message : "Unknown error"}</Alert>
             : occurrencesQuery.data.occurrences.length ? <>
-              <Button variant="secondary" onClick={() => setOccurrenceView(occurrenceView === "activity" ? "summary" : "activity")}>{occurrenceView === "activity" ? "Show individual occurrences" : "Group related activity"}</Button>
-              {occurrenceView === "activity" && occurrencesQuery.data.activity_groups ? <ActivityTable page={occurrencesQuery.data} onInspect={inspectOccurrence} /> : <>
-              <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Occurrence summary"><Thead><Tr><Th>Time (UTC)</Th><Th>Host</Th><Th>Resource</Th><Th>Permissions</Th><Th>SELinux mode</Th><Th>Syscall outcome</Th>{!issue.target_class.endsWith("_socket") && <Th>Path evidence</Th>}<Th>Inspect</Th></Tr></Thead><Tbody>{occurrencesQuery.data.occurrences.map((item) => <Tr key={item.id}><Td dataLabel="Time (UTC)">{formatUtc(item.occurred_at)}</Td><Td dataLabel="Host"><Link to={`/hosts/${item.host.id}`}>{item.host.hostname}</Link></Td><Td dataLabel="Resource"><code>{item.resource ?? "Not recorded"}</code></Td><Td dataLabel="Permissions">{item.permissions.join(", ")}</Td><Td dataLabel="SELinux mode">{displayState(item.enforcement_mode ?? "unknown")}</Td><Td dataLabel="Syscall outcome">{displayState(item.syscall_outcome ?? "unknown")}</Td>{!issue.target_class.endsWith("_socket") && <Td dataLabel="Path evidence">{item.absolute_path ? "Absolute path" : item.resource ? "Basename only" : "Not recorded"}</Td>}<Td dataLabel="Inspect"><Button variant="link" onClick={() => inspectOccurrence(item.id)} aria-label={`Inspect occurrence ${item.id}`}>View evidence</Button></Td></Tr>)}</Tbody></Table>
+               {occurrenceView === "activity" && occurrencesQuery.data.activity_groups ? <ActivityTable page={occurrencesQuery.data} objectClass={issue.target_class} onInspect={inspectOccurrence} /> : <>
+               <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Occurrence summary"><Thead><Tr><Th>Time (UTC)</Th><Th>Host</Th><Th>Resource</Th><Th>Permissions</Th><Th>SELinux mode</Th><Th>Syscall outcome</Th>{isFilesystem(issue.target_class) && <Th>Path evidence</Th>}<Th>Inspect</Th></Tr></Thead><Tbody>{occurrencesQuery.data.occurrences.map((item) => <Tr key={item.id}><Td dataLabel="Time (UTC)">{formatUtc(item.occurred_at)}</Td><Td dataLabel="Host"><Link to={`/hosts/${item.host.id}`}>{item.host.hostname}</Link></Td><Td dataLabel="Resource"><code>{occurrenceResource(item, issue.target_class)}</code></Td><Td dataLabel="Permissions">{item.permissions.join(", ")}</Td><Td dataLabel="SELinux mode">{displayState(item.enforcement_mode ?? "unknown")}</Td><Td dataLabel="Syscall outcome">{displayState(item.syscall_outcome ?? "unknown")}</Td>{isFilesystem(issue.target_class) && <Td dataLabel="Path evidence">{item.absolute_path ? "Absolute path" : item.resource ? "Basename only" : "Not recorded"}</Td>}<Td dataLabel="Inspect"><Button variant="link" onClick={() => inspectOccurrence(item.id)} aria-label={`Inspect occurrence ${item.id}`}>View evidence</Button></Td></Tr>)}</Tbody></Table>
               </>}
               <div className="table-pagination"><Pagination itemCount={occurrencesQuery.data.meta.total} page={occurrencesQuery.data.meta.page} perPage={occurrencesQuery.data.meta.page_size}
                 perPageOptions={EMBEDDED_PAGE_SIZES.map((value) => ({ title: String(value), value }))} titles={{ paginationAriaLabel: "Issue occurrence pagination" }}
                 isDisabled={occurrencesQuery.isFetching} onSetPage={(_event, value) => setOccurrencePage(value)} onPerPageSelect={(_event, size) => setOccurrencePage(1, size)} /></div>
-              <Button className="pf-v6-u-mt-md" variant="link" onClick={() => setShowOccurrences(false)}>Hide occurrences</Button></>
-              : <p>No occurrences are retained for this issue.</p>}
+               </>
+               : <p>No occurrences are retained for this issue.</p>}
+        </section>
       </section>
       </CardBody></Card>
 

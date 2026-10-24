@@ -366,6 +366,20 @@ RSpec.describe "Issues API", type: :request do
     expect(body.fetch("meta")).to include("next_cursor" => nil)
   end
 
+  it "names capability resources in individual and activity pages rather than borrowing incidental paths" do
+    issue = create_issue(target_type: "httpd_t", target_class: "capability", permissions: ["net_admin"])
+    occurrence = create_occurrence(issue)
+    occurrence.normalized_denial.update!(permissions: ["net_admin"], target_class: "capability", details: { "target_evidence" => { "filesystem_paths" => ["/usr/sbin/httpd"] } })
+    %w[summary activity].each do |view|
+      get "/api/v1/issues/#{issue.id}/occurrences", params: { view: view }
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body.fetch("occurrences").sole.fetch("resource")).to eq("Capability: net_admin")
+      expect(body.fetch("occurrences").sole.fetch("absolute_path")).to be(false)
+      expect(body.fetch("meta").fetch("page_size")).to eq(10)
+    end
+  end
+
   it "serves scoped port inspection commands on both occurrence detail routes" do
     issue = create_issue(target_type: "unreserved_port_t", target_class: "tcp_socket", permissions: ["name_bind"])
     occurrence = create_occurrence(issue)

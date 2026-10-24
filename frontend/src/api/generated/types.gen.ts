@@ -2079,7 +2079,13 @@ export type OccurrenceSummaryPage = {
             id: number;
             hostname: string | null;
         };
+        /**
+         * Recorded resource identity appropriate to the object class, including a capability name for capability requests. Null does not imply a missing filesystem path for non-filesystem classes.
+         */
         resource: string | null;
+        /**
+         * Whether the resource has a recorded absolute filesystem target path. False for capability requests, even when incidental paths occur in the audit event.
+         */
         absolute_path: boolean;
         target_type: string | null;
         permissions: Array<string>;

@@ -272,6 +272,11 @@ function response(status: number, body: unknown): Response {
   return { ok: status >= 200 && status < 300, status, statusText: "", headers: new Headers(), json: async () => body } as unknown as Response;
 }
 
+function detailResponse(url: string, payload: IssueDetailResponse): Response {
+  if (/\/occurrences\?view=/.test(url)) return response(200, { occurrences: [], meta: { page: 1, page_size: 10, total: 0, total_pages: 1 } });
+  return response(200, payload);
+}
+
 function mockApi(fetchMock: ReturnType<typeof vi.fn>, scenario: Scenario, options: { status?: "open" | "resolved" | "ignored" } = {}) {
   let currentStatus = options.status ?? "open";
   const issueId = scenario === "fleet-live" ? 1932 : 7;
@@ -285,7 +290,7 @@ function mockApi(fetchMock: ReturnType<typeof vi.fn>, scenario: Scenario, option
     if (url === `/api/v1/issues/${issueId}/disposition` && method === "PATCH") return Promise.resolve(response(200, detailPayload(scenario, currentStatus).issue));
     if (/view=(summary|activity)/.test(url)) {
       const occurrences = occurrencePage(scenario).occurrences;
-      return Promise.resolve(response(200, { occurrences: occurrences.map((item) => ({ id: item.id, occurred_at: item.occurred_at, host: item.host, resource: item.normalized_denial.target_paths[0] ?? "secentral-test.html", absolute_path: item.normalized_denial.target_paths.length > 0, target_type: item.normalized_denial.target_type, permissions: item.normalized_denial.permissions })), meta: { page: 1, page_size: 25, total: occurrences.length, total_pages: 1 } }));
+      return Promise.resolve(response(200, { occurrences: occurrences.map((item) => ({ id: item.id, occurred_at: item.occurred_at, host: item.host, resource: item.normalized_denial.target_paths[0] ?? "secentral-test.html", absolute_path: item.normalized_denial.target_paths.length > 0, target_type: item.normalized_denial.target_type, permissions: item.normalized_denial.permissions })), meta: { page: 1, page_size: 10, total: occurrences.length, total_pages: 1 } }));
     }
     if (url.startsWith(`/api/v1/issues/${issueId}/occurrences/`)) {
       const occurrence = occurrencePage(scenario).occurrences.find((item) => url.endsWith(`/${item.id}`));
@@ -333,7 +338,7 @@ describe("issue investigation", () => {
 
   it("explains capability requests with scoped investigation without empty disclosures or repeated novelty", async () => {
     const payload = capabilityPayload();
-    vi.stubGlobal("fetch", vi.fn(async () => response(200, payload)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => detailResponse(url, payload)));
     renderDetail();
     expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("SELinux recorded httpd requesting the net_admin capability.");
     const diagnosis = screen.getByRole("region", { name: "Diagnosis" });
@@ -370,7 +375,7 @@ describe("issue investigation", () => {
     payload.operator_guidance!.manual_check = "Review the recorded system call and command line.";
     payload.operator_guidance!.verification = "";
     payload.triage.signals.push({ ...payload.triage.signals[0], code: "frequency_increase", label: "Occurrence rate increased", explanation: "Recent rate is twice the baseline." });
-    vi.stubGlobal("fetch", vi.fn(async () => response(200, payload)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => detailResponse(url, payload)));
     renderDetail();
     const pattern = await screen.findByRole("button", { name: "Occurrence pattern" });
     await userEvent.setup().click(pattern);
@@ -379,6 +384,48 @@ describe("issue investigation", () => {
     expect(screen.queryByText(/Investigation hypothesis:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/SO_SNDBUFFORCE/)).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Verify the workload" })).not.toBeInTheDocument();
+  });
+
+  it.each(["summary", "activity"] as const)("loads capability occurrences immediately in %s view with pagination as the only range display", async (view) => {
+    const payload = capabilityPayload();
+    const rows = [101, 102].map((id) => ({ id, occurred_at: "2026-10-22T17:40:36Z", host: { id: 10, hostname: "web-1" }, resource: null, absolute_path: false, target_type: "httpd_t", permissions: ["net_admin"] }));
+    const fetchMock = vi.fn(async (url: string) => /\/occurrences\?view=/.test(url) ? response(200, {
+      occurrences: rows, meta: { page: 1, page_size: 10, total: 2, total_pages: 1 },
+      ...(view === "activity" ? { activity_groups: rows.map((row) => ({ occurrence_ids: [row.id], correlated: false, basis: null })), activity_scope: "current_page" } : {})
+    }) : detailResponse(url, payload));
+    vi.stubGlobal("fetch", fetchMock);
+    renderDetail(`/issues/7?occurrence_view=${view}`);
+    const table = await screen.findByRole("table", { name: view === "activity" ? "Audit activity" : "Occurrence summary" });
+    expect(within(table).getAllByText("Capability: net_admin")).toHaveLength(2);
+    expect(within(table).queryByText("Complete path not recorded")).not.toBeInTheDocument();
+    expect(within(table).queryByRole("columnheader", { name: "Path evidence" })).not.toBeInTheDocument();
+    const list = screen.getByRole("region", { name: "Retained occurrences" });
+    expect(within(list).queryByRole("button", { name: "Show recent occurrences" })).not.toBeInTheDocument();
+    expect(within(list).queryByRole("button", { name: "Hide occurrences" })).not.toBeInTheDocument();
+    expect(list.querySelector("header")?.textContent).toBe("Retained occurrences");
+    expect(within(list).getByRole("button", { name: "1 - 2 of 2" })).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledWith(`/api/v1/issues/7/occurrences?view=${view}&page=1&limit=10`, expect.anything());
+  });
+
+  it("keeps a missing-path fallback and path evidence for filesystem occurrences", async () => {
+    const payload = detailPayload("missing-observation");
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => /\/occurrences\?view=/.test(url) ? response(200, {
+      occurrences: [{ id: 101, occurred_at: "2026-10-22T17:40:36Z", host: { id: 10, hostname: "web-1" }, resource: null, absolute_path: false, target_type: "user_home_t", permissions: ["read"] }],
+      meta: { page: 1, page_size: 10, total: 1, total_pages: 1 }
+    }) : detailResponse(url, payload)));
+    renderDetail("/issues/7?occurrence_view=summary");
+    const table = await screen.findByRole("table", { name: "Occurrence summary" });
+    expect(within(table).getByText("Complete path not recorded")).toBeVisible();
+    expect(within(table).getByRole("columnheader", { name: "Path evidence" })).toBeVisible();
+    expect(within(table).getByText("Not recorded")).toBeVisible();
+  });
+
+  it("shows automatic occurrence-load failures rather than an empty successful list", async () => {
+    const payload = capabilityPayload();
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => /\/occurrences\?view=/.test(url) ? response(503, { error: { message: "Occurrence service unavailable" } }) : detailResponse(url, payload)));
+    renderDetail();
+    expect(await screen.findByText("Could not load occurrences")).toBeVisible();
+    expect(screen.queryByText("No occurrences are retained for this issue.")).not.toBeInTheDocument();
   });
   it("shows related issues as evidence links and compares AVC modes separately from event outcomes", async () => {
     const payload = detailPayload("004");
@@ -405,7 +452,7 @@ describe("issue investigation", () => {
     expect(outcomes).toHaveTextContent("Succeeded: 2");
     expect(outcomes).toHaveTextContent("Failed: 4");
     expect(document.querySelector(".issue-operation-label")).toHaveTextContent(`${payload.issue.occurrences_count} occurrences`);
-    expect(screen.getByText("Fleet scope").parentElement).toHaveTextContent("Finding evidence or observed permissions vary across affected hosts");
+    expect(screen.getByText("Fleet scope").parentElement).toHaveTextContent("Findings differ between hosts");
     const coverage = await screen.findByRole("region", { name: "Finding coverage" });
     expect(coverage).not.toHaveTextContent("0 occurrences lack a supported finding");
     expect(coverage).not.toHaveTextContent("complete explanation");
@@ -480,9 +527,9 @@ describe("issue investigation", () => {
     await user.click(within(review).getByRole("button", { name: "Close review" }));
     expect(screen.queryByRole("region", { name: "Review permission set" })).not.toBeInTheDocument();
     await user.click(within(table).getByRole("button", { name: "View open, read signature 12 occurrences" }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/occurrences?view=activity&page=1&limit=10&signature_id=12", expect.anything()));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/occurrences?view=summary&page=1&limit=10&signature_id=12", expect.anything()));
     await user.click(screen.getByRole("button", { name: "Show all operations" }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/occurrences?view=activity&page=1&limit=10", expect.anything()));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/occurrences?view=summary&page=1&limit=10", expect.anything()));
   });
 
   it("omits the operation breakdown for a single permission set and retains issue actions", async () => {
@@ -500,8 +547,8 @@ describe("issue investigation", () => {
   it("keeps an unsuccessful separate review editable and reports the failure", async () => {
     const payload = detailPayload("001");
     payload.issue.signatures.push({ ...payload.issue.signatures[0], id: 12, permissions: ["execute"] });
-    const fetchMock = vi.fn(async (_url: string, request?: { method?: string }) => request?.method === "PATCH"
-      ? response(500, { error: { message: "Could not save review" } }) : response(200, payload));
+    const fetchMock = vi.fn(async (url: string, request?: { method?: string }) => request?.method === "PATCH"
+      ? response(500, { error: { message: "Could not save review" } }) : detailResponse(url, payload));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     renderDetail();
@@ -518,7 +565,7 @@ describe("issue investigation", () => {
   it("does not infer a blocked syscall or an active-policy conclusion from an inactive conditional path", async () => {
     const payload = detailPayload("003");
     payload.diagnosis = { ...payload.diagnosis!, syscall_failed: false, enforcement_mode: "permissive" };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => detailResponse(url, payload)));
     renderDetail();
     const heading = await screen.findByRole("heading", { level: 1 });
     expect(heading).not.toHaveTextContent("blocked");
@@ -542,7 +589,7 @@ describe("issue investigation", () => {
       ...(bind ? { bind_port: "9090" } : { destination_port: "9090" }),
       next_step: `Confirm whether httpd is intended to ${bind ? "listen on" : "connect to"} TCP port 9090. If so, check whether the service configuration and SELinux port mapping agree; this does not establish that the port label should change.`
     };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => detailResponse(url, payload)));
     renderDetail();
 
     const diagnosis = await screen.findByRole("region", { name: "Diagnosis" });
@@ -575,7 +622,7 @@ describe("issue investigation", () => {
       { reason: "Listener ownership", command: "ss -ltnp 'sport = :23451'", expected: "Check intended owner" }
     ];
     const primaryOccurrence = { ...occurrence, id: 101, guidance: { ...occurrence.guidance!, checks: payload.operator_guidance.checks.map((check) => ({ reason: check.title, command: check.command, expected: check.interpretation })) } };
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => response(200, url.endsWith("/occurrences/202") ? occurrence : url.endsWith("/occurrences/101") ? primaryOccurrence : payload)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => url.endsWith("/occurrences/202") ? response(200, occurrence) : url.endsWith("/occurrences/101") ? response(200, primaryOccurrence) : detailResponse(url, payload)));
     const user = userEvent.setup();
     renderDetail();
     const diagnosis = await screen.findByRole("region", { name: "Diagnosis" });
@@ -605,7 +652,7 @@ describe("issue investigation", () => {
     payload.findings = [{ diagnosis: payload.diagnosis!, occurrence_count: 1, observation_count: 0 }];
     payload.finding_coverage = { conditional_allow_inactive: 4, unexplained: 2 };
     payload.resolutions = { candidates: [], rejected_candidates: [], observed_access: null, intent: null, freshness: null, change_plan: null, history: [] };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => detailResponse(url, payload)));
     renderDetail();
     expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("denied local TCP binding on ports 23451, 12345");
     const scope = screen.getByRole("region", { name: "Finding coverage" });
@@ -658,7 +705,7 @@ describe("issue investigation", () => {
     const occurrence = occurrencePage("001").occurrences[0];
     occurrence.id = 101;
     occurrence.normalized_denial.target_paths = ["/var/www/html/a file.txt"];
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => response(200, url.endsWith("/occurrences/101") ? occurrence : payload)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => url.endsWith("/occurrences/101") ? response(200, occurrence) : detailResponse(url, payload)));
     renderDetail();
     expect(await screen.findByRole("heading", { name: "Investigation lead: probable label mismatch" })).toBeVisible();
     expect(screen.getByLabelText("Suggested next step")).toHaveTextContent("Inspect the current file label");
@@ -676,14 +723,19 @@ describe("issue investigation", () => {
       ...(url.includes("view=activity") ? { activity_scope: "current_page", activity_groups: [{ occurrence_ids: [101], correlated: false, basis: null }, { occurrence_ids: [102, 103], correlated: true, basis: "Same host and object; not proof of one request." }] } : {}) } : payload));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
-    renderDetail("/issues/7?tab=occurrences");
+    renderDetail();
+    const tabs = await screen.findByRole("tablist", { name: "Occurrence views" });
+    expect(within(tabs).getByRole("tab", { name: /^Occurrences$/ })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByRole("table", { name: "Occurrence summary" })).toBeVisible();
+    await user.click(within(tabs).getByRole("tab", { name: "Grouped activity" }));
     const table = await screen.findByRole("table", { name: "Audit activity" });
+    expect(screen.getByRole("tabpanel", { name: "Grouped activity" })).toContainElement(table);
     expect(within(table).getAllByRole("row")).toHaveLength(3);
     expect(screen.getByText(/may split at page or permission-filter boundaries/)).toBeVisible();
     await user.click(within(table).getByRole("button", { name: "2 audit events" }));
     expect(within(table).getByRole("button", { name: "Inspect occurrence #102" })).toBeVisible();
     expect(within(table).getByRole("button", { name: "Inspect occurrence #103" })).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Show individual occurrences" }));
+    await user.click(screen.getByRole("tab", { name: /^Occurrences$/ }));
     expect(await screen.findByRole("table", { name: "Occurrence summary" })).toBeVisible();
     expect(fetchMock.mock.calls.map(([url]) => url)).toContain("/api/v1/issues/7/occurrences?view=summary&page=1&limit=10");
   });
@@ -691,7 +743,7 @@ describe("issue investigation", () => {
   it("leads with server-provided label guidance and copyable commands without rejected solver options", async () => {
     const payload = labelingPayload();
     const user = userEvent.setup();
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => detailResponse(url, payload)));
     renderDetail();
 
     expect(await screen.findByRole("heading", { name: "Investigation lead: probable label mismatch" })).toBeVisible();
@@ -716,7 +768,7 @@ describe("issue investigation", () => {
   it("does not manufacture guidance when absent or replace an authoritative finding", async () => {
     const payload = labelingPayload();
     payload.diagnosis = diagnosisFor("001") as IssueDetailResponse["diagnosis"];
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => detailResponse(url, payload)));
     const view = renderDetail();
     expect(await screen.findByRole("heading", { name: "Potential file-context mismatch" })).toBeVisible();
     expect(screen.queryByText("Investigation lead: probable label mismatch")).not.toBeInTheDocument();
@@ -740,7 +792,7 @@ describe("issue investigation", () => {
         { action: "restore_targeted", label: "Restore this file's configured context", command: "restorecon -v -- /etc/shadow" }
       ] };
     payload.operator_guidance!.source.path = "/etc/shadow";
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => detailResponse(url, payload)));
     renderDetail();
     expect(await screen.findByRole("button", { name: "Copy command: restorecon -v -- /etc/shadow" })).toBeVisible();
     expect(screen.queryByText("Broader alternative: recursive restoration")).not.toBeInTheDocument();
@@ -754,7 +806,7 @@ describe("issue investigation", () => {
       observed_access: { occurrence_id: 101, host_id: 10, hostname: "web-1", actor: "httpd", source_type: "httpd_t",
         resource: "TCP/12345", target_type: "unreserved_port_t", object_class: "tcp_socket", permissions: ["name_connect"],
         operation_label: "connect", outcome: "DENIED", observed_at: "2026-09-30T16:26:25Z" } };
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => response(200, /occurrences\/101$/.test(url) ? occurrencePage("002").occurrences[0] : payload)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => /occurrences\/101$/.test(url) ? response(200, occurrencePage("002").occurrences[0]) : detailResponse(url, payload)));
     const user = userEvent.setup();
     renderDetail();
     const flow = await screen.findByRole("region", { name: "Observed access" });
@@ -801,7 +853,7 @@ describe("issue investigation", () => {
         operation_label: "read", outcome: "DENIED", observed_at: "2026-10-01T10:00:00Z" } };
     const occurrence = occurrencePage("001").occurrences[0];
     occurrence.normalized_denial.permissions = ["getattr"];
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => response(200, url.endsWith("/occurrences/101") ? occurrence : payload)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => url.endsWith("/occurrences/101") ? response(200, occurrence) : detailResponse(url, payload)));
     renderDetail("/issues/7?evidence_occurrence=202");
 
     await waitFor(() => expect(screen.getByRole("region", { name: "Observed access" })).toHaveTextContent("getattr"));
@@ -832,7 +884,7 @@ describe("issue investigation", () => {
     const finding = { ...readFinding(), permissions: ["open", "read", "map"], explained_permissions: ["read"], enforcement_mode: "permissive", syscall_failed: false };
     payload.diagnosis = finding;
     payload.findings = [{ diagnosis: finding, occurrence_count: 1, observation_count: 0 }];
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => detailResponse(url, payload)));
     renderDetail();
     const diagnosis = await screen.findByRole("region", { name: "Diagnosis" });
     expect(diagnosis).toHaveTextContent("This finding explains read only. Other permissions recorded in this event (open, map) need independent assessment.");
@@ -850,7 +902,7 @@ describe("issue investigation", () => {
     payload.resolutions = { candidates: [], rejected_candidates: [], intent: null, freshness: null, history: [], change_plan: null,
       observed_access: { occurrence_id: 101, host_id: 10, hostname: "web-1", actor: "runcon", source_type: "httpd_t", resource: label.path!,
         target_type: "user_home_t", object_class: "file", permissions: ["entrypoint"], operation_label: "entrypoint", outcome: "DENIED", observed_at: "2026-09-30T16:26:25Z" } };
-    vi.stubGlobal("fetch", vi.fn(async () => response(200, payload)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => detailResponse(url, payload)));
     renderDetail();
     const diagnosis = await screen.findByRole("region", { name: "Diagnosis" });
     expect(diagnosis).not.toHaveTextContent("Finding example");
@@ -877,7 +929,7 @@ describe("issue investigation", () => {
     payload.issue.source_type = "httpd_t";
     payload.issue.target_type = "shadow_t";
     payload.diagnosis = { ...payload.diagnosis!, source_domain: "httpd_t", target_type: "shadow_t", path: "/var/www/html/example.txt" };
-    vi.stubGlobal("fetch", vi.fn(async () => response(200, payload)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => detailResponse(url, payload)));
     renderDetail();
     const diagnosis = await screen.findByRole("region", { name: "Diagnosis" });
     expect(diagnosis).toHaveTextContent("The policy SECentral checked has no rule allowing mariadbd to inspect file attributes such as ownership and permissions on files labeled shadow_t");
@@ -894,7 +946,7 @@ describe("issue investigation", () => {
     payload.intelligence.resource_summary = { absolute_path_occurrences: 0, without_absolute_path_occurrences: 2057, name_count: 2050, path_count: 0, process_command: "httpd" };
     payload.diagnosis = finding;
     payload.findings = [{ diagnosis: finding, occurrence_count: 2057, observation_count: 0 }];
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => detailResponse(url, payload)));
     const user = userEvent.setup();
     renderDetail();
     expect(await screen.findByRole("heading", { level: 1, name: "httpd was denied reading files labeled user_home_t." })).toBeInTheDocument();
@@ -922,13 +974,13 @@ describe("issue investigation", () => {
     const payload = detailPayload("001");
     payload.fleet_explanation.state = "disagreement";
     payload.findings = [{ diagnosis: payload.diagnosis!, occurrence_count: 2, observation_count: 1 }, { diagnosis: readFinding(), occurrence_count: 2, observation_count: 0 }];
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200, payload)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => detailResponse(url, payload)));
     renderDetail();
     expect(await screen.findByRole("heading", { name: "Potential file-context mismatch" })).toBeVisible();
     await userEvent.setup().click(screen.getByRole("button", { name: "Findings & evidence gaps" }));
     expect(screen.getByText("A matching SELinux read rule was inactive · 2 occurrences")).toBeVisible();
     expect(screen.getByLabelText("Finding coverage")).toHaveTextContent("Displayed finding: 2");
-    expect(screen.getByText(/Finding evidence varies between occurrences/)).toBeInTheDocument();
+    expect(screen.getByText(/Findings differ between occurrences/)).toBeInTheDocument();
   });
   it("compares AVC-time and later expected file types for accepted Scenario 001", async () => {
     const fetchMock = vi.fn();
@@ -964,7 +1016,7 @@ describe("issue investigation", () => {
     expect(screen.getByText(/Policy evaluation is pending/)).toBeInTheDocument();
     expect(screen.getByText(/Identify the complete absolute path/)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Potential file-context mismatch" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Fleet correlations" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Compare host configurations" })).not.toBeInTheDocument();
   });
 
   it("shows Scenario 002 operation, destination port, each inactive boolean, and exact rule", async () => {
@@ -1014,8 +1066,8 @@ describe("issue investigation", () => {
     expect(await screen.findByRole("region", { name: "Finding coverage" })).toHaveTextContent("Displayed finding: 1");
     await user.click(screen.getByRole("button", { name: "Findings & evidence gaps" }));
     expect(screen.getByText(/a matching conditional rule was active at the associated checkpoint/)).toBeVisible();
-    expect(screen.getByText(/Some causes remain unconfirmed/)).toBeVisible();
-    await user.click(screen.getByRole("button", {name: "Show recent occurrences"}));
+    expect(screen.getByText(/Some occurrences still need investigation/)).toBeVisible();
+    await screen.findByRole("table", { name: "Occurrence summary" });
     const table = await screen.findByRole("table", {name: "Occurrence summary"});
     expect(within(table).getByText("TCP/12345")).toBeVisible();
     expect(within(table).queryByText("Basename only")).not.toBeInTheDocument();
@@ -1084,7 +1136,8 @@ describe("issue investigation", () => {
     expect(document.querySelector(".issue-primary-finding .issue-selinux-explanation")).toBeNull();
     expect(screen.getByRole("heading", { name: "Retained occurrences" })).toBeInTheDocument();
     expect(screen.getByText(/3 affected hosts/)).toBeInTheDocument();
-    expect(screen.getByText("Fleet scope").parentElement).toHaveTextContent("Same supported findings across affected hosts");
+    expect(screen.getByText("Fleet scope").parentElement).toHaveTextContent("3 affected hosts");
+    expect(screen.queryByText(/Same supported findings across affected hosts/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Technical details & audit provenance" }));
     const why = document.querySelector("#issue-technical-evidence .issue-selinux-explanation");
@@ -1095,7 +1148,7 @@ describe("issue investigation", () => {
     expect(screen.getByRole("tab", { name: "Provenance" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("sha256:646dfbc98b55dba4e8622f4fbb1b23cb5e0c2c133144361d05cbc2a0c6cd2cff", { selector: "code" })).toBeVisible();
 
-    const host = await screen.findByRole("link", { name: "secentral-agent-test" });
+    const host = within(screen.getByRole("region", { name: "Fleet scope" })).getByRole("link", { name: "secentral-agent-test" });
     const listItem = host.closest("tr");
     expect(listItem).not.toBeNull();
     expect(within(listItem!).getByText("4 of 4 with supported findings")).toBeInTheDocument();
@@ -1118,21 +1171,22 @@ describe("issue investigation", () => {
 
     await screen.findByRole("heading", { level: 1, name: "runcon could not start /usr/bin/id." });
     expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContain("/api/v1/issues/1932/analysis");
-    await user.click(screen.getByRole("button", { name: "Fleet correlations" }));
+    await user.click(screen.getByRole("button", { name: "Compare host configurations" }));
     expect(await screen.findByText(/No supported policy-version, local file-context or custom-module correlation/)).toBeInTheDocument();
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain("/api/v1/issues/1932/analysis");
   });
 
-  it("explains the missing current comparison cohort instead of offering empty analysis for historical affected hosts", async () => {
+  it("hides unavailable configuration comparison without requesting analysis for historical affected hosts", async () => {
     const payload = detailPayload("001");
     payload.issue.affected_hosts = 2;
     payload.fleet_explanation.affected_host_count = 2;
     payload.intelligence.fleet = { activity_hosts: 1, current_configuration_hosts: 1, hosts_with_occurrence: 1, hosts_without_occurrence: 0, comparison_requirement: "Fleet comparison needs at least two hosts with configuration confirmed within the last 15 minutes." };
-    const fetchMock = vi.fn(async (url: string) => response(200, url.endsWith("/analysis") ? analysisPayload("001") : payload));
+    const fetchMock = vi.fn(async (url: string) => url.endsWith("/analysis") ? response(200, analysisPayload("001")) : detailResponse(url, payload));
     vi.stubGlobal("fetch", fetchMock);
     renderDetail();
-    expect(await screen.findByText("Fleet comparison needs at least two hosts with configuration confirmed within the last 15 minutes.")).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Fleet correlations" })).not.toBeInTheDocument();
+    await screen.findByRole("heading", { name: "Fleet scope" });
+    expect(screen.queryByRole("button", { name: "Compare host configurations" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Fleet comparison needs/)).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.map(([url]) => url).some((url) => String(url).endsWith("/analysis"))).toBe(false);
   });
 
@@ -1141,10 +1195,10 @@ describe("issue investigation", () => {
     payload.intelligence.fleet = { activity_hosts: 2, current_configuration_hosts: 2, hosts_with_occurrence: 1, hosts_without_occurrence: 1 };
     let finishAnalysis: (response: Response) => void = () => {};
     const pendingAnalysis = new Promise<Response>((resolve) => { finishAnalysis = resolve; });
-    const fetchMock = vi.fn(async (url: string) => url.endsWith("/analysis") ? pendingAnalysis : response(200, payload));
+    const fetchMock = vi.fn(async (url: string) => url.endsWith("/analysis") ? pendingAnalysis : detailResponse(url, payload));
     vi.stubGlobal("fetch", fetchMock);
     renderDetail();
-    const button = await screen.findByRole("button", { name: "Fleet correlations" });
+    const button = await screen.findByRole("button", { name: "Compare host configurations" });
     expect(fetchMock.mock.calls.map(([url]) => url)).not.toContain("/api/v1/issues/7/analysis");
     await userEvent.setup().click(button);
     expect(screen.getByText("Checking supporting fleet evidence…")).toBeVisible();
@@ -1163,10 +1217,11 @@ describe("issue investigation", () => {
   ])("does not render missing or empty current fleet evidence as a successful negative correlation (%j)", async (fleet, explanation) => {
     const payload = detailPayload("001");
     payload.intelligence.fleet = fleet;
-    vi.stubGlobal("fetch", vi.fn(async () => response(200, payload)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => detailResponse(url, payload)));
     renderDetail();
-    expect(await screen.findByText(explanation)).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Fleet correlations" })).not.toBeInTheDocument();
+    await screen.findByRole("heading", { name: "Fleet scope" });
+    expect(screen.queryByRole("button", { name: "Compare host configurations" })).not.toBeInTheDocument();
+    expect(screen.queryByText(explanation)).not.toBeInTheDocument();
   });
 
   it("shows repeated occurrences as scan-friendly rows, then readable detail before raw evidence", async () => {
@@ -1177,9 +1232,9 @@ describe("issue investigation", () => {
     renderDetail();
 
     expect(await screen.findByRole("heading", { name: "Retained occurrences" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Show recent occurrences" }));
-    expect(await screen.findByText("1–5 of 5 occurrences")).toBeInTheDocument();
-    expect(screen.getByRole("table", { name: "Occurrence summary" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show recent occurrences" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Hide occurrences" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("table", { name: "Occurrence summary" })).toBeInTheDocument();
     expect(fetchMock.mock.calls.map(([url]) => String(url)).some((url) => /occurrences\/\d+$/.test(url))).toBe(false);
     await user.click(screen.getAllByRole("button", { name: /Inspect occurrence/ })[0]);
     await screen.findByText(/Occurrence #101/);
@@ -1192,7 +1247,7 @@ describe("issue investigation", () => {
     expect(record).toHaveTextContent("user_home_t:file");
     expect(screen.queryByText(RAW_AVC)).not.toBeInTheDocument();
 
-    await user.click(within(record).getByRole("button", { name: "Raw AVC" }));
+    await user.click(within(record).getByRole("button", { name: "Raw audit records" }));
     expect(await screen.findByText(RAW_AVC)).toBeInTheDocument();
     expect(document.querySelector("script")).toBeNull();
   });
@@ -1204,7 +1259,7 @@ describe("issue investigation", () => {
     renderDetail("/issues/7?tab=occurrences");
 
     expect((await screen.findAllByText("secentral-agent-test")).length).toBeGreaterThan(0);
-    expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain("/api/v1/issues/7/occurrences?view=activity&page=1&limit=10");
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain("/api/v1/issues/7/occurrences?view=summary&page=1&limit=10");
   });
 
   it("replaces occurrence pages instead of appending rows and never requests raw evidence for the table", async () => {
@@ -1264,7 +1319,7 @@ describe("issue investigation", () => {
         operation_label: "read", outcome: "DENIED", observed_at: "2026-10-01T10:00:00Z" } };
     const occurrence = occurrencePage("001").occurrences[0];
     occurrence.host = { id: 10, hostname: "web-1" };
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => response(200, url.endsWith("/occurrences/101") ? occurrence : payload)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => url.endsWith("/occurrences/101") ? response(200, occurrence) : detailResponse(url, payload)));
     renderDetail();
     const context = await screen.findByRole("complementary", { name: "Investigation context" });
     expect(context).toHaveTextContent("/var/www/html/a file.txt");
@@ -1306,9 +1361,8 @@ describe("issue investigation", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderDetail();
     await screen.findByRole("heading", { name: "Potential file-context mismatch" });
-    expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContain("/api/v1/issues/7/occurrences?view=activity&page=1&limit=10");
-    await userEvent.setup().click(screen.getByRole("button", { name: "Show recent occurrences" }));
-    await waitFor(() => expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain("/api/v1/issues/7/occurrences?view=activity&page=1&limit=10"));
+    await waitFor(() => expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain("/api/v1/issues/7/occurrences?view=summary&page=1&limit=10"));
+    expect(screen.queryByRole("button", { name: "Show recent occurrences" })).not.toBeInTheDocument();
 
     const notFoundFetch = vi.fn().mockResolvedValue(response(404, { error: { code: "not_found", message: "Resource not found" } }));
     vi.stubGlobal("fetch", notFoundFetch);

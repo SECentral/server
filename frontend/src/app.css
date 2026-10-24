@@ -1656,6 +1656,8 @@
 .issue-disclosure { --pf-v6-c-expandable-section--m-expanded__toggle-icon--Rotate: 90deg; }
 .issue-workflow-panel { display: grid; gap: var(--pf-t--global--spacer--sm); }
 .issue-evidence-workspace [role="tabpanel"] { padding-block: var(--pf-t--global--spacer--md); }
+.issue-evidence-source { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--pf-t--global--spacer--sm); padding-block-end: var(--pf-t--global--spacer--sm); }
+.issue-evidence-source time { color: var(--pf-t--global--text--color--subtle); }
 .issue-evidence-workspace .pf-v6-c-description-list__description { overflow-wrap: anywhere; }
 .issue-evidence-workspace .pf-v6-c-card__body { display: grid; gap: var(--pf-t--global--spacer--sm); }
 .evidence-rules { display: grid; gap: var(--pf-t--global--spacer--sm); }

@@ -63,11 +63,11 @@ describe("Issue technical evidence", () => {
     const user = userEvent.setup();
     mount("/issues/7?resource=other-resource&evidence=audit-evidence&evidence_tab=audit&evidence_occurrence=22");
     const record = await screen.findByRole("region", { name: "Selected occurrence evidence" });
-    expect(record).toHaveTextContent("web-2");
+    expect(screen.getByText(/web-2 · Occurrence #22/)).toBeVisible();
     expect(record).toHaveTextContent("TCP/23451");
     expect(screen.queryByText("type=AVC historical occurrence 22")).not.toBeInTheDocument();
-    await user.click(within(record).getByRole("button", { name: "Raw AVC" }));
-    await user.click(within(record).getByRole("button", { name: "Copy raw AVC record 0 for occurrence 22" }));
+    await user.click(within(record).getByRole("button", { name: "Raw audit records" }));
+    await user.click(within(record).getByRole("button", { name: "Copy audit record 0 for occurrence 22" }));
     expect(await navigator.clipboard.readText()).toBe("type=AVC historical occurrence 22");
     await user.click(screen.getByRole("tab", { name: "Provenance" }));
     expect(await screen.findByText("historical-boot-22")).toBeVisible();

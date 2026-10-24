@@ -191,13 +191,13 @@ export function OccurrenceNormalizedDetails({ occurrence }: { occurrence: Occurr
   </Card>;
 }
 
-export function OccurrenceRawEvidence({ occurrence, collapsed = false, includeNormalized = true }: { occurrence: OccurrenceDetail; collapsed?: boolean; includeNormalized?: boolean }) {
+export function OccurrenceRawEvidence({ occurrence, collapsed = false, includeNormalized = true, omitRawAvc = false }: { occurrence: OccurrenceDetail; collapsed?: boolean; includeNormalized?: boolean; omitRawAvc?: boolean }) {
   const denial = occurrence.normalized_denial;
   const records = [...occurrence.raw_event.audit_records].sort((a, b) => a.position - b.position);
   const avcRecords = records.filter((record) => ["avc", "user_avc"].includes(record.type_name.toLowerCase()));
   return (
     <Stack hasGutter className="occurrence-raw-evidence">
-      {collapsed && <EvidenceSection title="Raw AVC" collapsed>
+      {collapsed && !omitRawAvc && <EvidenceSection title="Raw AVC" collapsed>
         {avcRecords.length > 0 ? avcRecords.map((record) => (
           <div className="occurrence-audit-record" key={record.position}>
             <small>#{record.position} · {record.type_name}</small>
