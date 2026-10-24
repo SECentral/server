@@ -352,7 +352,7 @@ describe("issue investigation", () => {
     expect(diagnosis).not.toHaveTextContent("Cause not confirmed; start with the checks below");
     expect(within(diagnosis).getByRole("link", { name: /Inspect capability request/ })).toHaveAttribute("href", expect.stringContaining("evidence_occurrence=101"));
     expect(screen.queryByRole("button", { name: "Retained evidence & analysis availability" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Findings & evidence gaps" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Additional findings & evidence gaps" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Occurrence pattern" })).not.toBeInTheDocument();
     expect(screen.queryByText("2 retained occurrences")).not.toBeInTheDocument();
     expect(screen.queryByText("Resource identity not established")).not.toBeInTheDocument();
@@ -972,7 +972,7 @@ describe("issue investigation", () => {
     await user.click(screen.getByRole("button", { name: "Conditional policy paths" }));
     expect(screen.getByText(/httpd_read_user_content/, { selector: ".issue-condition-summary code" })).toBeVisible();
     expect(document.querySelector(".issue-condition-summary")).toHaveTextContent("Off");
-    await user.click(screen.getByRole("button", { name: "Findings & evidence gaps" }));
+    await user.click(screen.getByRole("button", { name: "Additional findings & evidence gaps" }));
     expect(screen.getByRole("heading", { name: "Path-based label check unavailable" })).toBeVisible();
     expect(screen.getByText(/cannot determine whether/)).toHaveTextContent("user_home_t");
     expect(screen.queryByText("No evidence-backed explanation is available yet.")).not.toBeInTheDocument();
@@ -994,7 +994,7 @@ describe("issue investigation", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => detailResponse(url, payload)));
     renderDetail();
     expect(await screen.findByRole("heading", { name: "Potential file-context mismatch" })).toBeVisible();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Findings & evidence gaps" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Additional findings & evidence gaps" }));
     expect(screen.getByText("A matching SELinux read rule was inactive · 2 occurrences")).toBeVisible();
     expect(screen.getByLabelText("Finding coverage")).toHaveTextContent("Displayed finding: 2");
     expect(screen.getByText(/Findings differ between occurrences/)).toBeInTheDocument();
@@ -1081,7 +1081,7 @@ describe("issue investigation", () => {
     expect(await screen.findByRole("heading", {level: 1, name: "httpd was denied outbound TCP connections."})).toBeInTheDocument();
     expect(screen.getByText(/TCP\/12345 \(2 occurrences\).*TCP\/12346 \(1 occurrence\)/)).toBeVisible();
     expect(await screen.findByRole("region", { name: "Finding coverage" })).toHaveTextContent("Displayed finding: 1");
-    await user.click(screen.getByRole("button", { name: "Findings & evidence gaps" }));
+    await user.click(screen.getByRole("button", { name: "Additional findings & evidence gaps" }));
     expect(screen.getByText(/a matching conditional rule was active at the associated checkpoint/)).toBeVisible();
     expect(screen.getByText(/Some occurrences still need investigation/)).toBeVisible();
     await screen.findByRole("table", { name: "Occurrence summary" });
@@ -1120,7 +1120,7 @@ describe("issue investigation", () => {
 
     expect(await screen.findByRole("heading", { level: 1, name: /mariadbd was blocked from checking file metadata/ })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "No matching SELinux allow was found for this access" })).toBeInTheDocument();
-    expect(screen.getByText(/no rule allowing mariadbd to inspect file attributes such as ownership and permissions on files labeled var_t/)).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Diagnosis" })).toHaveTextContent(/no rule allowing mariadbd to inspect file attributes such as ownership and permissions on files labeled var_t/);
     expect(screen.getByText(/\/srv\/secentral-s004-mariadb\/ibdata1/)).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Diagnosis" })).queryByText(/cannot infer the intended database path or label/)).not.toBeInTheDocument();
     expect(within(await screen.findByRole("complementary", { name: "Investigation context" })).getByRole("link", { name: "#104" })).toHaveAttribute("href", "/hosts/10/occurrences/104");
