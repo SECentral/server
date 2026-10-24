@@ -290,7 +290,12 @@ function mockApi(fetchMock: ReturnType<typeof vi.fn>, scenario: Scenario, option
     if (url === `/api/v1/issues/${issueId}/disposition` && method === "PATCH") return Promise.resolve(response(200, detailPayload(scenario, currentStatus).issue));
     if (/view=(summary|activity)/.test(url)) {
       const occurrences = occurrencePage(scenario).occurrences;
-      return Promise.resolve(response(200, { occurrences: occurrences.map((item) => ({ id: item.id, occurred_at: item.occurred_at, host: item.host, resource: item.normalized_denial.target_paths[0] ?? "secentral-test.html", absolute_path: item.normalized_denial.target_paths.length > 0, target_type: item.normalized_denial.target_type, permissions: item.normalized_denial.permissions })), meta: { page: 1, page_size: 10, total: occurrences.length, total_pages: 1 } }));
+      return Promise.resolve(response(200, { occurrences: occurrences.map((item) => {
+        const syscalls: { success?: unknown }[] = Array.isArray(item.normalized_denial.details.syscall_evidence) ? item.normalized_denial.details.syscall_evidence as { success?: unknown }[] : [];
+        const syscall_outcome = syscalls.some((syscall) => ["no", "false", "0"].includes(String(syscall.success))) ? "failed"
+          : syscalls.length > 0 && syscalls.every((syscall) => ["yes", "true", "1"].includes(String(syscall.success))) ? "succeeded" : "unknown";
+        return { id: item.id, occurred_at: item.occurred_at, host: item.host, resource: item.normalized_denial.target_paths[0] ?? "secentral-test.html", absolute_path: item.normalized_denial.target_paths.length > 0, target_type: item.normalized_denial.target_type, permissions: item.normalized_denial.permissions, enforcement_mode: item.normalized_denial.details.enforcement_mode, syscall_outcome };
+      }), meta: { page: 1, page_size: 10, total: occurrences.length, total_pages: 1 } }));
     }
     if (url.startsWith(`/api/v1/issues/${issueId}/occurrences/`)) {
       const occurrence = occurrencePage(scenario).occurrences.find((item) => url.endsWith(`/${item.id}`));
@@ -1125,6 +1130,76 @@ describe("issue investigation", () => {
     expect(within(screen.getByRole("region", { name: "Diagnosis" })).queryByText(/cannot infer the intended database path or label/)).not.toBeInTheDocument();
     expect(within(await screen.findByRole("complementary", { name: "Investigation context" })).getByRole("link", { name: "#104" })).toHaveAttribute("href", "/hosts/10/occurrences/104");
     expect(screen.queryByText(/generate custom policy/i)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["permissive", "succeeded"],
+    ["enforcing", "failed"]
+  ] as const)("scopes a file no-allow diagnosis to its permission and observed outcome (%s, %s)", async (mode, outcome) => {
+    const payload = detailPayload("004");
+    const path = "/srv/secentral-scenario006-test/write-target";
+    const diagnosis = {
+      ...diagnosisFor("004")!,
+      operation: "open",
+      permissions: ["open"],
+      source_domain: "httpd_sys_script_t",
+      process_command: "scenario006.cgi",
+      target_type: "var_t",
+      target_class: "file",
+      path,
+      occurrence_id: 101,
+      host_id: 10,
+      enforcement_mode: mode,
+      syscall_failed: mode === "enforcing" && outcome === "failed"
+    } as NonNullable<IssueDetailResponse["diagnosis"]>;
+    payload.issue.source_type = "httpd_sys_script_t";
+    payload.issue.target_type = "var_t";
+    payload.issue.permissions = ["open"];
+    payload.issue.occurrences_count = 1;
+    payload.issue.signatures[0].permissions = ["open"];
+    payload.diagnosis = diagnosis;
+    payload.findings = [{ diagnosis, occurrence_count: 1, observation_count: 0 }];
+    payload.host_explanations[0].hostname = "web-test";
+    payload.host_explanations[0].occurrence_count = 1;
+    payload.host_explanations[0].diagnosis = diagnosis;
+    payload.host_explanations[0].diagnosis_groups[0] = { ...payload.host_explanations[0].diagnosis_groups[0], count: 1, diagnosis, sample_occurrence_ids: [101] };
+    payload.intelligence.paths = [path];
+    payload.intelligence.names = [];
+    payload.resolutions = {
+      candidates: [], rejected_candidates: [], observed_access: null, intent: null,
+      freshness: null, change_plan: null, history: []
+    };
+
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === "/api/v1/issues/7") return response(200, payload);
+      if (url.includes("view=summary")) return response(200, { occurrences: [{
+        id: 101, occurred_at: "2026-10-24T17:45:45Z", host: { id: 10, hostname: "web-test" },
+        resource: path, absolute_path: true, target_type: "var_t", permissions: ["open"],
+        enforcement_mode: mode, syscall_outcome: outcome
+      }], meta: { page: 1, page_size: 10, total: 1, total_pages: 1 } });
+      return detailResponse(url, payload);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderDetail();
+
+    const heading = await screen.findByRole("heading", { name: "No matching SELinux allow for open on var_t:file" });
+    expect(heading).toBeVisible();
+    expect(await screen.findByRole("link", { name: `web-test · ${mode === "permissive" ? "Permissive" : "Enforcing"} · syscall ${outcome === "succeeded" ? "Succeeded" : "Failed"}` })).toHaveAttribute("href", expect.stringContaining("evidence_occurrence=101"));
+    expect(await screen.findByText(/No change plan is supported by this evidence/)).toBeVisible();
+    expect(screen.queryByText(/The evaluated policy has no allow rule for the denied open/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No reviewed change plan yet/)).not.toBeInTheDocument();
+  });
+
+  it("omits network endpoint from file evidence and labels the syscall separately from its result", async () => {
+    const fetchMock = vi.fn();
+    mockApi(fetchMock, "001");
+    vi.stubGlobal("fetch", fetchMock);
+    renderDetail("/issues/7?evidence=audit-evidence&evidence_tab=audit&evidence_occurrence=101");
+
+    const record = await screen.findByRole("region", { name: "Selected occurrence evidence" });
+    expect(within(record).queryByText("Recorded endpoint")).not.toBeInTheDocument();
+    expect(within(record).getByText("First recorded syscall")).toBeInTheDocument();
+    expect(within(record).queryByText("First recorded syscall result")).not.toBeInTheDocument();
   });
 
   it("shows Scenario 005 execute evidence while leaving transition intent unknown", async () => {

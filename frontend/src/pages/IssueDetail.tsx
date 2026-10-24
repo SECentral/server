@@ -125,12 +125,20 @@ function primaryFindingLead(diagnosis: Diagnosis): string | ReactElement | null 
   if (diagnosis.kind === "conditional_allow_inactive") return diagnosis.operation === "read" ? "A matching SELinux read rule exists, but its condition was inactive at the associated host checkpoint." : "A matching SELinux allow path exists, but its condition was inactive at the associated host checkpoint.";
   if (diagnosis.kind === "no_matching_allow") {
     if (["name_bind", "name_connect"].includes(diagnosis.operation ?? "")) return text(row(diagnosis).lead);
+    if (diagnosis.target_class === "file" && ["open", "write"].includes(diagnosis.operation ?? "")) return null;
     if (diagnosis.permissions?.includes("entrypoint")) return "The evaluated policy has no allow rule for this launch on the observed file label.";
     if (diagnosis.permissions?.includes("getattr")) return <>The policy SECentral checked has no rule allowing <code>{diagnosis.process_command ?? diagnosis.source_domain ?? "the recorded process"}</code> to inspect file attributes such as ownership and permissions on files labeled <code>{diagnosis.target_type ?? "the observed type"}</code>.</>;
     if (diagnosis.permissions?.includes("mac_admin")) return <>The evaluated policy has no allow rule for the denied <code>mac_admin</code> capability.</>;
     return `The evaluated policy has no allow rule for the denied ${permissionLabel(diagnosis.permissions?.[0] ?? "access")}.`;
   }
   return text(row(diagnosis).lead) ?? text(row(diagnosis).finding);
+}
+
+function primaryFindingTitle(diagnosis: Diagnosis): string {
+  if (diagnosis.kind === "no_matching_allow" && diagnosis.target_class === "file" && ["open", "write"].includes(diagnosis.operation ?? "") && diagnosis.target_type) {
+    return `No matching SELinux allow for ${diagnosis.operation} on ${diagnosis.target_type}:file`;
+  }
+  return diagnosis.title;
 }
 
 function issueHeadline(detail: IssueDetailResponse): string {
@@ -206,7 +214,7 @@ function diagnosisVariantDetail(diagnosis: Diagnosis | null | undefined): string
   return detail;
 }
 
-function FindingCard({ detail }: { detail: IssueDetailResponse }) {
+function FindingCard({ detail, occurrences }: { detail: IssueDetailResponse; occurrences?: OccurrencePage["occurrences"] }) {
   const [params] = useSearchParams();
   const { issue, intelligence, triage_guidance, findings, policy_analysis } = detail;
   const finding = detail.resolutions ? activeResourceFinding(detail, detail.resolutions, params.get("resource")) : { diagnosis: detail.diagnosis, findings: detail.findings?.filter((item) => item.diagnosis.occurrence_id === detail.diagnosis?.occurrence_id && item.diagnosis.host_id === detail.diagnosis?.host_id).map((item) => item.diagnosis) ?? [], different: false, count: detail.findings?.[0]?.occurrence_count };
@@ -216,6 +224,7 @@ function FindingCard({ detail }: { detail: IssueDetailResponse }) {
   const otherPermissions = explainedPermissions.length ? (diagnosis?.permissions ?? []).filter((permission) => !explainedPermissions.includes(permission)) : [];
   const policyFinding = finding.findings.find((item) => item.kind !== "file_context_mismatch");
   const findingHost = detail.host_explanations.find((host) => host.host_id === diagnosis?.host_id);
+  const findingOccurrence = diagnosis && occurrences?.find((item) => item.id === diagnosis.occurrence_id && (diagnosis.host_id == null || item.host.id === diagnosis.host_id));
   const conditionalTitle = diagnosis?.kind === "conditional_allow_inactive" ? `${diagnosis.source_domain ?? issue.source_type} was denied ${diagnosis.operation === "name_bind" ? "binding" : diagnosis.operation === "name_connect" ? "connecting to" : diagnosis.operation === "read" ? "reading" : "executing"} ${diagnosis.path ?? (diagnosis.bind_port || diagnosis.destination_port ? `${issue.target_class === "udp_socket" ? "UDP" : "TCP"}/${diagnosis.bind_port ?? diagnosis.destination_port}` : `objects labeled ${diagnosis.target_type ?? issue.target_type}`)}.` : null;
   return <section aria-labelledby="finding-title" className="issue-section issue-primary-finding"><h2 id="finding-title">Diagnosis</h2>
     {policy_analysis.status !== "evaluated" && <div role="status"><p><strong>{policy_analysis.status === "unavailable" ? "Historical policy analysis unavailable" : policy_analysis.status === "pending" ? "Policy evaluation is pending" : `Policy analysis: ${displayState(policy_analysis.status)}`}</strong></p>
@@ -229,9 +238,10 @@ function FindingCard({ detail }: { detail: IssueDetailResponse }) {
     </section>}
      {triage_guidance && diagnosis?.kind !== "file_context_mismatch" && <LabelMismatchGuidance guidance={triage_guidance} />}
      {diagnosis ? <article>
-       <Title headingLevel="h3" size="xl">{conditionalTitle ?? diagnosis.title}</Title>
+        <Title headingLevel="h3" size="xl">{conditionalTitle ?? primaryFindingTitle(diagnosis)}</Title>
         {finding.different && diagnosis.host_id && <p>Finding for <Link to={`/hosts/${diagnosis.host_id}/occurrences/${diagnosis.occurrence_id}`}>{findingHost?.hostname ?? `Host ${diagnosis.host_id}`} · occurrence #{diagnosis.occurrence_id}</Link>. Inspection uses a different retained example; this finding does not establish that example's cause.</p>}
-       {lead && <p className="issue-finding-lead">{lead}</p>}
+        {lead && <p className="issue-finding-lead">{lead}</p>}
+        {diagnosis.kind === "no_matching_allow" && diagnosis.target_class === "file" && ["open", "write"].includes(diagnosis.operation ?? "") && findingOccurrence && <p><strong>Observed outcome:</strong> <EvidenceLink target="audit-evidence" occurrenceId={findingOccurrence.id}>{findingOccurrence.host.hostname ?? `Host ${findingOccurrence.host.id}`} · {displayState(findingOccurrence.enforcement_mode ?? "unknown")} · syscall {displayState(findingOccurrence.syscall_outcome ?? "unknown")}</EvidenceLink></p>}
        {otherPermissions.length > 0 && <p>This finding explains <code>{explainedPermissions.join(", ")}</code> only. Other permissions recorded in this event (<code>{otherPermissions.join(", ")}</code>) need independent assessment.</p>}
       {diagnosis.kind === "conditional_allow_inactive" && <p>Recorded target type: <code>{diagnosis.target_type ?? issue.target_type}</code></p>}
        <DiagnosisEvidence diagnosis={diagnosis} />
@@ -372,16 +382,17 @@ function ActivityTable({ page, objectClass, onInspect }: { page: OccurrencePage;
   </>;
 }
 
-const IssueWorkbench = memo(function IssueWorkbench({ detail, updatedAt, onShowTechnicalEvidence }: {
+const IssueWorkbench = memo(function IssueWorkbench({ detail, updatedAt, occurrences, onShowTechnicalEvidence }: {
   detail: IssueDetailResponse;
   updatedAt: number;
+  occurrences?: OccurrencePage["occurrences"];
   onShowTechnicalEvidence: (issueId: number) => void;
 }) {
   const issueId = detail.issue.id;
   return <div className="issue-workbench">
     <div className="issue-workspace">
       <ResolutionWorkflow issueId={issueId} stage="observed" initialData={detail.resolutions} initialDataUpdatedAt={updatedAt} detail={detail} />
-      <Card isCompact><CardBody><FindingCard detail={detail} /></CardBody></Card>
+      <Card isCompact><CardBody><FindingCard detail={detail} occurrences={occurrences} /></CardBody></Card>
       <ResolutionWorkflow issueId={issueId} stage="intent" initialData={detail.resolutions} initialDataUpdatedAt={updatedAt} detail={detail}>
         {detail.triage_guidance ? <StandardRestoration detail={detail} /> : undefined}
       </ResolutionWorkflow>
@@ -545,7 +556,7 @@ export function IssueDetail() {
 
       <ResolutionWorkflow issueId={issueId} stage="draft" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} />
 
-      <IssueWorkbench detail={detailQuery.data} updatedAt={detailQuery.dataUpdatedAt} onShowTechnicalEvidence={setTechnicalEvidenceIssueId} />
+      <IssueWorkbench detail={detailQuery.data} updatedAt={detailQuery.dataUpdatedAt} occurrences={occurrencesQuery.data?.occurrences} onShowTechnicalEvidence={setTechnicalEvidenceIssueId} />
 
       {((findings?.length ?? 0) > 1 || (issue.target_class === "file" && (intelligence.resource_summary?.without_absolute_path_occurrences ?? 0) > 0) || (additional_finding_count ?? 0) > 0 || supplementaryPolicyLimits) && <ExpandableSection className="workbench-additional" toggleText="Additional findings & evidence gaps"><section aria-label="Additional findings & evidence gaps" className="issue-section">
         {findings?.slice(1).map((finding, index) => <ExpandableSection key={index} toggleText={`${finding.diagnosis.kind === "no_matching_allow" ? diagnosisVariantDetail(finding.diagnosis) : finding.diagnosis.title} · ${finding.occurrence_count.toLocaleString()} occurrence${finding.occurrence_count === 1 ? "" : "s"}`}><p>{primaryFindingLead(finding.diagnosis) ?? text(row(finding.diagnosis).finding)}</p><DiagnosisEvidence diagnosis={finding.diagnosis} /><p><strong>Check next:</strong> {finding.diagnosis.next_step}</p>{primaryLimitation(finding.diagnosis) && <p>{primaryLimitation(finding.diagnosis)}</p>}<EvidenceLink target="policy-evaluation-evidence" occurrenceId={finding.diagnosis.occurrence_id}>Technical evidence for this finding</EvidenceLink></ExpandableSection>)}

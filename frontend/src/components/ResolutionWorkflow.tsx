@@ -399,6 +399,7 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
   </section> : null;
   const selected = workflow.candidates.find((c) => c.id === workflow.intent?.candidate_id);
   const source = detail?.operator_guidance?.source;
+  const fileAccessWithoutPlan = detail?.diagnosis?.kind === "no_matching_allow" && detail.diagnosis.target_class === "file" && ["open", "write"].includes(detail.diagnosis.operation ?? "");
   const resources = resolutionResources(workflow, source);
   const reviewedResource = resources.find((resource) => resource.candidates.some((c) => c.id === workflow.intent?.candidate_id));
   const active = activeResolutionResource(workflow, requestedResource, source);
@@ -463,7 +464,7 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
       {detail?.operator_guidance && (!active || inspectionElsewhere) && source?.path && <p>{detail.operator_guidance.possible_fix}</p>}
       {active?.port ? <PortInvestigation key={`${issueId}-${active.key}`} investigation={active.port} workflow={workflow} busy={busy} onSelect={choose}>{inspection}</PortInvestigation> : inspection}
       {(!active || inspectionElsewhere) && children}
-      {!detail?.operator_guidance?.capability && !active?.port && !workflow.candidates.length && !children && <p>No reviewed change plan yet. Use the checks above and review the workload configuration with its operator; a manual next step can be appropriate.</p>}
+      {!detail?.operator_guidance?.capability && !active?.port && !workflow.candidates.length && !children && <p>{fileAccessWithoutPlan ? "No change plan is supported by this evidence. Confirm with the service owner that this file access is intended." : "No reviewed change plan yet. Use the checks above and review the workload configuration with its operator; a manual next step can be appropriate."}</p>}
       {selectedHere && (selected.kind === "set_port_mapping" ? <ResolutionCandidateCard candidate={selected} selected freshness={workflow.freshness} busy={busy} onSelect={choose} /> : <CandidateGroup candidates={[selected]} workflow={workflow} busy={busy} onSelect={choose} />)}
       {plan && <ChangePlan plan={plan} detail={sameCheckScope ? detail : undefined} />}
       {selectedHere ? alternatives.length > 0 && <ExpandableSection className="other-options" toggleText={`Alternative approaches · ${alternatives.length}${alternatives.some((candidate) => candidate.scope_kind === "host_boolean") ? " · Host-wide Boolean; broader access" : ""}`}><CandidateGroup candidates={alternatives} workflow={workflow} busy={busy} onSelect={choose} /></ExpandableSection>

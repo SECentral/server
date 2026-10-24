@@ -137,11 +137,11 @@ export function IssueTechnicalEvidence({ detail, updatedAt }: { detail: IssueDet
         {occurrence && denial && <section aria-label="Selected occurrence evidence">
             <Card isCompact><CardTitle><h3>Audit record</h3></CardTitle><CardBody>
             <p><code>{denial.source_type ?? "Source not recorded"}</code> → <code>{denial.permissions?.join(", ") ?? "Permission not recorded"}</code> → <code>{denial.target_type ?? "Target not recorded"}:{denial.target_class ?? "Class not recorded"}</code></p>
-            <Facts isHorizontal fields={[["Occurred at", occurrence.occurred_at], ["Recorded endpoint", protocol && ports.length ? ports.map((port) => `${protocol}/${port}`).join(", ") : "Not recorded"], ["Process", denial.command ?? "Not recorded"], ["Executable", denial.executable ?? "Not recorded"],
+            <Facts isHorizontal fields={[["Occurred at", occurrence.occurred_at], ["Recorded endpoint", protocol ? ports.length ? ports.map((port) => `${protocol}/${port}`).join(", ") : "Not recorded" : null], ["Process", denial.command ?? "Not recorded"], ["Executable", denial.executable ?? "Not recorded"],
               ["Recorded PIDs", Array.isArray(row(denial.details.process_evidence).pids) ? (row(denial.details.process_evidence).pids as unknown[]).join(", ") || "Not recorded" : typeof syscall?.pid === "number" || typeof syscall?.pid === "string" ? String(syscall.pid) : "Not recorded"],
               ["AVC enforcement", text(denial.details.enforcement_mode) ?? (denial.details.permissive === true ? "Permissive" : denial.details.permissive === false ? "Enforcing" : "Not recorded")],
               ["Paths", denial.target_paths.length ? denial.target_paths.join(", ") : "Complete path not recorded"], ["Source context", denial.source_context ?? "Not recorded"], ["Target context", denial.target_context ?? "Not recorded"],
-              ["First recorded syscall result", syscall ? `${syscall.syscall ?? "Unknown syscall"} · success=${syscall.success ?? "unknown"} · exit=${syscall.exit ?? "unknown"}` : "Not recorded"]]} />
+              ["First recorded syscall", syscall ? `${syscall.syscall ?? "Unknown"} · success=${syscall.success ?? "unknown"} · exit=${syscall.exit ?? "unknown"}` : "Not recorded"]]} />
              <Disclosure toggleText="Socket, syscall & path fields"><EvidenceBlock value={JSON.stringify({ network: denial.details.network_evidence, syscalls: denial.details.syscall_evidence, target: denial.details.target_evidence }, null, 2)} label="Socket, syscall and path evidence" hasCopyButton isJson /></Disclosure>
             <Link to={`/hosts/${occurrence.host.id}/occurrences/${occurrence.id}`}>Open occurrence record</Link>
           </CardBody></Card>
