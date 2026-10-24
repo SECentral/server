@@ -399,7 +399,8 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
   </section> : null;
   const selected = workflow.candidates.find((c) => c.id === workflow.intent?.candidate_id);
   const source = detail?.operator_guidance?.source;
-  const fileAccessWithoutPlan = detail?.diagnosis?.kind === "no_matching_allow" && detail.diagnosis.target_class === "file" && ["open", "write"].includes(detail.diagnosis.operation ?? "");
+  const fileAccessWithoutPlan = detail?.diagnosis?.kind === "no_matching_allow" && detail.diagnosis.target_class === "file" && ["open", "write"].includes(detail.diagnosis.operation ?? "") ? detail.diagnosis : null;
+  const unresolvedFileAccess = !!fileAccessWithoutPlan && !workflow.candidates.length;
   const resources = resolutionResources(workflow, source);
   const reviewedResource = resources.find((resource) => resource.candidates.some((c) => c.id === workflow.intent?.candidate_id));
   const active = activeResolutionResource(workflow, requestedResource, source);
@@ -418,6 +419,7 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
   const missingPath = detail && ["file", "dir"].includes(detail.issue?.target_class) && (active ? !active.port && !active.path : source && !source.path);
   const nextStep = plan ? "Inspect the reviewed host/resource baseline before making any change."
     : selectedHere && workflow.freshness && workflow.freshness !== "current" ? "Review the changed evidence and prerequisites below before saving an updated plan."
+    : unresolvedFileAccess && fileAccessWithoutPlan ? `Confirm with the service owner whether this ${fileAccessWithoutPlan.operation} access is intended. If you suspect ${fileAccessWithoutPlan.target_type}:file is the wrong label, inspect the collapsed label checks; label inspection does not establish that access should be allowed.`
     : missingPath ? "Identify the complete target path before considering a file-label modification."
     : nextCandidate && candidatePresentation(nextCandidate).state !== "review" ? candidateNextStep(nextCandidate)
     : active?.port && ["ready", "no_change"].includes(active.port.state) && (active.port.classification_differs === true || active.port.policy_differs === true) ? "Recheck effective/local mappings and retry the intended confined workload; the historical denial and latest retained state differ."
@@ -461,10 +463,10 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
       </FormGroup>)}
       <section id="issue-resource-panel" role={resources.length > 1 && useTabs ? "tabpanel" : undefined} tabIndex={0} aria-label={`Active resource: ${active?.label ?? "Investigation example"}`}>
       {nextStep && <p className="suggested-next-step" aria-label="Suggested next step"><strong>Suggested next step</strong> · {nextStep}</p>}
-      {detail?.operator_guidance && (!active || inspectionElsewhere) && source?.path && <p>{detail.operator_guidance.possible_fix}</p>}
-      {active?.port ? <PortInvestigation key={`${issueId}-${active.key}`} investigation={active.port} workflow={workflow} busy={busy} onSelect={choose}>{inspection}</PortInvestigation> : inspection}
+      {detail?.operator_guidance && (!active || inspectionElsewhere) && source?.path && !unresolvedFileAccess && <p>{detail.operator_guidance.possible_fix}</p>}
+      {active?.port ? <PortInvestigation key={`${issueId}-${active.key}`} investigation={active.port} workflow={workflow} busy={busy} onSelect={choose}>{inspection}</PortInvestigation> : unresolvedFileAccess && inspection ? <ExpandableSection toggleText="Check for a possible label mismatch">{inspection}</ExpandableSection> : inspection}
       {(!active || inspectionElsewhere) && children}
-      {!detail?.operator_guidance?.capability && !active?.port && !workflow.candidates.length && !children && <p>{fileAccessWithoutPlan ? "No change plan is supported by this evidence. Confirm with the service owner that this file access is intended." : "No reviewed change plan yet. Use the checks above and review the workload configuration with its operator; a manual next step can be appropriate."}</p>}
+      {!detail?.operator_guidance?.capability && !active?.port && !workflow.candidates.length && !children && !unresolvedFileAccess && <p>No reviewed change plan yet. Use the checks above and review the workload configuration with its operator; a manual next step can be appropriate.</p>}
       {selectedHere && (selected.kind === "set_port_mapping" ? <ResolutionCandidateCard candidate={selected} selected freshness={workflow.freshness} busy={busy} onSelect={choose} /> : <CandidateGroup candidates={[selected]} workflow={workflow} busy={busy} onSelect={choose} />)}
       {plan && <ChangePlan plan={plan} detail={sameCheckScope ? detail : undefined} />}
       {selectedHere ? alternatives.length > 0 && <ExpandableSection className="other-options" toggleText={`Alternative approaches · ${alternatives.length}${alternatives.some((candidate) => candidate.scope_kind === "host_boolean") ? " · Host-wide Boolean; broader access" : ""}`}><CandidateGroup candidates={alternatives} workflow={workflow} busy={busy} onSelect={choose} /></ExpandableSection>

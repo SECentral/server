@@ -734,6 +734,23 @@ describe("issue investigation", () => {
     expect(screen.queryByRole("button", { name: "Review this change" })).not.toBeInTheDocument();
   });
 
+  it("identifies the latest occurrence when label checks use an older example", async () => {
+    const payload = labelingPayload();
+    payload.resolutions = {
+      candidates: [], rejected_candidates: [],
+      observed_access: { occurrence_id: 102, host_id: 10, hostname: "web-1", actor: "httpd", source_type: "httpd_t", resource: "/var/www/other.html", target_type: "user_home_t", object_class: "file", permissions: ["read"], operation_label: "read", outcome: "DENIED", observed_at: "2026-09-30T16:27:00Z" },
+      intent: null, freshness: null, change_plan: null, history: []
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => detailResponse(url, payload)));
+    renderDetail();
+
+    const checks = await screen.findByRole("region", { name: "Check" });
+    expect(within(checks).getByRole("link", { name: "web-1 · occurrence #101" })).toHaveAttribute("href", "/hosts/10/occurrences/101");
+    expect(within(checks).getByRole("link", { name: "web-1 · occurrence #102" })).toHaveAttribute("href", "/hosts/10/occurrences/102");
+    expect(checks).toHaveTextContent("Latest access:");
+    expect(checks).not.toHaveTextContent("These checks use a different example from the latest access");
+  });
+
   it("presents a correlated pair as one activity while keeping both audit events accessible", async () => {
     const payload = detailPayload("repeated");
     payload.issue.occurrences_count = 3;
@@ -972,7 +989,7 @@ describe("issue investigation", () => {
     const user = userEvent.setup();
     renderDetail();
     expect(await screen.findByRole("heading", { level: 1, name: "httpd was denied reading files labeled user_home_t." })).toBeInTheDocument();
-    expect(screen.getByText(/2,057 occurrences · 1 server · 2,050 filenames/)).toBeInTheDocument();
+    expect(document.querySelector(".issue-operation-label")).toHaveTextContent(`${(2057).toLocaleString()} occurrences · 1 server · ${(2050).toLocaleString()} filenames`);
     expect(screen.getByText(/httpd_read_user_content/, { selector: ".issue-condition-summary code" })).not.toBeVisible();
     await user.click(screen.getByRole("button", { name: "Conditional policy paths" }));
     expect(screen.getByText(/httpd_read_user_content/, { selector: ".issue-condition-summary code" })).toBeVisible();
@@ -1165,6 +1182,16 @@ describe("issue investigation", () => {
     payload.host_explanations[0].diagnosis_groups[0] = { ...payload.host_explanations[0].diagnosis_groups[0], count: 1, diagnosis, sample_occurrence_ids: [101] };
     payload.intelligence.paths = [path];
     payload.intelligence.names = [];
+    payload.operator_guidance = {
+      source: { occurrence_id: 101, host_id: 10, hostname: "web-test", occurred_at: "2026-10-24T17:45:45Z", path, observed_type: "var_t", object_class: "file" },
+      checks: [
+        { title: "Current object label", command: `ls -ldZ -- ${path}`, interpretation: "Read the current object's context." },
+        { title: "Host-configured context", command: `matchpathcon -- ${path}`, interpretation: "Compare the configured label." },
+        { title: "Read-only restoration preview", command: `restorecon -n -v -- ${path}`, interpretation: "Preview a label restoration." }
+      ],
+      manual_check: "Confirm the file's role.", possible_fix: "Investigate the configured label.", verification: "Retry the intended access.",
+      verification_limit: "Check the workload result.", restriction: "Keep unwanted access denied."
+    };
     payload.resolutions = {
       candidates: [], rejected_candidates: [], observed_access: null, intent: null,
       freshness: null, change_plan: null, history: []
@@ -1185,9 +1212,16 @@ describe("issue investigation", () => {
     const heading = await screen.findByRole("heading", { name: "No matching SELinux allow for open on var_t:file" });
     expect(heading).toBeVisible();
     expect(await screen.findByRole("link", { name: `web-test · ${mode === "permissive" ? "Permissive" : "Enforcing"} · syscall ${outcome === "succeeded" ? "Succeeded" : "Failed"}` })).toHaveAttribute("href", expect.stringContaining("evidence_occurrence=101"));
-    expect(await screen.findByText(/No change plan is supported by this evidence/)).toBeVisible();
-    expect(screen.queryByText(/The evaluated policy has no allow rule for the denied open/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Suggested next step")).toHaveTextContent("Confirm with the service owner whether this open access is intended");
+    expect(screen.getByLabelText("Suggested next step")).toHaveTextContent("If you suspect var_t:file is the wrong label, inspect the collapsed label checks");
+    expect(screen.getByRole("button", { name: "Check for a possible label mismatch" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Copy command: restorecon -n -v -- /srv/secentral-scenario006-test/write-target" })).not.toBeInTheDocument();
     expect(screen.queryByText(/No reviewed change plan yet/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/The evaluated policy has no allow rule for the denied open/)).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Check for a possible label mismatch" }));
+    expect(screen.getByRole("region", { name: "Check" })).toHaveTextContent("Investigation example: web-test · occurrence #101");
+    expect(screen.getByLabelText("Suggested next step")).toHaveTextContent("label inspection does not establish that access should be allowed");
+    expect(screen.getByRole("button", { name: "Copy command: restorecon -n -v -- /srv/secentral-scenario006-test/write-target" })).toBeVisible();
   });
 
   it("omits network endpoint from file evidence and labels the syscall separately from its result", async () => {
