@@ -178,18 +178,22 @@ function ContextComparison({ diagnosis }: { diagnosis: Diagnosis }) {
   );
 }
 
-function BooleanCheckpointSummary({ diagnosis }: { diagnosis: Diagnosis }) {
+function BooleanCheckpointSummary({ diagnosis, hostname }: { diagnosis: Diagnosis; hostname?: string }) {
   const conditions = rows(diagnosis.condition_boolean_states);
-  const booleans = conditions.flatMap((condition) => rows(condition.booleans));
-  const unique = [...new Map(booleans.map((boolean) => [text(boolean.name) ?? "Boolean", boolean])).values()];
-  if (!unique.length) return <p className="issue-condition-summary">A conditional allow path was found; its boolean state is unavailable.</p>;
-  return <section className="issue-condition-summary" aria-label="Possible policy paths"><ul>{unique.slice(0, 3).map((boolean) => <li key={text(boolean.name)}><code>{text(boolean.name) ?? "Boolean"}</code><Label color={boolean.current === false ? "orange" : "grey"} isCompact>{typeof boolean.current === "boolean" ? boolean.current ? "On" : "Off" : "Unavailable"}</Label></li>)}</ul><small>At the associated historical checkpoint{diagnosis.checkpoint_observed_at && ` · ${diagnosis.checkpoint_observed_at}`} · {conditions.length > 1 ? "independent alternatives" : "conditional path"}; not latest runtime state or proposed fixes</small></section>;
+  return <section className="issue-condition-summary" aria-label="Possible policy paths">
+    <p>Checkpoint evidence: {diagnosis.host_id ? <Link to={`/hosts/${diagnosis.host_id}/occurrences/${diagnosis.occurrence_id}`}>{hostname ?? `Host ${diagnosis.host_id}`} · occurrence #{diagnosis.occurrence_id}</Link> : `Occurrence #${diagnosis.occurrence_id} · host not recorded`}{diagnosis.checkpoint_observed_at && <> · <time dateTime={diagnosis.checkpoint_observed_at}>{formatUtc(diagnosis.checkpoint_observed_at)}</time></>}</p>
+    {conditions.length ? conditions.map((condition, index) => <article key={`${text(condition.rule) ?? text(condition.expression) ?? "path"}-${index}`}>
+      <p><strong>Policy condition:</strong> <code>{text(condition.expression) ?? "Not recorded"}</code> · {displayState(text(condition.state) ?? "unavailable")}</p>
+      {rows(condition.booleans).length ? <ul>{rows(condition.booleans).map((boolean, booleanIndex) => <li key={`${text(boolean.name) ?? "boolean"}-${booleanIndex}`}><code>{text(boolean.name) ?? "Boolean"}</code> <Label color={boolean.current === false ? "orange" : "grey"} isCompact>{typeof boolean.current === "boolean" ? boolean.current ? "On" : "Off" : "Unavailable"}</Label></li>)}</ul> : <p>Boolean values for this condition were not recorded.</p>}
+    </article>) : <p>A conditional allow path was found, but its condition and Boolean values were unavailable.</p>}
+    <small>{conditions.length > 1 ? "Each listed rule is an independent conditional path. " : ""}These values describe the associated historical checkpoint, not AVC-time or current runtime state. An inactive path is evidence, not a recommendation to change a Boolean.</small>
+  </section>;
 }
 
-function DiagnosisEvidence({ diagnosis }: { diagnosis: Diagnosis }) {
+function DiagnosisEvidence({ diagnosis, hostname }: { diagnosis: Diagnosis; hostname?: string }) {
   return <>
     {diagnosis.kind === "file_context_mismatch" && <ContextComparison diagnosis={diagnosis} />}
-    {diagnosis.kind === "conditional_allow_inactive" && <ExpandableSection toggleText="Conditional policy paths"><BooleanCheckpointSummary diagnosis={diagnosis} /><EvidenceLink target="policy-evaluation-evidence" occurrenceId={diagnosis.occurrence_id}>Inspect policy evaluation</EvidenceLink></ExpandableSection>}
+    {diagnosis.kind === "conditional_allow_inactive" && <ExpandableSection toggleText="Conditional policy paths"><BooleanCheckpointSummary diagnosis={diagnosis} hostname={hostname} /><EvidenceLink target="policy-evaluation-evidence" occurrenceId={diagnosis.occurrence_id}>Inspect policy evaluation</EvidenceLink></ExpandableSection>}
   </>;
 }
 
@@ -246,8 +250,8 @@ function FindingCard({ detail, occurrences }: { detail: IssueDetailResponse; occ
         {diagnosis.kind === "no_matching_allow" && diagnosis.target_class === "file" && ["open", "write"].includes(diagnosis.operation ?? "") && findingOccurrence && <p><strong>Observed outcome:</strong> <EvidenceLink target="audit-evidence" occurrenceId={findingOccurrence.id}>{findingOccurrence.host.hostname ?? `Host ${findingOccurrence.host.id}`} · {displayState(findingOccurrence.enforcement_mode ?? "unknown")} · syscall {displayState(findingOccurrence.syscall_outcome ?? "unknown")}</EvidenceLink></p>}
        {otherPermissions.length > 0 && <p>This finding explains <code>{explainedPermissions.join(", ")}</code> only. Other permissions recorded in this event (<code>{otherPermissions.join(", ")}</code>) need independent assessment.</p>}
       {diagnosis.kind === "conditional_allow_inactive" && <p>Recorded target type: <code>{diagnosis.target_type ?? issue.target_type}</code></p>}
-       <DiagnosisEvidence diagnosis={diagnosis} />
-        {diagnosis.kind === "file_context_mismatch" && (policyFinding ? <><p className="issue-finding-lead">{primaryFindingLead(policyFinding) ?? text(row(policyFinding).finding)}</p><DiagnosisEvidence diagnosis={policyFinding} /></> : <p>Policy explanation unavailable for this occurrence.</p>)}
+        <DiagnosisEvidence diagnosis={diagnosis} hostname={findingHost?.hostname ?? undefined} />
+         {diagnosis.kind === "file_context_mismatch" && (policyFinding ? <><p className="issue-finding-lead">{primaryFindingLead(policyFinding) ?? text(row(policyFinding).finding)}</p><DiagnosisEvidence diagnosis={policyFinding} hostname={detail.host_explanations.find((host) => host.host_id === policyFinding.host_id)?.hostname ?? undefined} /></> : <p>Policy explanation unavailable for this occurrence.</p>)}
       {diagnosis.kind === "no_matching_allow" && ["name_bind", "name_connect"].includes(diagnosis.operation ?? "") && <p><strong>Investigate:</strong> {diagnosis.next_step}</p>}
        {primaryLimitation(diagnosis) && <p className="issue-limitation"><strong>Limitation:</strong> {primaryLimitation(diagnosis)}</p>}
       </article> : !triage_guidance && <MissingExplanation issue={issue} paths={intelligence.paths} names={intelligence.names} hasFindings={(findings?.length ?? 0) > 0} policyAnalysis={policy_analysis} />}
@@ -547,7 +551,7 @@ export function IssueDetail() {
       <IssueWorkbench detail={detailQuery.data} updatedAt={detailQuery.dataUpdatedAt} occurrences={occurrencesQuery.data?.occurrences} onShowTechnicalEvidence={setTechnicalEvidenceIssueId} />
 
       {((findings?.length ?? 0) > 1 || (issue.target_class === "file" && (intelligence.resource_summary?.without_absolute_path_occurrences ?? 0) > 0) || (additional_finding_count ?? 0) > 0 || supplementaryPolicyLimits) && <ExpandableSection className="workbench-additional" toggleText="Additional findings & evidence gaps"><section aria-label="Additional findings & evidence gaps" className="issue-section">
-        {findings?.slice(1).map((finding, index) => <ExpandableSection key={index} toggleText={`${finding.diagnosis.kind === "no_matching_allow" ? diagnosisVariantDetail(finding.diagnosis) : finding.diagnosis.title} · ${finding.occurrence_count.toLocaleString()} occurrence${finding.occurrence_count === 1 ? "" : "s"}`}><p>{primaryFindingLead(finding.diagnosis) ?? text(row(finding.diagnosis).finding)}</p><DiagnosisEvidence diagnosis={finding.diagnosis} /><p><strong>Check next:</strong> {finding.diagnosis.next_step}</p>{primaryLimitation(finding.diagnosis) && <p>{primaryLimitation(finding.diagnosis)}</p>}<EvidenceLink target="policy-evaluation-evidence" occurrenceId={finding.diagnosis.occurrence_id}>Technical evidence for this finding</EvidenceLink></ExpandableSection>)}
+        {findings?.slice(1).map((finding, index) => <ExpandableSection key={index} toggleText={`${finding.diagnosis.kind === "no_matching_allow" ? diagnosisVariantDetail(finding.diagnosis) : finding.diagnosis.title} · ${finding.occurrence_count.toLocaleString()} occurrence${finding.occurrence_count === 1 ? "" : "s"}`}><p>{primaryFindingLead(finding.diagnosis) ?? text(row(finding.diagnosis).finding)}</p><DiagnosisEvidence diagnosis={finding.diagnosis} hostname={host_explanations.find((host) => host.host_id === finding.diagnosis.host_id)?.hostname ?? undefined} /><p><strong>Check next:</strong> {finding.diagnosis.next_step}</p>{primaryLimitation(finding.diagnosis) && <p>{primaryLimitation(finding.diagnosis)}</p>}<EvidenceLink target="policy-evaluation-evidence" occurrenceId={finding.diagnosis.occurrence_id}>Technical evidence for this finding</EvidenceLink></ExpandableSection>)}
         {issue.target_class === "file" && (intelligence.resource_summary?.without_absolute_path_occurrences ?? 0) > 0 && <div><h3>Path-based label check unavailable</h3><p>{intelligence.resource_summary!.without_absolute_path_occurrences.toLocaleString()} of {issue.occurrences_count.toLocaleString()} occurrences contain filenames but no complete filesystem path. SECentral cannot determine whether <code>{issue.target_type}</code> is the expected label for those files.</p></div>}
         {(additional_finding_count ?? 0) > 0 && <p>{additional_finding_count} additional finding group{additional_finding_count === 1 ? " is" : "s are"} summarized by host in Fleet scope.</p>}
           {supplementaryPolicyLimits && <ul>{policy_analysis.limitations.map((limitation) => <li key={limitation}>{limitation === "exact policy identity is unavailable" ? "The policy version could not be confirmed for these occurrences." : limitation}</li>)}</ul>}

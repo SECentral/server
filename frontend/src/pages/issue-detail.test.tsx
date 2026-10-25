@@ -999,9 +999,11 @@ describe("issue investigation", () => {
     renderDetail();
     expect(await screen.findByRole("heading", { level: 1, name: "httpd was denied reading files labeled user_home_t." })).toBeInTheDocument();
     expect(document.querySelector(".issue-operation-label")).toHaveTextContent(`${(2057).toLocaleString()} occurrences · 1 server · ${(2050).toLocaleString()} filenames`);
-    expect(screen.getByText(/httpd_read_user_content/, { selector: ".issue-condition-summary code" })).not.toBeVisible();
+    const conditionValues = screen.getAllByText("httpd_read_user_content", { selector: ".issue-condition-summary code" });
+    expect(conditionValues).toHaveLength(2);
+    conditionValues.forEach((value) => expect(value).not.toBeVisible());
     await user.click(screen.getByRole("button", { name: "Conditional policy paths" }));
-    expect(screen.getByText(/httpd_read_user_content/, { selector: ".issue-condition-summary code" })).toBeVisible();
+    screen.getAllByText("httpd_read_user_content", { selector: ".issue-condition-summary code" }).forEach((value) => expect(value).toBeVisible());
     expect(document.querySelector(".issue-condition-summary")).toHaveTextContent("Off");
     await user.click(screen.getByRole("button", { name: "Additional findings & evidence gaps" }));
     expect(screen.getByRole("heading", { name: "Path-based label check unavailable" })).toBeVisible();
@@ -1138,7 +1140,7 @@ describe("issue investigation", () => {
     expect(screen.getAllByText(/local port bind/).length).toBeGreaterThan(0);
     expect(screen.getByText(/TCP port 12345 \(local bind\)/)).toBeInTheDocument();
     expect(screen.getAllByText("nis_enabled").length).toBeGreaterThan(0);
-    expect(screen.getByText("nis_enabled")).not.toBeVisible();
+    screen.getAllByText("nis_enabled").forEach((value) => expect(value).not.toBeVisible());
     expect(screen.queryByText(/whether this workload is expected to bind TCP port 12345/)).not.toBeInTheDocument();
     expect(screen.queryByText(/map.*http_port_t/i)).not.toBeInTheDocument();
   });
@@ -1247,16 +1249,26 @@ describe("issue investigation", () => {
     expect(within(record).queryByText("First recorded syscall result")).not.toBeInTheDocument();
   });
 
-  it("shows Scenario 005 execute evidence while leaving transition intent unknown", async () => {
+  it("shows the exact checkpoint condition and Boolean values while leaving transition intent unknown", async () => {
     const fetchMock = vi.fn();
     mockApi(fetchMock, "005");
     vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
     renderDetail();
 
     expect(await screen.findByRole("heading", { level: 1, name: /httpd could not execute \/var\/www\/cgi-bin/ })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /httpd_t was denied executing/ })).toBeInTheDocument();
     expect(screen.getAllByText(/\/var\/www\/cgi-bin\/secentral-s005-helper\.sh/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("httpd_unified").length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: "Conditional policy paths" }));
+    const checkpoint = screen.getByRole("region", { name: "Possible policy paths" });
+    expect(within(checkpoint).getByRole("link", { name: "secentral-agent-test · occurrence #101" })).toHaveAttribute("href", "/hosts/10/occurrences/101");
+    expect(checkpoint).toHaveTextContent("Sep 30, 16:26 UTC");
+    expect(checkpoint).toHaveTextContent("httpd_builtin_scripting && httpd_unified && httpd_enable_cgi · Inactive");
+    expect(checkpoint).toHaveTextContent("httpd_builtin_scripting On");
+    expect(checkpoint).toHaveTextContent("httpd_unified Off");
+    expect(checkpoint).toHaveTextContent("httpd_enable_cgi On");
+    expect(checkpoint).toHaveTextContent("not AVC-time or current runtime state");
     expect(within(screen.getByRole("region", { name: "Diagnosis" })).queryByText(/does not establish that a domain transition was attempted or intended/)).not.toBeInTheDocument();
   });
 
