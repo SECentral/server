@@ -24,15 +24,15 @@ dnf install -y podman podman-compose curl openssl
 
 ## 1. Prepare the server
 
-On the **server host**, download the deployment files for version `0.0.9`:
+On the **server host**, download the deployment files for version `0.0.10`:
 
 ```sh
 umask 077
 install -d -m 0700 /opt/secentral
 cd /opt/secentral
-curl -fLO https://raw.githubusercontent.com/SECentral/server/v0.0.9/compose.yaml
-curl -fLO https://raw.githubusercontent.com/SECentral/server/v0.0.9/Caddyfile
-curl -fLO https://raw.githubusercontent.com/SECentral/server/v0.0.9/.env.example
+curl -fLO https://raw.githubusercontent.com/SECentral/server/v0.0.10/compose.yaml
+curl -fLO https://raw.githubusercontent.com/SECentral/server/v0.0.10/Caddyfile
+curl -fLO https://raw.githubusercontent.com/SECentral/server/v0.0.10/.env.example
 cp .env.example .env
 ```
 
@@ -47,7 +47,7 @@ Edit `.env`:
 ```sh
 read -rsp 'Operator password: ' ADMIN_PASSWORD; printf '\n'
 printf '%s' "$ADMIN_PASSWORD" | podman run --rm -i --entrypoint bundle \
-  quay.io/secentral/server:0.0.9 exec ruby -rbcrypt \
+  quay.io/secentral/server:0.0.10 exec ruby -rbcrypt \
   -e 'puts BCrypt::Password.create(STDIN.read)'
 unset ADMIN_PASSWORD
 ```
