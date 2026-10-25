@@ -539,11 +539,11 @@ describe("issue investigation", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/status", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ status: "ignored", signature_ids: [11] }) })));
     expect(await within(review).findByRole("status")).toHaveTextContent("Status saved for this permission set only");
     expect(within(table).getAllByRole("row")[3]).toHaveTextContent("Open");
-    await user.selectOptions(within(review).getByLabelText("Operation disposition"), "under_investigation");
+    await user.selectOptions(within(review).getByLabelText("Operation assessment"), "under_investigation");
     expect(fetchMock.mock.calls.filter(([, request]) => request?.method === "PATCH")).toHaveLength(1);
-    await user.click(within(review).getByRole("button", { name: "Save operation disposition" }));
+    await user.click(within(review).getByRole("button", { name: "Save operation assessment" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/disposition", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ disposition: "under_investigation", signature_ids: [11] }) })));
-    expect(await within(review).findByRole("status")).toHaveTextContent("Disposition saved for this permission set only");
+    expect(await within(review).findByRole("status")).toHaveTextContent("Assessment saved for this permission set only");
     await user.click(within(review).getByRole("button", { name: "Close review" }));
     expect(screen.queryByRole("region", { name: "Review permission set" })).not.toBeInTheDocument();
     await user.click(within(table).getByRole("button", { name: "View open, read signature 12 occurrences" }));
@@ -559,9 +559,13 @@ describe("issue investigation", () => {
     renderDetail();
     await screen.findByRole("heading", { level: 1 });
     expect(screen.queryByRole("button", { name: "Denied operations" })).not.toBeInTheDocument();
-    await userEvent.setup().click(screen.getByRole("button", { name: /Actions ·/ }));
+    expect(screen.queryByRole("button", { name: /policy draft/i })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("policy-drafts"))).toBe(false);
+    expect(screen.getByText("Issue status")).toBeVisible();
+    expect(screen.getByText("Open", { selector: ".pf-v6-c-label__text" })).toBeVisible();
+    await userEvent.setup().click(screen.getByRole("button", { name: /Issue actions/ }));
     expect(screen.getByLabelText("Issue status")).toBeVisible();
-    expect(screen.getByLabelText("Operator disposition")).toBeVisible();
+    expect(screen.getByLabelText("Operator assessment")).toBeVisible();
   });
 
   it("keeps an unsuccessful separate review editable and reports the failure", async () => {
@@ -1431,7 +1435,7 @@ describe("issue investigation", () => {
     expect(await screen.findByRole("complementary", { name: "Investigation context" })).toHaveTextContent("user_home_t");
   });
 
-  it("keeps workflow available in compact Actions and updates lifecycle status", async () => {
+  it("keeps workflow available in the compact issue-actions card and updates lifecycle status", async () => {
     const fetchMock = vi.fn();
     mockApi(fetchMock, "001");
     vi.stubGlobal("fetch", fetchMock);
@@ -1439,8 +1443,8 @@ describe("issue investigation", () => {
     renderDetail();
 
     await screen.findByRole("heading", { name: "Potential file-context mismatch" });
-    expect(screen.getByText("Actions · Unclassified")).toBeInTheDocument();
-    await user.click(screen.getByText("Actions · Unclassified"));
+    expect(screen.getByRole("button", { name: /Issue actions/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Issue actions/ }));
     await user.selectOptions(screen.getByLabelText("Issue status"), "resolved");
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/status", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ status: "resolved", signature_ids: [11] }) })));
   });
@@ -1471,19 +1475,17 @@ describe("issue investigation", () => {
     expect(screen.getByRole("button", { name: "Post-restoration verification checklist" })).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("acknowledges keeping a restriction using a note without accepting a pending harmless classification or changing status", async () => {
+  it("saves an assessment note without changing the existing assessment or issue status", async () => {
     const fetchMock = vi.fn();
     mockApi(fetchMock, "001");
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     renderDetail();
     await screen.findByRole("heading", { name: "Potential file-context mismatch" });
-    await user.click(screen.getByText("Actions · Unclassified"));
-    await user.selectOptions(screen.getByLabelText("Operator disposition"), "expected_harmless");
-    await user.click(screen.getByRole("button", { name: "Keep restriction" }));
-    await user.type(screen.getByLabelText("Restriction note"), "Intentional boundary: no web access to private files");
-    await user.click(screen.getByRole("button", { name: "Save acknowledgement" }));
-    await screen.findByText(/Acknowledgement saved/);
+    await user.click(screen.getByRole("button", { name: /Issue actions/ }));
+    expect(screen.queryByRole("button", { name: "Keep restriction" })).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText("Assessment note"), "Intentional boundary: no web access to private files");
+    await user.click(screen.getByRole("button", { name: "Save assessment" }));
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/issues/7/disposition", expect.objectContaining({
       method: "PATCH", body: JSON.stringify({ disposition: "unclassified", signature_ids: [11], note: "Intentional boundary: no web access to private files" })
     }));

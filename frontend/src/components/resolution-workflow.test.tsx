@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
-import type { PolicyDraft, ResolutionWorkflow as Workflow } from "../api/resolution";
+import type { ResolutionWorkflow as Workflow } from "../api/resolution";
 import { CopyCommand, ResolutionWorkflow } from "./ResolutionWorkflow";
 import { ReadOnlyCommands } from "./OperatorGuidance";
 import { activeResolutionResource, fileResourceLabel, resolutionResources } from "./resolutionResources";
@@ -38,7 +38,7 @@ function selected(): Workflow {
 }
 function mount() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={client}><MemoryRouter><ResolutionWorkflow issueId={1939} stage="actions" /><ResolutionWorkflow issueId={1939} stage="draft" /><ResolutionWorkflow issueId={1939} stage="observed" /><ResolutionWorkflow issueId={1939} stage="intent" /></MemoryRouter></QueryClientProvider>);
+  return render(<QueryClientProvider client={client}><MemoryRouter><ResolutionWorkflow issueId={1939} stage="observed" /><ResolutionWorkflow issueId={1939} stage="intent" /></MemoryRouter></QueryClientProvider>);
 }
 
 describe("Evidence-driven resolution UI", () => {
@@ -356,37 +356,6 @@ describe("Evidence-driven resolution UI", () => {
     expect(screen.getByText("Last observed Boolean: On")).toBeVisible();
     await userEvent.setup().click(screen.getByRole("button", { name: "Evidence & limitations" }));
     expect(screen.getByText("Why is this shown?")).toBeVisible();
-  });
-
-  it("restores staged draft permissions across navigation and requires separate literal-rule intent", async () => {
-    let draft: PolicyDraft = { id: 1, name: "Web review", organization_id: 1, operator: "admin", status: "draft",
-      updated_at: "2026-10-01T11:00:00Z", entries: [], limitations: ["No exact-policy validation"], evidence_version: "d1" };
-    vi.stubGlobal("fetch", vi.fn(async (path: string, options?: RequestInit) => {
-      if (path.includes("/entries") && options?.method === "POST") {
-        draft = { ...draft, evidence_version: "d2", entries: [{ id: 1, source_type: "httpd_t", target_type: "unreserved_port_t",
-          object_class: "tcp_socket", permission: "name_connect", provenance: [{ issue_id: 1939 }],
-          known_alternatives: [{ kind: "enable_boolean", title: candidate.title, status: "proposed" }] }] };
-        return new Response(JSON.stringify(draft), { status: 200 });
-      }
-      return new Response(JSON.stringify(path.includes("policy-drafts") ? { drafts: [draft] } : initial()), { status: 200 });
-    }));
-    const user = userEvent.setup();
-    const view = mount();
-    await screen.findByRole("button", { name: "Review this change" });
-    await user.click(screen.getByRole("button", { name: "Open policy draft workspace" }));
-    await user.click(await screen.findByRole("button", { name: "Add observed permission to Custom Policy Draft" }));
-    await screen.findByText("Known alternatives at staging");
-    expect(screen.getByText("httpd_t → unreserved_port_t:tcp_socket name_connect")).toBeVisible();
-    view.unmount();
-    mount();
-    await screen.findByRole("button", { name: "Review this change" });
-    await user.click(screen.getByRole("button", { name: "Open policy draft workspace" }));
-    await screen.findByText("httpd_t → unreserved_port_t:tcp_socket name_connect");
-    await user.click(screen.getByText("Review proposed literal policy export"));
-    expect(screen.getByRole("button", { name: "Export proposed .te" })).toBeDisabled();
-    await user.click(screen.getByRole("checkbox", { name: "I reviewed the alternatives and intend the literal type-wide permissions in this draft." }));
-    expect(screen.getByRole("button", { name: "Export proposed .te" })).toBeEnabled();
-    expect(screen.queryByRole("region", { name: "Selected change plan" })).not.toBeInTheDocument();
   });
 
   it("makes the selected option dominant and collapses informational alternatives", async () => {

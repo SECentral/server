@@ -1014,14 +1014,12 @@
   gap: var(--pf-t--global--spacer--sm);
 }
 
-.issue-workflow > details,
 .issue-advanced-details,
 .issue-activity-context,
 .issue-fleet-leads {
   position: relative;
 }
 
-.issue-workflow summary,
 .issue-advanced-details > summary,
 .issue-activity-context > summary,
 .issue-fleet-leads > summary,
@@ -1029,29 +1027,6 @@
 .issue-occurrence-content details > summary,
 .issue-technical-details > summary {
   cursor: pointer;
-}
-
-.issue-workflow > details > summary {
-  padding: var(--pf-t--global--spacer--sm) var(--pf-t--global--spacer--md);
-  border: 1px solid var(--pf-t--global--border--color--default);
-  border-radius: var(--pf-t--global--border--radius--medium);
-  list-style-position: inside;
-  white-space: nowrap;
-}
-
-.issue-workflow[open] .issue-workflow-panel,
-.issue-workflow details[open] .issue-workflow-panel {
-  position: absolute;
-  z-index: 2;
-  inset-inline-end: 0;
-  display: grid;
-  width: min(25rem, calc(100vw - 2rem));
-  gap: var(--pf-t--global--spacer--sm);
-  padding: var(--pf-t--global--spacer--md);
-  border: 1px solid var(--pf-t--global--border--color--default);
-  border-radius: var(--pf-t--global--border--radius--medium);
-  background: var(--pf-t--global--background--color--primary--default);
-  box-shadow: var(--pf-t--global--box-shadow--md);
 }
 
 .issue-workflow-panel label {
@@ -1628,8 +1603,16 @@
 .issue-occurrences-section th, .issue-occurrences-section td { padding-block: .45rem; }
 .issue-occurrences-section td .pf-v6-c-button { padding-block: 0; font-size: .8125rem; }
 .issue-investigation summary:focus-visible, .command-block pre:focus-visible { outline: 2px solid var(--pf-t--global--border--color--brand--default); outline-offset: 3px; }
-.issue-workflow { flex-wrap: wrap; max-width: 28rem; gap: var(--pf-t--global--spacer--sm); }
-.issue-workflow > section { flex-basis: 100%; }
+.issue-workflow { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch; width: calc((100% - 1.5rem) * .3); align-self: flex-start; }
+.issue-workflow .pf-v6-c-card__body { display: grid; gap: var(--pf-t--global--spacer--sm); }
+.issue-workflow-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--pf-t--global--spacer--sm); }
+.issue-workflow-status { display: flex; align-items: center; gap: var(--pf-t--global--spacer--xs); color: var(--pf-t--global--text--color--subtle); font-size: var(--pf-t--global--font--size--body--sm); white-space: nowrap; }
+.issue-workflow .issue-workflow-panel {
+  display: grid;
+  gap: var(--pf-t--global--spacer--sm);
+  margin-block-start: var(--pf-t--global--spacer--sm);
+}
+.issue-workflow-panel[hidden] { display: none; }
 .issue-workspace .issue-primary-finding { display: grid; gap: var(--pf-t--global--spacer--md); margin: 0; max-width: none; }
 .issue-workspace .issue-primary-finding > h2 { margin: 0; }
 .issue-workspace .issue-primary-finding > article { border: 0; padding: 0; background: transparent; }
@@ -1670,6 +1653,8 @@
 .issue-provenance-examples { display: flex; flex-wrap: wrap; gap: var(--pf-t--global--spacer--md); list-style: none; margin: var(--pf-t--global--spacer--sm) 0 0; padding: 0; }
 .evidence-rules { display: grid; gap: var(--pf-t--global--spacer--sm); }
 @media (max-width: 1199px) {
+  .issue-investigation-header { flex-wrap: wrap; }
+  .issue-workflow { width: 100%; }
   .issue-workbench { grid-template-columns: 1fr; }
   .workbench-context-column { grid-template-columns: minmax(0, 1fr); }
   .workbench-context { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem 1.25rem; }

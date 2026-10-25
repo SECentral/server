@@ -6,8 +6,7 @@ investigating fleet activity.
 
 It normalizes and groups events into issues, shows host configuration and
 SELinux activity, and provides evidence-backed analysis and resolution
-workflows. Operators can create and export policy drafts for review; SECentral
-does not automatically deploy policy changes.
+workflows.
 
 The Rails application serves a React + TypeScript SPA. PostgreSQL stores server
 data. See [TEST.md](TEST.md) for development and test instructions.
@@ -27,7 +26,7 @@ Agents can submit authenticated events, heartbeats, expected-context
 observations, and requested policy artifacts. The server persists raw event
 evidence, normalizes and groups occurrences into issues, and exposes operator
 views for issues, hosts, SELinux activity, configuration, catalogs, analysis,
-and resolution intent. Policy drafts can be staged and exported for review.
+and resolution intent.
 
 Catalog names and active/archive lifecycle are managed separately from immutable
 revision content. See [Managing catalogs](docs/catalog-lifecycle.md)

@@ -7,9 +7,8 @@ import CheckCircleIcon from "@patternfly/react-icons/dist/esm/icons/check-circle
 import ExclamationTriangleIcon from "@patternfly/react-icons/dist/esm/icons/exclamation-triangle-icon";
 import CopyIcon from "@patternfly/react-icons/dist/esm/icons/copy-icon";
 import { fetchIssueOccurrence, type IssueDetailResponse } from "../api/issue";
-import { ContextSidebar, EvidenceLink, ObservedAccessFlow, TechnicalEvidenceDisclosure, evidenceRecord, valueText } from "./WorkbenchEvidence";
-import { clearIntent, createDraft, exportDraft, fetchDrafts, fetchResolutions, removeEntry, selectIntent, stagePermission,
-  type ChangePlan as PlanData, type HomeContentReview, type PolicyDraftExport, type ResolutionWorkflow as Workflow } from "../api/resolution";
+import { ContextSidebar, EvidenceLink, ObservedAccessFlow, evidenceRecord, valueText } from "./WorkbenchEvidence";
+import { clearIntent, fetchResolutions, selectIntent, type ChangePlan as PlanData, type HomeContentReview, type ResolutionWorkflow as Workflow } from "../api/resolution";
 import { activeResolutionResource, candidateFilePath, fileResourceLabel, resolutionResources } from "./resolutionResources";
 import { InspectionCommands, OperatorChecks, OperatorVerification, ReadOnlyCommands } from "./OperatorGuidance";
 import { Disclosure as ExpandableSection } from "./Disclosure";
@@ -308,51 +307,7 @@ function EvidenceChangeSummary({ workflow }: { workflow: Workflow }) {
   return reasons.length ? <ul aria-label="What changed">{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul> : null;
 }
 
-function DraftWorkspace({ issueId, occurrenceId }: { issueId: number; occurrenceId: number }) {
-  const client = useQueryClient();
-  const drafts = useQuery({ queryKey: ["policy-drafts", issueId], queryFn: () => fetchDrafts(issueId) });
-  const [draftId, setDraftId] = useState<number | null>(null);
-  const [name, setName] = useState("Custom policy draft");
-  const [moduleName, setModuleName] = useState("secentral_local");
-  const [literalConfirmed, setLiteralConfirmed] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [exported, setExported] = useState<PolicyDraftExport | null>(null);
-  const selected = drafts.data?.drafts.find((d) => d.id === draftId) ?? drafts.data?.drafts[0];
-  const run = async (action: () => Promise<unknown>) => {
-    setBusy(true); setError(null); setExported(null); setLiteralConfirmed(false);
-    try { await action(); await client.invalidateQueries({ queryKey: ["policy-drafts", issueId] }); }
-    catch (e) { setError(e instanceof Error ? e.message : "Draft update failed"); }
-    finally { setBusy(false); }
-  };
-  return <section aria-label="Custom policy draft workspace">
-    <h3>Custom policy draft</h3><p>Stage evidence for policy review. Existing labeling or conditional mechanisms may avoid a new custom rule.</p>
-    {error && <Alert variant="danger" isInline title="Draft action failed">{error}</Alert>}
-    {drafts.isPending ? <Spinner size="md" /> : drafts.isError ? <Alert variant="warning" isInline title="Could not load drafts" /> : <>
-      <label>Draft <select aria-label="Policy draft" value={selected?.id ?? ""} onChange={(e) => { setDraftId(Number(e.target.value)); setLiteralConfirmed(false); setExported(null); }}>{drafts.data.drafts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label>
-      <TextInput aria-label="New draft name" value={name} onChange={(_e, value) => setName(value)} />
-      <Button variant="secondary" isDisabled={busy || !name.trim()} onClick={() => void run(async () => { const d = await createDraft(issueId, name); setDraftId(d.id); })}>Create draft</Button>
-      {selected && <>
-        <Button variant="secondary" isDisabled={busy} onClick={() => void run(() => stagePermission(selected.id, issueId, occurrenceId))}>Add observed permission to Custom Policy Draft</Button>
-        <p>{selected.name} · {selected.status} · {selected.entries.length} staged permission(s)</p>
-        {selected.entries.map((entry) => <article key={entry.id}><p><code>{entry.source_type} → {entry.target_type}:{entry.object_class} {entry.permission}</code> · {entry.provenance.length} evidence reference(s)</p>
-          {entry.known_alternatives.length > 0 && <div><strong>Known alternatives at staging</strong><ul>{entry.known_alternatives.map((alternative, index) => <li key={index}>{alternative.title} · {alternative.status.replaceAll("_", " ")}</li>)}</ul></div>}
-          <TechnicalEvidenceDisclosure basis={{ evidence_references: entry.provenance }} title="Known alternatives and source evidence" />
-          <Button variant="link" isDisabled={busy} onClick={() => void run(() => removeEntry(selected.id, entry.id))}>Remove staged permission</Button></article>)}
-        <ul>{selected.limitations.map((text) => <li key={text}>{text}</li>)}</ul>
-        <Button variant="secondary" isDisabled={busy || !selected.entries.length} onClick={() => void run(async () => { const result = await exportDraft(selected.id, "json"); setExported(result); download(result.filename, result.content); })}>Export semantic draft</Button>
-        <ExpandableSection toggleText="Review proposed literal policy export"><p>A literal allow rule affects all objects of its target type, not just the recorded path or port. These rules have not been compiled or evaluated against the retained policy.</p>
-          <TextInput aria-label="Policy module name" value={moduleName} onChange={(_e, value) => { setModuleName(value); setLiteralConfirmed(false); }} />
-          <label><input type="checkbox" checked={literalConfirmed} onChange={(e) => setLiteralConfirmed(e.target.checked)} /> I reviewed the alternatives and intend the literal type-wide permissions in this draft.</label>
-          <Button variant="secondary" isDisabled={busy || !literalConfirmed || !selected.entries.length} onClick={() => void run(async () => { const result = await exportDraft(selected.id, "te", moduleName, literalConfirmed, selected.evidence_version); setExported(result); download(result.filename, result.content); })}>Export proposed .te</Button>
-        </ExpandableSection>
-        {exported && <div><Label color="orange">{exported.validation_status}</Label><p>Exported {exported.filename}</p>{exported.validation_status === "unvalidated" && <pre>{exported.content}</pre>}{exported.build_steps.map((command) => <CopyCommand key={command} command={command} />)}<p>Compilation instructions do not establish exact-policy effectiveness. No installation command is generated.</p></div>}
-      </>}
-    </>}
-  </section>;
-}
-
-export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpdatedAt, detail, onShowTechnicalEvidence, children }: { issueId: number; stage: "observed" | "intent" | "context" | "actions" | "draft"; initialData?: Workflow; initialDataUpdatedAt?: number; detail?: IssueDetailResponse; onShowTechnicalEvidence?: () => void; children?: ReactNode }) {
+export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpdatedAt, detail, onShowTechnicalEvidence, children }: { issueId: number; stage: "observed" | "intent" | "context"; initialData?: Workflow; initialDataUpdatedAt?: number; detail?: IssueDetailResponse; onShowTechnicalEvidence?: () => void; children?: ReactNode }) {
   const resourceFieldId = useId();
   const client = useQueryClient();
   const query = useQuery({ queryKey: ["issue-resolutions", issueId], queryFn: () => fetchResolutions(issueId), initialData, initialDataUpdatedAt, staleTime: 30_000 });
@@ -371,12 +326,6 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
     document.getElementById(`plan-${phase}`)?.focus();
     document.getElementById(`plan-${phase}`)?.scrollIntoView?.({ block: "start" });
   }, [stage, phase, requestedResource, query.dataUpdatedAt]);
-  const showDrafts = params.get("workspace") === "draft";
-  const toggleDrafts = () => setParams((previous) => {
-    const next = new URLSearchParams(previous);
-    if (showDrafts) next.delete("workspace"); else next.set("workspace", "draft");
-    return next;
-  });
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true); setError(null);
     try { await action(); }
@@ -390,13 +339,6 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
   // A newly fetched issue core may be newer than the shared workflow cache.
   const workflow = initialData && (initialDataUpdatedAt ?? 0) > query.dataUpdatedAt ? initialData : query.data;
   if (stage === "observed" || stage === "context") return <FocusedResource issueId={issueId} workflow={workflow} detail={detail} stage={stage} onShowTechnicalEvidence={onShowTechnicalEvidence} />;
-  if (stage === "actions") return <>
-    {workflow.observed_access && <Button variant="secondary" onClick={toggleDrafts} isExpanded={showDrafts} aria-controls="issue-policy-draft">{showDrafts ? "Close policy draft workspace" : "Open policy draft workspace"}</Button>}
-  </>;
-  if (stage === "draft") return showDrafts && workflow.observed_access ? <section id="issue-policy-draft" className="issue-section">
-    <p>Draft evidence: <Link to={`/hosts/${workflow.observed_access.host_id}/occurrences/${workflow.observed_access.occurrence_id}`}>{workflow.observed_access.hostname} · #{workflow.observed_access.occurrence_id}</Link>. Resource browsing does not change this staging source.</p>
-    <DraftWorkspace key={`${issueId}-${workflow.observed_access.occurrence_id}`} issueId={issueId} occurrenceId={workflow.observed_access.occurrence_id} />
-  </section> : null;
   const selected = workflow.candidates.find((c) => c.id === workflow.intent?.candidate_id);
   const source = detail?.operator_guidance?.source;
   const fileAccessWithoutPlan = detail?.diagnosis?.kind === "no_matching_allow" && detail.diagnosis.target_class === "file" && ["open", "write"].includes(detail.diagnosis.operation ?? "") ? detail.diagnosis : null;

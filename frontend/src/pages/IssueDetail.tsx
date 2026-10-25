@@ -447,8 +447,7 @@ export function IssueDetail() {
   const [savingStatus, setSavingStatus] = useState(false);
   const [savingDisposition, setSavingDisposition] = useState(false);
   const [workflowError, setWorkflowError] = useState<string | null>(null);
-  const [showKeepRestriction, setShowKeepRestriction] = useState(false);
-  const [acknowledgementSaved, setAcknowledgementSaved] = useState(false);
+  const [showIssueActions, setShowIssueActions] = useState(false);
   const [operationReview, setOperationReview] = useState<{ issueId: number; id: number; status: typeof STATUS_OPTIONS[number]; disposition: string } | null>(null);
   const [savingOperation, setSavingOperation] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
@@ -467,24 +466,19 @@ export function IssueDetail() {
     }
   };
 
-  const applyDisposition = async (keepRestriction = false) => {
+  const applyDisposition = async () => {
     const issue = detailQuery.data?.issue;
     if (!issue) return;
     setSavingDisposition(true);
     setWorkflowError(null);
     try {
       const signatures = issue.signatures ?? [];
-      if (keepRestriction) {
-        await Promise.all(signatures.map((signature) => updateIssueDisposition(issueId, signature.disposition, [signature.id], dispositionNote.trim() || undefined)));
-      } else {
-        await updateIssueDisposition(issueId, pendingDisposition ?? issue.disposition, signatures.map((signature) => signature.id), dispositionNote.trim() || undefined);
-      }
+      await updateIssueDisposition(issueId, pendingDisposition ?? issue.disposition, signatures.map((signature) => signature.id), dispositionNote.trim() || undefined);
       await queryClient.invalidateQueries({ queryKey: ["issue", issueId] });
       setPendingDisposition(null);
       setDispositionNote("");
-      if (keepRestriction) setAcknowledgementSaved(true);
     } catch (error) {
-      setWorkflowError(error instanceof Error ? error.message : "Could not update disposition");
+      setWorkflowError(error instanceof Error ? error.message : "Could not update assessment");
     } finally {
       setSavingDisposition(false);
     }
@@ -499,7 +493,7 @@ export function IssueDetail() {
       if (field === "status") await updateIssueStatus(issueId, operationReview.status, [operationReview.id]);
       else await updateIssueDisposition(issueId, operationReview.disposition, [operationReview.id]);
       await queryClient.invalidateQueries({ queryKey: ["issue", issueId] });
-      setOperationSaved(`${field === "status" ? "Status" : "Disposition"} saved for this permission set only.`);
+      setOperationSaved(`${field === "status" ? "Status" : "Assessment"} saved for this permission set only.`);
     } catch (error) {
       setOperationError(error instanceof Error ? error.message : "Could not save operation review");
     } finally {
@@ -530,31 +524,23 @@ export function IssueDetail() {
           <p className="issue-operation-label">{issue.occurrences_count.toLocaleString()} occurrence{issue.occurrences_count === 1 ? "" : "s"} · {issue.affected_hosts} server{issue.affected_hosts === 1 ? "" : "s"}{(intelligence.resource_summary?.name_count ?? 0) > 1 && ` · ${intelligence.resource_summary!.name_count.toLocaleString()} filenames`} · First {timeAgo(issue.first_seen_at)} · Last {timeAgo(issue.last_seen_at)}</p>
           {(intelligence.resource_summary?.destination_ports?.length ?? 0) > 0 && <p className="issue-operation-label">Recorded destination ports: {intelligence.resource_summary!.destination_ports!.map((item) => `TCP/${item.port} (${item.occurrence_count} occurrence${item.occurrence_count === 1 ? "" : "s"})`).join(" · ")}{intelligence.resource_summary!.destination_port_count! > 3 && ` · ${intelligence.resource_summary!.destination_port_count! - 3} more ports`}</p>}
         </div>
-        <div className="issue-workflow">
-          <Label color={issue.display_status === "resolved" ? "green" : issue.display_status === "ignored" ? "grey" : issue.display_status === "regressed" ? "orange" : "blue"}>{displayState(issue.display_status)}</Label>
-          <ExpandableSection toggleText={`Actions · ${displayState(issue.disposition)}`}>
-            <div className="issue-workflow-panel">
-              {workflowError && <Alert variant="danger" isInline title="Workflow update failed">{workflowError}</Alert>}
+        <Card isCompact className="issue-workflow">
+          <CardBody>
+            <div className="issue-workflow-heading">
+              <Button variant="secondary" aria-expanded={showIssueActions} aria-controls="issue-actions-panel" onClick={() => setShowIssueActions(!showIssueActions)}>Issue actions</Button>
+              <span className="issue-workflow-status">Issue status <Label color={issue.display_status === "resolved" ? "green" : issue.display_status === "ignored" ? "grey" : issue.display_status === "regressed" ? "orange" : "blue"}>{displayState(issue.display_status)}</Label></span>
+            </div>
+            <div id="issue-actions-panel" className="issue-workflow-panel" hidden={!showIssueActions}>
+              {workflowError && <Alert variant="danger" isInline title="Issue update failed">{workflowError}</Alert>}
               <p>Applies to all currently observed permission sets. New permission sets require a new review.</p>
               <label>Lifecycle status<select aria-label="Issue status" value={issue.status} disabled={savingStatus} onChange={(event) => void changeStatus(event.target.value as typeof STATUS_OPTIONS[number])}>{STATUS_OPTIONS.map((status) => <option key={status} value={status}>{displayState(status)}</option>)}</select></label>
-              <label>Operator disposition<select aria-label="Operator disposition" value={disposition} onChange={(event) => setPendingDisposition(event.target.value)}>{issue.disposition === "mixed" && <option value="mixed" disabled>Mixed — review denied operations</option>}{DISPOSITIONS.map((item) => <option key={item} value={item}>{displayState(item)}</option>)}</select></label>
-              <TextInput value={dispositionNote} onChange={(_event, value) => setDispositionNote(value)} aria-label="Disposition note" placeholder="Note (optional)" />
-              <Button variant="primary" isDisabled={savingDisposition || disposition === "mixed" || (disposition === issue.disposition && !dispositionNote.trim())} onClick={() => void applyDisposition()}>{savingDisposition ? "Applying…" : "Save disposition"}</Button>
+              <label>Operator assessment<select aria-label="Operator assessment" value={disposition} onChange={(event) => setPendingDisposition(event.target.value)}>{issue.disposition === "mixed" && <option value="mixed" disabled>Mixed — review denied operations</option>}{DISPOSITIONS.map((item) => <option key={item} value={item}>{displayState(item)}</option>)}</select></label>
+              <TextInput value={dispositionNote} onChange={(_event, value) => setDispositionNote(value)} aria-label="Assessment note" placeholder="Note (optional)" />
+              <Button variant="primary" isDisabled={savingDisposition || disposition === "mixed" || (disposition === issue.disposition && !dispositionNote.trim())} onClick={() => void applyDisposition()}>{savingDisposition ? "Applying…" : "Save assessment"}</Button>
             </div>
-          </ExpandableSection>
-          <Button variant="secondary" onClick={() => setShowKeepRestriction(!showKeepRestriction)} isExpanded={showKeepRestriction} aria-controls="restriction-note">Keep restriction</Button>
-          <ResolutionWorkflow issueId={issueId} stage="actions" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} />
-          {showKeepRestriction && <section id="restriction-note" aria-label="Keep restriction" className="issue-workflow-panel">
-            <p>Record why this access should remain denied. This saves a note without declaring it harmless, changing policy or marking the issue resolved.</p>
-            {workflowError && <Alert variant="danger" isInline title="Could not save acknowledgement">{workflowError}</Alert>}
-            <TextInput aria-label="Restriction note" value={dispositionNote} onChange={(_event, value) => { setDispositionNote(value); setAcknowledgementSaved(false); }} />
-            <Button variant="secondary" isDisabled={savingDisposition || !dispositionNote.trim()} onClick={() => void applyDisposition(true)}>Save acknowledgement</Button>
-            {acknowledgementSaved && <p role="status">Acknowledgement saved. Restriction and lifecycle status unchanged.</p>}
-          </section>}
-        </div>
+          </CardBody>
+        </Card>
       </header>
-
-      <ResolutionWorkflow issueId={issueId} stage="draft" initialData={detailQuery.data.resolutions} initialDataUpdatedAt={detailQuery.dataUpdatedAt} />
 
       <IssueWorkbench detail={detailQuery.data} updatedAt={detailQuery.dataUpdatedAt} occurrences={occurrencesQuery.data?.occurrences} onShowTechnicalEvidence={setTechnicalEvidenceIssueId} />
 
@@ -604,12 +590,12 @@ export function IssueDetail() {
 
       {(issue.signatures?.length ?? 0) > 1 && <ExpandableSection toggleText="Denied operations">
         <p>This issue contains different denied permission sets. Compare their occurrences below; use Review separately only when they need different tracking decisions.</p>
-        <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Denied operations"><Thead><Tr><Th>Permissions</Th><Th>Occurrences</Th><Th>Hosts</Th><Th>Status</Th><Th>Disposition</Th><Th>Review</Th></Tr></Thead><Tbody>
+        <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Denied operations"><Thead><Tr><Th>Permissions</Th><Th>Occurrences</Th><Th>Hosts</Th><Th>Status</Th><Th>Assessment</Th><Th>Review</Th></Tr></Thead><Tbody>
           {issue.signatures.map((signature) => <Tr key={signature.id}>
             <Td dataLabel="Permissions"><code>{signature.permissions.join(", ")}</code>{signature.legacy && <><Label isCompact>Historical record</Label><p>These permissions may combine older observations; they were not necessarily observed together.</p></>}</Td>
             <Td dataLabel="Occurrences"><Button variant="link" onClick={() => showSignatureOccurrences(signature.id)} aria-label={`View ${signature.permissions.join(", ")} signature ${signature.id} occurrences`}>{signature.occurrences_count}</Button></Td><Td dataLabel="Hosts">{signature.affected_hosts}</Td>
             <Td dataLabel="Status">{displayState(signature.status)}</Td>
-            <Td dataLabel="Disposition">{displayState(signature.disposition)}</Td>
+            <Td dataLabel="Assessment">{displayState(signature.disposition)}</Td>
             <Td dataLabel="Review"><Button variant="link" isDisabled={savingOperation} aria-label={`Review ${signature.permissions.join(", ")} separately`} onClick={() => { setOperationReview({ issueId, id: signature.id, status: signature.status, disposition: signature.disposition }); setOperationError(null); setOperationSaved(null); }}>Review separately</Button></Td>
           </Tr>)}
         </Tbody></Table>
@@ -621,8 +607,8 @@ export function IssueDetail() {
           {operationSaved && <p role="status">{operationSaved}</p>}
           <label>Status<select aria-label="Operation status" value={operationReview.status} disabled={savingOperation} onChange={(event) => { setOperationReview({ ...operationReview, status: event.target.value as typeof STATUS_OPTIONS[number] }); setOperationSaved(null); }}>{STATUS_OPTIONS.map((status) => <option key={status} value={status}>{displayState(status)}</option>)}</select></label>
           <Button variant="secondary" isDisabled={savingOperation || operationReview.status === signature.status} onClick={() => void saveOperationReview("status")}>Save operation status</Button>
-          <label>Disposition<select aria-label="Operation disposition" value={operationReview.disposition} disabled={savingOperation} onChange={(event) => { setOperationReview({ ...operationReview, disposition: event.target.value }); setOperationSaved(null); }}>{DISPOSITIONS.map((value) => <option key={value} value={value}>{displayState(value)}</option>)}</select></label>
-          <Button variant="secondary" isDisabled={savingOperation || operationReview.disposition === signature.disposition} onClick={() => void saveOperationReview("disposition")}>Save operation disposition</Button>
+          <label>Assessment<select aria-label="Operation assessment" value={operationReview.disposition} disabled={savingOperation} onChange={(event) => { setOperationReview({ ...operationReview, disposition: event.target.value }); setOperationSaved(null); }}>{DISPOSITIONS.map((value) => <option key={value} value={value}>{displayState(value)}</option>)}</select></label>
+          <Button variant="secondary" isDisabled={savingOperation || operationReview.disposition === signature.disposition} onClick={() => void saveOperationReview("disposition")}>Save operation assessment</Button>
           <Button variant="link" isDisabled={savingOperation} onClick={() => setOperationReview(null)}>Close review</Button>
         </section>)}
       </ExpandableSection>}
