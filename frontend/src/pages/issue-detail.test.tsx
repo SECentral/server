@@ -471,6 +471,8 @@ describe("issue investigation", () => {
     expect(outcomes).toHaveTextContent("6 occurrences / 2 audit events");
     expect(outcomes).toHaveTextContent("Succeeded: 2");
     expect(outcomes).toHaveTextContent("Failed: 4");
+    expect(within(screen.getByRole("region", { name: "Recorded outcomes" })).getByText(/One audit event can contain multiple denied operations/)).toBeVisible();
+    expect(screen.getByRole("region", { name: "Recorded outcomes" })).toHaveTextContent("a permissive AVC is logged without SELinux blocking the call");
     expect(document.querySelector(".issue-operation-label")).toHaveTextContent(`${payload.issue.occurrences_count} occurrences`);
     expect(screen.getByText("Fleet scope").parentElement).toHaveTextContent("Findings differ between hosts");
     const coverage = await screen.findByRole("region", { name: "Finding coverage" });
@@ -952,6 +954,7 @@ describe("issue investigation", () => {
     expect(diagnosis).not.toHaveTextContent("Other occurrences can have different findings");
     expect(within(diagnosis).getByRole("heading", { name: /Host-configured label/ })).toBeVisible();
     expect(diagnosis).toHaveTextContent("no allow rule for this launch");
+    expect(diagnosis).toHaveTextContent("entrypoint permission controls whether a file can be used to start or transition into a process domain");
     expect(within(diagnosis).queryByRole("heading", { name: "Policy explanation" })).not.toBeInTheDocument();
     expect(diagnosis).not.toHaveTextContent("Foreign policy evidence");
     expect(diagnosis).not.toHaveTextContent("Limitation:");
@@ -1059,7 +1062,7 @@ describe("issue investigation", () => {
     expect(await screen.findByText(/No absolute path was retained/)).toBeInTheDocument();
     expect(screen.getByText(/Resource examples: secentral-s001-basename-20260930/)).toBeInTheDocument();
     expect(screen.getByText(/Policy evaluation is pending/)).toBeInTheDocument();
-    expect(screen.getByText(/Identify the complete absolute path/)).toBeInTheDocument();
+    expect(screen.getByText(/In Retained occurrences, open an affected occurrence's raw audit evidence and check its CWD and PATH records/)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Potential file-context mismatch" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Compare host configurations" })).not.toBeInTheDocument();
   });
@@ -1157,6 +1160,7 @@ describe("issue investigation", () => {
 
   it.each([
     ["permissive", "succeeded"],
+    ["permissive", "failed"],
     ["enforcing", "failed"]
   ] as const)("scopes a file no-allow diagnosis to its permission and observed outcome (%s, %s)", async (mode, outcome) => {
     const payload = detailPayload("004");
@@ -1173,7 +1177,7 @@ describe("issue investigation", () => {
       occurrence_id: 101,
       host_id: 10,
       enforcement_mode: mode,
-      syscall_failed: mode === "enforcing" && outcome === "failed"
+      syscall_failed: outcome === "failed"
     } as NonNullable<IssueDetailResponse["diagnosis"]>;
     payload.issue.source_type = "httpd_sys_script_t";
     payload.issue.target_type = "var_t";
@@ -1217,6 +1221,7 @@ describe("issue investigation", () => {
 
     const heading = await screen.findByRole("heading", { name: "No matching SELinux allow for open on var_t:file" });
     expect(heading).toBeVisible();
+    if (mode === "permissive" && outcome === "failed") expect(screen.getByRole("region", { name: "Diagnosis" })).toHaveTextContent("SELinux did not block this call: permissive mode records the denial without enforcing it. The system call still failed, so investigate its application or system-level cause as well.");
     expect(await screen.findByRole("link", { name: `web-test · ${mode === "permissive" ? "Permissive" : "Enforcing"} · syscall ${outcome === "succeeded" ? "Succeeded" : "Failed"}` })).toHaveAttribute("href", expect.stringContaining("evidence_occurrence=101"));
     expect(screen.getByLabelText("Suggested next step")).toHaveTextContent("Confirm with the service owner whether this open access is intended");
     expect(screen.getByLabelText("Suggested next step")).toHaveTextContent("If you suspect var_t:file is the wrong label, inspect the collapsed label checks");

@@ -139,7 +139,7 @@ class IssueOperatorGuidance
       else
         "Repeat the intended file access through the affected workload and check expected output. For confirmed web content, retry the actual request and verify its status and content."
       end
-      [path ? "Confirm the file's role and the workload's effective configured path." : "Identify the complete absolute path and intended use from the host/workload configuration before path-specific checks. Do not reconstruct it from a basename.", fix, verification]
+      [path ? "Confirm the file's role and the workload's effective configured path." : "Identify the complete absolute path using the occurrence's CWD/PATH audit records, when present, and workload configuration before path-specific checks. Do not infer it from a basename or another occurrence.", fix, verification]
     else
       ["Review the exact denied operation and workload intent with the affected host's operator.",
        "Use a manual configuration/policy review if no supported reviewed option fits; keeping the restriction is a valid choice.",

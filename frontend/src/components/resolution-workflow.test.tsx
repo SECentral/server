@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import type { ResolutionWorkflow as Workflow } from "../api/resolution";
 import { CopyCommand, ResolutionWorkflow } from "./ResolutionWorkflow";
-import { ReadOnlyCommands } from "./OperatorGuidance";
+import { OperatorChecks, ReadOnlyCommands } from "./OperatorGuidance";
 import { activeResolutionResource, fileResourceLabel, resolutionResources } from "./resolutionResources";
 import { TechnicalEvidenceDisclosure } from "./WorkbenchEvidence";
 import { MemoryRouter } from "react-router-dom";
@@ -257,6 +257,13 @@ describe("Evidence-driven resolution UI", () => {
     expect(screen.getByRole("button", { name: "Review this change" })).toBeEnabled();
     expect(screen.getByText(/Can enable broader access/)).toBeVisible();
     expect(screen.queryByRole("button", { name: /Copy command:.*restorecon/ })).not.toBeInTheDocument();
+  });
+
+  it("links missing-path operators to that occurrence's raw audit evidence", () => {
+    const detail = { issue: { target_class: "dir" }, operator_guidance: { source: { host_id: 12, occurrence_id: 34, hostname: "db-1", path: null }, checks: [], manual_check: "Identify the path" } } as unknown as IssueDetailResponse;
+    render(<MemoryRouter><OperatorChecks detail={detail} /></MemoryRouter>);
+    expect(screen.getByRole("link", { name: "Inspect this occurrence's raw audit evidence" })).toHaveAttribute("href", "/hosts/12/occurrences/34?tab=evidence");
+    expect(screen.getByRole("region", { name: "Check" })).toHaveTextContent("do not infer it from a basename or another occurrence");
   });
 
   it("keeps hashes, policy conditions and nested provenance out of the default view but available on demand", async () => {

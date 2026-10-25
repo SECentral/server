@@ -241,6 +241,8 @@ function FindingCard({ detail, occurrences }: { detail: IssueDetailResponse; occ
         <Title headingLevel="h3" size="xl">{conditionalTitle ?? primaryFindingTitle(diagnosis)}</Title>
         {finding.different && diagnosis.host_id && <p>Finding for <Link to={`/hosts/${diagnosis.host_id}/occurrences/${diagnosis.occurrence_id}`}>{findingHost?.hostname ?? `Host ${diagnosis.host_id}`} · occurrence #{diagnosis.occurrence_id}</Link>. Inspection uses a different retained example; this finding does not establish that example's cause.</p>}
         {lead && <p className="issue-finding-lead">{lead}</p>}
+        {diagnosis.permissions?.includes("entrypoint") && <p>An SELinux <code>entrypoint</code> permission controls whether a file can be used to start or transition into a process domain. It does not establish that this launch is expected; check what workload started the executable.</p>}
+        {row(diagnosis).enforcement_mode === "permissive" && row(diagnosis).syscall_failed === true && <p><strong>SELinux did not block this call:</strong> permissive mode records the denial without enforcing it. The system call still failed, so investigate its application or system-level cause as well.</p>}
         {diagnosis.kind === "no_matching_allow" && diagnosis.target_class === "file" && ["open", "write"].includes(diagnosis.operation ?? "") && findingOccurrence && <p><strong>Observed outcome:</strong> <EvidenceLink target="audit-evidence" occurrenceId={findingOccurrence.id}>{findingOccurrence.host.hostname ?? `Host ${findingOccurrence.host.id}`} · {displayState(findingOccurrence.enforcement_mode ?? "unknown")} · syscall {displayState(findingOccurrence.syscall_outcome ?? "unknown")}</EvidenceLink></p>}
        {otherPermissions.length > 0 && <p>This finding explains <code>{explainedPermissions.join(", ")}</code> only. Other permissions recorded in this event (<code>{otherPermissions.join(", ")}</code>) need independent assessment.</p>}
       {diagnosis.kind === "conditional_allow_inactive" && <p>Recorded target type: <code>{diagnosis.target_type ?? issue.target_type}</code></p>}
@@ -279,7 +281,7 @@ function MissingExplanation({
     <div className="issue-unexplained">
       {hasFindings ? <p>Individual occurrences have findings; check their scope.</p> : policyAnalysis.status === "evaluated" && <p>Cause not confirmed.</p>}
       {policyAnalysis.status === "evaluated" && policyAnalysis.limitations.map((limitation) => <p key={limitation}>{limitation.replaceAll("_", " ")}</p>)}
-      {fileTarget && paths.length === 0 && <p><strong>No absolute path was retained.</strong> Identify the complete absolute path on the host before checking its configured label.</p>}
+      {fileTarget && paths.length === 0 && <p><strong>No absolute path was retained.</strong> In Retained occurrences, open an affected occurrence's raw audit evidence and check its CWD and PATH records; if they do not establish the path, confirm it from the workload configuration. Do not infer it from a basename or another occurrence.</p>}
         {fileTarget && paths.length > 0 && <p>Observed paths: {paths.slice(0, 3).map((path) => <span key={path}><code>{path}</code> </span>)}</p>}
       {fileTarget && names.length > 0 && <p>Resource examples: {names.slice(0, 3).join(", ")}. Inspect occurrences for individual evidence.</p>}
       {fileTarget && paths.length > 0 && <p>No event-linked expected-context observation is available. Check current labeling on the host.</p>}
@@ -554,6 +556,7 @@ export function IssueDetail() {
       <Stack hasGutter>
       {!!intelligence.observation_summary?.length && <Card isCompact className="issue-detail-card"><CardBody><section aria-label="Recorded outcomes">
         <h2>Recorded outcomes</h2>
+        <p>One audit event can contain multiple denied operations, so occurrence and event counts may differ. AVC enforcement and syscall outcome are separate: a permissive AVC is logged without SELinux blocking the call, while a failed syscall may have another cause.</p>
         <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Host outcome comparison"><Thead><Tr><Th>Host</Th><Th>Occurrences / audit events</Th><Th>AVC enforcement</Th><Th>Syscall outcomes by event</Th></Tr></Thead><Tbody>
           {intelligence.observation_summary.map((item) => <Tr key={item.host_id}>
             <Td dataLabel="Host"><Link to={`/hosts/${item.host_id}`}>{item.hostname ?? `Host ${item.host_id}`}</Link></Td>

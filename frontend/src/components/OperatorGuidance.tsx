@@ -37,7 +37,10 @@ export function OperatorChecks({ detail, runbookCommands = [], supplemental = fa
     <p>Investigation example: <Link to={`/hosts/${source.host_id}/occurrences/${source.occurrence_id}`}>{source.hostname ?? `Host ${source.host_id}`} · occurrence #{source.occurrence_id}</Link>{source.path && <> · <code>{source.path}</code></>}</p>
     {different && <p>Latest access: <Link to={`/hosts/${latest.host_id}/occurrences/${latest.occurrence_id}`}>{latest.hostname ?? `Host ${latest.host_id}`} · occurrence #{latest.occurrence_id}</Link>.</p>}
     {source.path && <p>Label at denial: <code>{source.observed_type ?? "Not recorded"}</code>. {expected?.expected_context && <>Host-configured context, looked up after the denial: <code>{expected.expected_context}</code>.</>}</p>}
-    {!source.path && ["file", "dir"].includes(detail.issue?.target_class) ? <Alert variant="info" isInline isPlain title="Complete target path not recorded">Identify the files this workload is accessing before considering a labeling or Boolean change.</Alert> : <p>{guidance.manual_check}</p>}
+    {!source.path && ["file", "dir"].includes(detail.issue?.target_class) ? <Alert variant="info" isInline isPlain title="Complete target path not recorded">
+      <p>Identify the file before considering a labeling or Boolean change.</p>
+      <p><Link to={`/hosts/${source.host_id}/occurrences/${source.occurrence_id}?tab=evidence`}>Inspect this occurrence's raw audit evidence</Link> for CWD and PATH records. If they do not establish the path, confirm it from the workload configuration; do not infer it from a basename or another occurrence.</p>
+    </Alert> : <p>{guidance.manual_check}</p>}
     </>}
     <InspectionCommands primary={primary} secondary={secondary} />
     {!supplemental && capability && <>{guidance.possible_fix && <p>{guidance.possible_fix}</p>}{guidance.verification && <><h3>Verify the workload</h3><p>{guidance.verification}</p></>}</>}
