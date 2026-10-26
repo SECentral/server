@@ -22,6 +22,7 @@ import { ResolutionWorkflow } from "../components/ResolutionWorkflow";
 import { StandardRestoration } from "../components/OperatorGuidance";
 import { activeResourceFinding } from "../components/resolutionResources";
 import { EMBEDDED_PAGE_SIZES, pageSize } from "../pagination";
+import { ObservationCounts } from "../components/ObservationCounts";
 
 const STATUS_OPTIONS = ["open", "resolved", "ignored"] as const;
 const DISPOSITIONS = ["unclassified", "under_investigation", "expected_harmless", "application_configuration", "labeling_configuration", "policy_required", "possible_policy_package_defect", "suspicious_behavior"];
@@ -105,15 +106,14 @@ function practicalHeadline(issue: { source_type: string; target_type: string; ta
   const actor = process ?? processCommand ?? `The ${issue.source_type} domain`;
   if (isCapability(issue.target_class)) return `SELinux recorded ${actor} requesting the ${issue.permissions.join(", ")} ${issue.permissions.length === 1 ? "capability" : "capabilities"}.`;
   const resource = resourceFor(issue, diagnosis, occurrences, paths, names, destinationPort);
-  const blocked = diagnosisEvidence.syscall_failed === true && diagnosisEvidence.enforcement_mode === "enforcing";
-  if (permission === "name_connect") return `${actor} was ${blocked ? "blocked from" : "denied permission for"} connecting to ${resource}.`;
-  if (permission === "name_bind") return `${actor} was ${blocked ? "blocked from" : "denied permission for"} binding locally on ${resource}.`;
-  if (permission === "execute") return blocked ? `${actor} could not execute ${resource}.` : `${actor} was denied permission to execute ${resource}.`;
-  if (permission === "entrypoint") return blocked ? `${actor} could not start ${resource}.` : `${actor} was denied permission to start ${resource}.`;
-  if (permission === "read") return `${actor} was denied reading ${resource}.`;
-  if (permission === "write") return `${actor} was denied writing ${resource}.`;
-  if (permission === "getattr") return blocked ? `${actor} was blocked from checking file metadata for ${resource}.` : `${actor} was denied file metadata access to ${resource}.`;
-  return `${actor} was denied ${permissionLabel(permission)} on ${resource}.`;
+  if (permission === "name_connect") return `SELinux recorded ${actor} requesting connection access to ${resource}.`;
+  if (permission === "name_bind") return `SELinux recorded ${actor} requesting local bind access to ${resource}.`;
+  if (permission === "execute") return `SELinux recorded ${actor} requesting execute access to ${resource}.`;
+  if (permission === "entrypoint") return `SELinux recorded ${actor} requesting entrypoint access to ${resource}.`;
+  if (permission === "read") return `SELinux recorded ${actor} requesting read access to ${resource}.`;
+  if (permission === "write") return `SELinux recorded ${actor} requesting write access to ${resource}.`;
+  if (permission === "getattr") return `SELinux recorded ${actor} requesting file metadata access to ${resource}.`;
+  return `SELinux recorded ${actor} requesting ${permissionLabel(permission)} access to ${resource}.`;
 }
 
 function primaryFindingLead(diagnosis: Diagnosis): string | ReactElement | null {
@@ -143,22 +143,21 @@ function primaryFindingTitle(diagnosis: Diagnosis): string {
 
 function issueHeadline(detail: IssueDetailResponse): string {
   const { issue, intelligence } = detail;
-  if (!isCapability(issue.target_class) && (issue.signatures?.length ?? 0) > 1) return `${issue.source_type} access to ${issue.target_class} objects labeled ${issue.target_type}`;
+  if (!isCapability(issue.target_class) && (issue.signatures?.length ?? 0) > 1) return `SELinux recorded ${issue.source_type} access requests to ${issue.target_class} objects labeled ${issue.target_type}`;
   const summary = intelligence.resource_summary;
   if (["tcp_socket", "udp_socket"].includes(issue.target_class) && issue.permissions.includes("name_bind") && (summary?.bind_port_count ?? 0) > 0) {
     const protocol = issue.target_class === "udp_socket" ? "UDP" : "TCP";
     const ports = summary!.bind_ports?.map((item) => item.port).join(", ") ?? "";
     const more = Math.max(0, summary!.bind_port_count! - (summary!.bind_ports?.length ?? 0));
-    return `${summary?.process_command ?? `The ${issue.source_type} domain`} was denied local ${protocol} binding on ${summary!.bind_port_count === 1 ? "port" : "ports"} ${ports}${more ? ` and ${more} more` : ""}${summary?.without_bind_port_occurrences ? "; some denial ports were not recorded" : ""}.`;
+    return `SELinux recorded ${summary?.process_command ?? `The ${issue.source_type} domain`} requesting local ${protocol} bind access on ${summary!.bind_port_count === 1 ? "port" : "ports"} ${ports}${more ? ` and ${more} more` : ""}${summary?.without_bind_port_occurrences ? "; some request ports were not recorded" : ""}.`;
   }
-  if (issue.target_class === "tcp_socket" && issue.permissions.includes("name_connect") && (summary?.destination_port_count ?? 0) > 1) return `${summary?.process_command ?? `The ${issue.source_type} domain`} was denied outbound TCP connections.`;
-  if (issue.target_class === "file" && issue.permissions.length === 1 && issue.permissions[0] === "read" && (summary?.name_count ?? 0) > 1) return `${summary?.process_command ?? `The ${issue.source_type} domain`} was denied reading files labeled ${issue.target_type}.`;
-  if ((summary?.path_count ?? 0) > 1 || (summary?.name_count ?? 0) > 1) return `${summary?.process_command ?? `The ${issue.source_type} domain`} was denied ${issue.permissions.map(permissionLabel).join(", ")} on ${issue.target_class} objects labeled ${issue.target_type}.`;
-  return practicalHeadline(issue, detail.diagnosis, [], intelligence.paths, intelligence.names, summary?.process_command, summary?.destination_ports?.length === 1 ? summary.destination_ports[0].port : null);
+  if (issue.target_class === "tcp_socket" && issue.permissions.includes("name_connect") && (summary?.destination_port_count ?? 0) > 1) return `SELinux recorded ${summary?.process_command ?? `The ${issue.source_type} domain`} requesting outbound TCP connection access.`;
+  if (issue.target_class === "file" && issue.permissions.length === 1 && issue.permissions[0] === "read" && (summary?.name_count ?? 0) > 1) return `SELinux recorded ${summary?.process_command ?? `The ${issue.source_type} domain`} requesting read access to files labeled ${issue.target_type}.`;
+  if ((summary?.path_count ?? 0) > 1 || (summary?.name_count ?? 0) > 1) return `SELinux recorded ${summary?.process_command ?? `The ${issue.source_type} domain`} requesting ${issue.permissions.map(permissionLabel).join(", ")} access to ${issue.target_class} objects labeled ${issue.target_type}.`;
+  return practicalHeadline(issue, null, [], intelligence.paths, intelligence.names, summary?.process_command, summary?.destination_ports?.length === 1 ? summary.destination_ports[0].port : null);
 }
 
 function primaryLimitation(diagnosis: Diagnosis): string | null {
-  if (["file_context_mismatch", "conditional_allow_inactive", "no_matching_allow"].includes(diagnosis.kind)) return null;
   return diagnosis.limitation;
 }
 
@@ -230,7 +229,8 @@ function FindingCard({ detail, occurrences }: { detail: IssueDetailResponse; occ
   const findingHost = detail.host_explanations.find((host) => host.host_id === diagnosis?.host_id);
   const findingOccurrence = diagnosis && occurrences?.find((item) => item.id === diagnosis.occurrence_id && (diagnosis.host_id == null || item.host.id === diagnosis.host_id));
   const conditionalTitle = diagnosis?.kind === "conditional_allow_inactive" ? `${diagnosis.source_domain ?? issue.source_type} was denied ${diagnosis.operation === "name_bind" ? "binding" : diagnosis.operation === "name_connect" ? "connecting to" : diagnosis.operation === "read" ? "reading" : "executing"} ${diagnosis.path ?? (diagnosis.bind_port || diagnosis.destination_port ? `${issue.target_class === "udp_socket" ? "UDP" : "TCP"}/${diagnosis.bind_port ?? diagnosis.destination_port}` : `objects labeled ${diagnosis.target_type ?? issue.target_type}`)}.` : null;
-  return <section aria-labelledby="finding-title" className="issue-section issue-primary-finding"><h2 id="finding-title">Diagnosis</h2>
+  return <section aria-labelledby="finding-title" className="issue-section issue-primary-finding"><h2 id="finding-title">Findings</h2>
+    {policy_analysis.occurrence_counts && <p>Policy evaluation by occurrence: {Object.entries(policy_analysis.occurrence_counts).map(([state, count]) => `${displayState(state)}: ${count}`).join(" · ")}. Evaluation is not a verified cause.</p>}
     {policy_analysis.status !== "evaluated" && <div role="status"><p><strong>{policy_analysis.status === "unavailable" ? "Historical policy analysis unavailable" : policy_analysis.status === "pending" ? "Policy evaluation is pending" : `Policy analysis: ${displayState(policy_analysis.status)}`}</strong></p>
       {policy_analysis.limitations.map((limitation) => <p key={limitation}>{limitation === "exact policy identity is unavailable" ? "The exact SELinux policy identity is unavailable for these occurrences." : limitation.replaceAll("_", " ")}</p>)}
     </div>}
@@ -241,12 +241,14 @@ function FindingCard({ detail, occurrences }: { detail: IssueDetailResponse; occ
       <EvidenceLink target="audit-evidence" occurrenceId={detail.operator_guidance.source.occurrence_id}>Inspect capability request · occurrence #{detail.operator_guidance.source.occurrence_id}</EvidenceLink>
     </section>}
      {triage_guidance && diagnosis?.kind !== "file_context_mismatch" && <LabelMismatchGuidance guidance={triage_guidance} />}
-     {diagnosis ? <article>
+      {diagnosis ? <article>
+        <p>Supported finding for <EvidenceLink target="policy-evaluation-evidence" occurrenceId={diagnosis.occurrence_id}>{findingHost?.hostname ?? "Host not recorded"} · occurrence #{diagnosis.occurrence_id}</EvidenceLink> · {finding.count == null ? "Supporting occurrence count unavailable" : `${finding.count} supporting occurrence(s) of ${issue.occurrences_count}`}. Grouping does not establish a common cause.</p>
+        {diagnosis.occurred_at && <p>Supporting occurrence recorded at <time dateTime={diagnosis.occurred_at}>{formatUtc(diagnosis.occurred_at)}</time>.</p>}
         <Title headingLevel="h3" size="xl">{conditionalTitle ?? primaryFindingTitle(diagnosis)}</Title>
         {finding.different && diagnosis.host_id && <p>Finding for <Link to={`/hosts/${diagnosis.host_id}/occurrences/${diagnosis.occurrence_id}`}>{findingHost?.hostname ?? `Host ${diagnosis.host_id}`} · occurrence #{diagnosis.occurrence_id}</Link>. Inspection uses a different retained example; this finding does not establish that example's cause.</p>}
         {lead && <p className="issue-finding-lead">{lead}</p>}
         {diagnosis.permissions?.includes("entrypoint") && <p>An SELinux <code>entrypoint</code> permission controls whether a file can be used to start or transition into a process domain. It does not establish that this launch is expected; check what workload started the executable.</p>}
-        {row(diagnosis).enforcement_mode === "permissive" && row(diagnosis).syscall_failed === true && <p><strong>SELinux did not block this call:</strong> permissive mode records the denial without enforcing it. The system call still failed, so investigate its application or system-level cause as well.</p>}
+         {text(row(diagnosis).syscall_outcome) && <p>AVC enforcement: {text(row(diagnosis).enforcement_mode) ?? "unknown"}; associated syscall: {text(row(diagnosis).syscall_outcome)}. Application impact and the cause of a failed syscall are not established.</p>}
         {diagnosis.kind === "no_matching_allow" && diagnosis.target_class === "file" && ["open", "write"].includes(diagnosis.operation ?? "") && findingOccurrence && <p><strong>Observed outcome:</strong> <EvidenceLink target="audit-evidence" occurrenceId={findingOccurrence.id}>{findingOccurrence.host.hostname ?? `Host ${findingOccurrence.host.id}`} · {displayState(findingOccurrence.enforcement_mode ?? "unknown")} · syscall {displayState(findingOccurrence.syscall_outcome ?? "unknown")}</EvidenceLink></p>}
        {otherPermissions.length > 0 && <p>This finding explains <code>{explainedPermissions.join(", ")}</code> only. Other permissions recorded in this event (<code>{otherPermissions.join(", ")}</code>) need independent assessment.</p>}
       {diagnosis.kind === "conditional_allow_inactive" && <p>Recorded target type: <code>{diagnosis.target_type ?? issue.target_type}</code></p>}
@@ -559,8 +561,9 @@ export function IssueDetail() {
 
       <Stack hasGutter>
       {!!intelligence.observation_summary?.length && <Card isCompact className="issue-detail-card"><CardBody><section aria-label="Recorded outcomes">
-        <h2>Recorded outcomes</h2>
-        <p>One audit event can contain multiple denied operations, so occurrence and event counts may differ. AVC enforcement and syscall outcome are separate: a permissive AVC is logged without SELinux blocking the call, while a failed syscall may have another cause.</p>
+         <h2>Recorded outcomes</h2>
+         <ObservationCounts observations={issue.observations} />
+         <p>One audit event can contain multiple AVC decisions, so occurrence and event counts may differ. AVC enforcement and syscall outcome are separate: permissive=1 means this AVC was non-enforced, not necessarily that the entire host was permissive. A failed syscall may have another cause; a successful syscall does not establish application success.</p>
         <Table role="table" variant="compact" gridBreakPoint="grid-lg" aria-label="Host outcome comparison"><Thead><Tr><Th>Host</Th><Th>Occurrences / audit events</Th><Th>AVC enforcement</Th><Th>Syscall outcomes by event</Th></Tr></Thead><Tbody>
           {intelligence.observation_summary.map((item) => <Tr key={item.host_id}>
             <Td dataLabel="Host"><Link to={`/hosts/${item.host_id}`}>{item.hostname ?? `Host ${item.host_id}`}</Link></Td>

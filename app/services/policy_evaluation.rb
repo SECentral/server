@@ -35,6 +35,7 @@ class PolicyEvaluation
     limitations << "no exact reusable policy facts are available" if limitations.empty? && status != "evaluated"
     {
       status: status,
+      occurrence_counts: %w[evaluated pending error unavailable].index_with { |state| occurrence_evaluations.count { |item| item[:status] == state } },
       policy_identity: identities.one? ? identities.first : nil,
       evaluator_version: facts.map { |fact| fact["evaluator_version"] }.compact.uniq.first,
       result: facts.map { |fact| fact["result"] }.uniq,
@@ -78,7 +79,7 @@ class PolicyEvaluation
     @policy_contexts ||= {}
     denial = occurrence.normalized_denial
     key = [ occurrence.host_snapshot&.object_id, (Array(occurrence.raw_event&.checkpoint_invalidated_fields) & %w[policy_identity booleans]).sort, Array(denial&.permissions).uniq.sort,
-      denial&.details.to_h.fetch("enforcement_mode", "unknown") ]
+      NormalizedDenial.enforcement(denial&.details.to_h) ]
     context = @policy_contexts[key] ||= evaluate_policy_context(occurrence, facts_by_key)
       .except(:occurrence_id, :host_id, :checkpoint_observed_at)
     context.merge(occurrence_id: occurrence.id, host_id: occurrence.host_id,
@@ -129,8 +130,8 @@ class PolicyEvaluation
       evaluations: evaluations,
       policy_questions: questions,
       rule_state: state,
-      enforcement_mode: denial.details.to_h.fetch("enforcement_mode", "unknown"),
-      permissive: denial.details.to_h.fetch("enforcement_mode", "unknown") == "permissive" ? true : denial.details.to_h.fetch("enforcement_mode", "unknown") == "enforcing" ? false : nil,
+      enforcement_mode: NormalizedDenial.enforcement(denial.details),
+      permissive: { "permissive" => true, "enforcing" => false }[NormalizedDenial.enforcement(denial.details)],
       booleans: booleans,
       conditional_booleans: boolean_names,
       conditional_rule_states: conditional_rule_states(evaluations, booleans),
@@ -155,7 +156,7 @@ class PolicyEvaluation
   end
 
   def unavailable_occurrence(occurrence, reason, identity = nil)
-    mode = occurrence.normalized_denial&.details.to_h.fetch("enforcement_mode", "unknown")
+    mode = NormalizedDenial.enforcement(occurrence.normalized_denial&.details.to_h)
     {
       status: "unavailable", occurrence_id: occurrence.id, host_id: occurrence.host_id,
       policy_identity: identity ? [ identity ] : [], evaluations: [], policy_questions: [],

@@ -71,16 +71,8 @@ class Api::V1::IssueOccurrencesController < Api::V1::BaseController
         else
           ports.one? ? "#{protocol}/#{ports.first}" : ports.any? ? "Multiple #{protocol} ports" : paths.first || names.first
         end
-        syscalls = Array(denial.details["syscall_evidence"])
-        outcome = if syscalls.any? { |syscall| %w[no false 0].include?(syscall["success"].to_s) }
-          "failed"
-        elsif syscalls.any? && syscalls.all? { |syscall| %w[yes true 1].include?(syscall["success"].to_s) }
-          "succeeded"
-        else
-          "unknown"
-        end
         { id: occurrence.id, occurred_at: occurrence.occurred_at, issue_signature_id: occurrence.issue_signature_id,
-          enforcement_mode: denial.details.fetch("enforcement_mode", "unknown"), syscall_outcome: outcome,
+          enforcement_mode: denial.enforcement_mode, syscall_outcome: denial.syscall_outcome,
           host: { id: occurrence.host_id, hostname: occurrence.host.hostname },
           resource: resource, absolute_path: !capability && paths.present?,
           target_type: denial.target_type, permissions: denial.permissions }

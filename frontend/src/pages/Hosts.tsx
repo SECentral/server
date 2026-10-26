@@ -148,7 +148,7 @@ export function Hosts() {
     <div className="app-resource-page">
       <header className="app-resource-header">
         <Title headingLevel="h1" size="2xl" className="pf-v6-u-mt-0">Monitored servers</Title>
-        <p className="pf-v6-u-color-200">Agents, SELinux configuration freshness, and activity per monitored host.</p>
+        <p className="pf-v6-u-color-200">Agents, SELinux configuration freshness, and retained activity per host. Reporting does not establish audit capture coverage; zero observations is not a health assessment.</p>
       </header>
 
       <Stack hasGutter>
@@ -331,8 +331,9 @@ export function Hosts() {
                             <span>0 active issues</span>
                           )}
                         </div>
-                        <div className="pf-v6-u-color-200">{host.counts.total_events} total events</div>
+                        <div className="pf-v6-u-color-200">{host.counts.total_events} retained AVC observations</div>
                         <div className="pf-v6-u-color-200">{host.counts.avcs_24h} AVCs / 24h</div>
+                        {host.counts.observations_24h && <small>Syscalls / 24h: {host.counts.observations_24h.syscall_outcomes.failed} failed · {host.counts.observations_24h.syscall_outcomes.succeeded} succeeded · {host.counts.observations_24h.syscall_outcomes.unknown} unknown</small>}
                       </Td>
                       <Td width={15} dataLabel="Last seen">
                         {host.last_seen_at ? (

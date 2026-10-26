@@ -30,6 +30,7 @@ import { memo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { fetchIssues, fetchUngroupableEvents, type IssueListItem } from "../api/issues";
 import { MetricCard } from "../components/MetricCard";
+import { ObservationCounts } from "../components/ObservationCounts";
 import { PAGE_SIZES } from "../pagination";
 
 const ATTRIBUTE_FILTERS = [
@@ -90,7 +91,7 @@ const IssueRow = memo(function IssueRow({ issue, isExpanded, onExpand }: {
           <div className="issue-secondary-line pf-v6-u-color-200"><code>{issue.target_class}</code> · {issue.permissions.join(", ")}{(issue.signatures_count ?? 0) > 1 && ` · ${issue.signatures_count} signatures`}</div>
         </Td>
         <Td width={10} dataLabel="Hosts" modifier="fitContent" className="pf-v6-u-text-align-right"><strong>{issue.hosts_count}</strong></Td>
-        <Td width={10} dataLabel="Occurrences" modifier="fitContent" className="pf-v6-u-text-align-right"><strong>{issue.occurrences_count}</strong></Td>
+        <Td width={10} dataLabel="Occurrences" modifier="fitContent" className="pf-v6-u-text-align-right"><strong>{issue.occurrences_count}</strong>{issue.observations && <small><br />Syscalls by event: {issue.observations.syscall_outcomes.failed} failed · {issue.observations.syscall_outcomes.succeeded} succeeded · {issue.observations.syscall_outcomes.unknown} unknown<br />AVCs: {issue.observations.modes.enforcing ?? 0} enforced · {issue.observations.modes.permissive ?? 0} non-enforced · {issue.observations.modes.unknown ?? 0} unknown</small>}</Td>
         <Td width={15} dataLabel="Last seen" modifier="nowrap">
           <time dateTime={issue.last_seen_at} title={formatUtc(issue.last_seen_at)}>{timeAgo(issue.last_seen_at)} ago</time>
         </Td>
@@ -116,6 +117,7 @@ const IssueRow = memo(function IssueRow({ issue, isExpanded, onExpand }: {
       <Tr isExpanded={isExpanded} id={`issue-details-${issue.id}`}>
         <Td colSpan={6} dataLabel="Issue details">
           <ExpandableRowContent>
+            <ObservationCounts observations={issue.observations} />
             <dl className="issue-expanded-details">
               <div>
                 <dt>Affected hosts ({issue.hosts_count})</dt>
@@ -208,7 +210,7 @@ export function Issues() {
     <div className="app-resource-page">
       <header className="app-resource-header">
         <Title headingLevel="h1" size="2xl" className="pf-v6-u-mt-0">SELinux issues</Title>
-        <p className="pf-v6-u-color-200">Grouped SELinux denials across your monitored infrastructure.</p>
+        <p className="pf-v6-u-color-200">Grouped SELinux AVC observations. Related accesses do not establish a common cause or application failure.</p>
       </header>
 
       <Stack hasGutter>

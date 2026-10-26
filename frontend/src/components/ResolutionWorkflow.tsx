@@ -158,9 +158,7 @@ function ResourceInspection({ issueId, occurrenceId, hostId, policyChecks = [] }
   const checks = query.data?.guidance?.checks ?? [];
   const commands = (policy: boolean) => checks.flatMap((check) => typeof check.command === "string" && (check.kind === "port_policy_alternatives") === policy ? [{ title: typeof check.reason === "string" ? check.reason : "Inspect current host state", command: check.command, interpretation: typeof check.expected === "string" ? check.expected : "" }] : []);
   const details = query.data?.normalized_denial?.details;
-  const syscalls = Array.isArray(details?.syscall_evidence) ? details.syscall_evidence.map(evidenceRecord) : [];
-  const syscallOutcome = syscalls.some((item) => ["no", "false", "0"].includes(String(item.success))) ? "Failed"
-    : syscalls.length > 0 && syscalls.every((item) => ["yes", "true", "1"].includes(String(item.success))) ? "Succeeded" : "Not established";
+  const syscallOutcome = query.data?.syscall_outcome ?? "unknown";
   return <section aria-label="Inspect active resource"><h3>Inspect host baseline</h3>
     {query.isPending ? <Spinner aria-label="Loading resource inspection" size="md" /> : query.isError ? <Alert variant="warning" isInline title="Could not load resource inspection"><Button variant="link" onClick={() => void query.refetch()}>Retry inspection</Button></Alert>
       : <><p>Inspect on <Link to={`/hosts/${query.data.host.id}/occurrences/${occurrenceId}`}>{query.data.host.hostname} · #{occurrenceId}</Link></p>
@@ -332,7 +330,7 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
     catch (e) { setError(e instanceof Error ? e.message : "Change review failed"); }
     finally { await client.invalidateQueries({ queryKey: ["issue-resolutions", issueId] }); setBusy(false); }
   };
-  if (query.isPending || query.isError) return stage === "intent" ? <Card isCompact className="resolution-options"><CardBody><section aria-label="Resolution options"><h2>Resolution workspace</h2>
+  if (query.isPending || query.isError) return stage === "intent" ? <Card isCompact className="resolution-options"><CardBody><section aria-label="Resolution options"><h2>Investigation &amp; change review</h2>
     {query.isError ? <Alert variant="warning" isInline title="Could not load resolution options">{query.error.message}</Alert> : <Spinner size="md" aria-label="Loading resolution options" />}
     {!requestedResource && detail && <OperatorChecks detail={detail} />}
   </section></CardBody></Card> : stage === "observed" && query.isPending ? <Spinner size="md" aria-label="Loading observed access" /> : null;
@@ -389,7 +387,7 @@ export function ResolutionWorkflow({ issueId, stage, initialData, initialDataUpd
   });
   const choose: SelectCandidate = (candidate, review) => void run(() => selectIntent(issueId, candidate.id, candidate.evidence_version, review));
   return <Card isCompact className="resolution-options"><CardBody>
-    <section aria-label="Resolution options"><header className="workbench-section-header"><h2>Resolution workspace</h2>{workflow.intent && <Button variant="link" isDisabled={busy} onClick={() => void run(() => clearIntent(issueId))}>Clear reviewed plan</Button>}</header>
+    <section aria-label="Resolution options"><header className="workbench-section-header"><h2>Investigation &amp; change review</h2>{workflow.intent && <Button variant="link" isDisabled={busy} onClick={() => void run(() => clearIntent(issueId))}>Clear reviewed plan</Button>}</header>
       {error && <Alert variant="danger" isInline title="Change review failed">{error}</Alert>}
       {workflow.freshness && workflow.freshness !== "current" && <div className="stale-plan" role="alert"><h3><ExclamationTriangleIcon aria-hidden="true" /> {workflow.freshness === "no_longer_supported" ? "Plan no longer supported" : "Evidence changed"}</h3><p>This plan was reviewed against older SELinux state. Commands are hidden until the updated evidence is reviewed.</p><EvidenceChangeSummary workflow={workflow} /><strong>Review this option again before using its commands.</strong></div>}
       {workflow.intent && !selectedHere && <p role="status" className="resource-review-notice">

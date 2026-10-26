@@ -2310,6 +2310,35 @@ components:
           type:
             - string
             - "null"
+    ObservationSummary:
+      type: object
+      description: Retained active AVC decisions and distinct enclosing audit events in the stated scope. Events can appear in several issues; never sum issue event totals for fleet totals. Syscall outcomes do not establish application impact or causation.
+      required: [occurrences, audit_events, modes, syscall_outcomes]
+      properties:
+        occurrences: {type: integer}
+        audit_events: {type: integer}
+        decision_outcomes:
+          description: AVC decision counts associated with each event-level outcome. These are not unique syscall counts.
+          type: array
+          items:
+            type: object
+            required: [enforcement_mode, syscall_outcome, occurrences]
+            properties:
+              enforcement_mode: {type: string, enum: [enforcing, permissive, unknown]}
+              syscall_outcome: {type: string, enum: [failed, succeeded, unknown]}
+              occurrences: {type: integer}
+        modes:
+          description: AVC decision counts by enforced (enforcing), non-enforced (permissive), or unknown evidence; not global host mode.
+          type: object
+          additionalProperties: {type: integer}
+        syscall_outcomes:
+          description: Unique audit-event counts; contradictory or missing success evidence is unknown.
+          type: object
+          required: [failed, succeeded, unknown]
+          properties:
+            failed: {type: integer}
+            succeeded: {type: integer}
+            unknown: {type: integer}
     HostCounts:
       type: object
       required:
@@ -2326,6 +2355,10 @@ components:
         total_events:
           description: All retained occurrences on this host.
           type: integer
+        observations:
+          $ref: "#/components/schemas/ObservationSummary"
+        observations_24h:
+          $ref: "#/components/schemas/ObservationSummary"
     AgentStateCounts:
       type: object
       required:
@@ -2372,6 +2405,8 @@ components:
         avcs_24h:
           type: integer
           description: Retained occurrences during the last 24 hours.
+        observations_24h:
+          $ref: "#/components/schemas/ObservationSummary"
         monitored_hosts:
           type: integer
         agent_states:
@@ -2515,6 +2550,12 @@ components:
         - selinux
         - counts
       properties:
+        telemetry:
+          type: object
+          required: [audit_capture, explanation]
+          properties:
+            audit_capture: {type: string, enum: [unknown]}
+            explanation: {type: string}
         id:
           type: integer
         hostname:
@@ -2562,7 +2603,7 @@ components:
         meta:
           $ref: "#/components/schemas/PageMeta"
     HostDetail:
-      description: Host core detail, heartbeat-confirmed snapshot and authoritative enforcing-readiness reporting progress. Readiness is not a safety probability or audit-capture guarantee.
+      description: Host core detail, retained configuration and reporting observations. No readiness or safety score is calculated.
       allOf:
         - $ref: "#/components/schemas/HostListItem"
         - type: object
@@ -2570,7 +2611,10 @@ components:
             - snapshot
             - enforcing_readiness
           properties:
+            reporting_observations:
+              $ref: "#/components/schemas/EnforcingReadiness"
             enforcing_readiness:
+              deprecated: true
               $ref: "#/components/schemas/EnforcingReadiness"
             snapshot:
               description: Heartbeat-confirmed snapshot, or null when no observation exists.
@@ -2587,7 +2631,7 @@ components:
                   $ref: "#/components/schemas/HostSelinux"
     EnforcingReadiness:
       type: object
-      description: Server-calculated accumulated reporting progress toward a 30-day target. Numeric progress can coexist with unknown capture continuity. Unknown carries null duration/band, never older certainty.
+      description: Credited heartbeat intervals strictly after the latest retained AVC UTC day, or since tracking began. Not continuous capture or workload coverage. Legacy band and target_days are always null.
       required: [status, reason, band, target_days, credited_seconds, reporting_days, capture_continuity, reporting_started_at, latest_avc_at, explanation]
       properties:
         status:
@@ -2597,11 +2641,11 @@ components:
           type: [string, 'null']
           enum: [reporting_not_tracked, reporting_time_unknown, enforcement_unavailable, reporting_stale, checkpoint_unavailable, checkpoint_boot_mismatch, denial_time_unavailable, null]
         band:
-          type: [string, 'null']
-          enum: ['0–19%', '20–39%', '40–59%', '60–79%', '80–99%', '100%', null]
+          deprecated: true
+          type: 'null'
         target_days:
-          type: integer
-          enum: [30]
+          deprecated: true
+          type: 'null'
         credited_seconds:
           type: [number, 'null']
           minimum: 0
@@ -2619,7 +2663,7 @@ components:
           type: [string, 'null']
           format: date-time
         explanation:
-          description: Authoritative plain-text tooltip with blank-line paragraph boundaries. Numeric results summarize observation progress with a separate safety caveat; Unknown results explain the reason. Render as text.
+          description: Plain-text explanation of reporting duration and its collection limits, or the reason usable duration is unknown.
           type: string
     HostDetailResponse:
       type: object
@@ -4097,6 +4141,8 @@ components:
         - hosts
         - observed_paths
       properties:
+        observations:
+          $ref: "#/components/schemas/ObservationSummary"
         signatures_count:
           type: integer
           minimum: 0
@@ -4332,6 +4378,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/IssueSignature"
+        observations:
+          $ref: "#/components/schemas/ObservationSummary"
         id:
           type: integer
         organization_id:
@@ -4527,6 +4575,10 @@ components:
           type: integer
         host_id:
           type: integer
+        occurred_at:
+          type: string
+          format: date-time
+          description: Recorded event time of this finding's representative supporting occurrence.
         policy_identity:
           type: string
           description: Exact loaded policy identity evaluated for this occurrence, when available.
@@ -4674,6 +4726,11 @@ components:
             type: object
             required: [diagnosis, occurrence_count, observation_count]
             properties:
+              scope: {type: string, enum: [supporting_occurrences]}
+              sample_occurrence_ids:
+                type: array
+                maxItems: 3
+                items: {type: integer}
               diagnosis:
                 $ref: "#/components/schemas/Diagnosis"
               occurrence_count:
@@ -4692,6 +4749,9 @@ components:
           type: object
           additionalProperties:
             type: integer
+        supported_occurrence_count:
+          description: Unique occurrences with at least one supported finding; finding-kind counts can overlap.
+          type: integer
         issue:
           $ref: "#/components/schemas/Issue"
         intelligence:
@@ -4723,6 +4783,9 @@ components:
           type: object
           required: [status, limitations]
           properties:
+            occurrence_counts:
+              type: object
+              additionalProperties: {type: integer}
             status:
               type: string
               enum: [evaluated, pending, error, unavailable]
@@ -5101,6 +5164,8 @@ components:
         - raw_event
         - guidance
       properties:
+        enforcement_mode: {type: string, enum: [enforcing, permissive, unknown]}
+        syscall_outcome: {type: string, enum: [failed, succeeded, unknown]}
         superseded_at:
           type: [string, 'null']
           format: date-time

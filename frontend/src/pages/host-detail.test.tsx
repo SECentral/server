@@ -41,13 +41,14 @@ const detailPayload: HostDetailResponse = {
     },
     counts: { active_issues: 1, avcs_24h: 2, total_events: 30 },
     enforcing_readiness: {
-      status: "observed", reason: null, band: "40–59%", target_days: 30,
+      status: "observed", reason: null, band: null, target_days: null,
       credited_seconds: 1036800, reporting_days: 12, capture_continuity: "unknown",
       reporting_started_at: "2026-09-13T10:00:00Z", latest_avc_at: null,
-      explanation: "SECentral has accumulated 12.0 days of credited agent-reporting observations with no SELinux denials observed. This represents 40–59% observation progress toward the standard 30-day target. Host is already enforcing.\n\nThese observations can help you assess readiness for enforcing mode, but they do not guarantee that all applications and services will work as expected. Verify system behavior when transitioning to enforcing mode."
+      explanation: "12.0 days of credited reporting intervals. Audit capture continuity is unknown; not continuous workload coverage."
     }
   }
 };
+detailPayload.host.reporting_observations = detailPayload.host.enforcing_readiness;
 
 const permissiveDetail: HostDetailResponse = {
   host: {
@@ -224,62 +225,44 @@ function renderHostDetail(hostId: number, options: {
 }
 
 describe("HostDetail", () => {
-  it("shows only the readiness label, sublabel, server band and a hover/focus description", async () => {
+  it("shows reporting observations and capture limits visibly without a readiness target", async () => {
     renderHostDetail(10, { host: permissiveDetail });
-    const region = await screen.findByRole("region", { name: "Enforcing readiness" });
-    expect(within(region).getByText("Based on a 30-day observation target")).toBeInTheDocument();
-    expect(within(region).getByText("40–59%")).toBeInTheDocument();
+    const region = await screen.findByRole("region", { name: "Reporting & SELinux observations" });
+    expect(region).toHaveTextContent("12.0 days");
+    expect(region).toHaveTextContent("Audit capture continuity is unknown");
+    expect(region).not.toHaveTextContent(/%|target/);
     expect(within(region).queryByRole("progressbar")).not.toBeInTheDocument();
-    const user = userEvent.setup();
-    const info = within(region).getByRole("button", { name: "About enforcing readiness" });
-    await user.hover(info);
-    const tooltip = await screen.findByRole("tooltip");
-    const paragraphs = permissiveDetail.host.enforcing_readiness.explanation.split("\n\n");
-    expect(tooltip.querySelector(".host-readiness-tooltip-paragraphs")?.children).toHaveLength(2);
-    for (const paragraph of paragraphs) expect(within(tooltip).getByText(paragraph)).toHaveProperty("tagName", "P");
-    await user.unhover(info);
-    await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
-    act(() => info.focus());
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("with no SELinux denials observed");
-    expect(info).toHaveAccessibleDescription(permissiveDetail.host.enforcing_readiness.explanation.replace(/\s+/g, " "));
-    await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
   });
 
-  it("uses the server's band and explanation rather than deriving a percentage from duration", async () => {
-    const data = { host: { ...permissiveDetail.host, enforcing_readiness: { ...permissiveDetail.host.enforcing_readiness,
-      // Deliberately inconsistent duration: display the server band, never recompute it.
-      band: "100%" as const, reporting_days: 0, credited_seconds: 0,
-      explanation: "The 30-day observation target is complete. Audit capture coverage is unknown; this does not guarantee safe enforcement." } } };
+  it("does not derive a safety label from 30 credited days", async () => {
+    const data = { host: { ...permissiveDetail.host, reporting_observations: { ...permissiveDetail.host.enforcing_readiness,
+      reporting_days: 30, credited_seconds: 2592000,
+      explanation: "30 credited days. Audit capture coverage is unknown." } } };
     renderHostDetail(10, { host: data });
-    const region = await screen.findByRole("region", { name: "Enforcing readiness" });
-    expect(within(region).getByText("100%")).toBeInTheDocument();
+    const region = await screen.findByRole("region", { name: "Reporting & SELinux observations" });
+    expect(region).toHaveTextContent("30 credited days");
     expect(within(region).queryByText("Ready")).not.toBeInTheDocument();
-    await userEvent.setup().hover(within(region).getByRole("button", { name: "About enforcing readiness" }));
-    expect(await screen.findByRole("tooltip")).toHaveTextContent(data.host.enforcing_readiness.explanation);
   });
 
   it("replaces a numeric result with reason-specific Unknown without retaining its older band", async () => {
     const { fetchMock, queryClient } = renderHostDetail(10, { host: permissiveDetail });
-    const region = await screen.findByRole("region", { name: "Enforcing readiness" });
-    expect(within(region).getByText("40–59%")).toBeInTheDocument();
-    const explanation = "Enforcing readiness observation progress is Unknown because the reporting observation is stale. Audit capture coverage is unknown.";
+    const region = await screen.findByRole("region", { name: "Reporting & SELinux observations" });
+    expect(region).toHaveTextContent("12.0 days");
+    const explanation = "Credited reporting duration is Unknown because reporting is stale. Audit capture coverage is unknown.";
     fetchMock.mockImplementationOnce(() => Promise.resolve(jsonResponse(200, { host: { ...permissiveDetail.host,
-      enforcing_readiness: { ...detailPayload.host.enforcing_readiness, status: "unknown", reason: "reporting_stale",
+      reporting_observations: { ...detailPayload.host.enforcing_readiness, status: "unknown", reason: "reporting_stale",
         band: null, credited_seconds: null, reporting_days: null, explanation } } })));
     await act(async () => { await queryClient.invalidateQueries({ queryKey: ["host", 10] }); });
-    expect(await within(region).findByText("Unknown")).toBeInTheDocument();
-    expect(within(region).queryByText("40–59%")).not.toBeInTheDocument();
-    await userEvent.setup().hover(within(region).getByRole("button", { name: "About enforcing readiness" }));
-    expect(await screen.findByRole("tooltip")).toHaveTextContent(explanation);
+    expect(await within(region).findByText(explanation)).toBeVisible();
+    expect(region).not.toHaveTextContent("12.0 days");
   });
 
   it("renders readiness for sparse metadata without treating null comparisons as observed zero", async () => {
     renderHostDetail(10, { host: permissiveDetail, configuration: { ...matchingConfiguration,
       reference: { kind: "none" }, comparison: { ...matchingConfiguration.comparison,
         available: false, summary: { booleans: null, ports: null } } } });
-    const region = await screen.findByRole("region", { name: "Enforcing readiness" });
-    expect(within(region).getByText("40–59%")).toBeInTheDocument();
+    const region = await screen.findByRole("region", { name: "Reporting & SELinux observations" });
+    expect(region).toHaveTextContent("capture continuity is unknown");
     expect(screen.queryByText("Booleans")).not.toBeInTheDocument();
     expect(screen.queryByText("Ports")).not.toBeInTheDocument();
     expect(screen.queryByText("Matches reference")).not.toBeInTheDocument();
@@ -291,7 +274,7 @@ describe("HostDetail", () => {
     await screen.findByRole("heading", { name: "web-1" });
     expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Monitored servers" })).toHaveAttribute("href", "/hosts");
-    expect(screen.getByRole("heading", { name: "Host health" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Reporting & configuration" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Policy comparison" })).toBeInTheDocument();
     expect(screen.getByText("Baseline: AlmaLinux 9 Catalog")).toBeInTheDocument();
     expect(screen.getAllByText("Reporting")).toHaveLength(2);
@@ -390,7 +373,7 @@ describe("HostDetail", () => {
     expect(await screen.findByRole("heading", { name: "httpd_t → user_home_t" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "web-1" })).toHaveAttribute("href", "/hosts/10");
     expect(screen.getByRole("tab", { name: "Summary" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("link", { name: /View Issue #7 Investigation & Resolution Plan/ })).toHaveAttribute("href", "/issues/7");
+    expect(screen.getByRole("link", { name: /View Issue #7 Investigation & Change Review/ })).toHaveAttribute("href", "/issues/7");
     await user.click(screen.getByRole("link", { name: "web-1" }));
     expect(await screen.findByRole("heading", { name: "web-1" })).toBeInTheDocument();
   });
@@ -490,7 +473,7 @@ describe("HostDetail", () => {
     expect(await screen.findByText("1 drifted")).toBeInTheDocument();
     expect(screen.getByText("1 Differences found")).toBeInTheDocument();
     expect(screen.getByText("(349/350 match)")).toBeInTheDocument();
-    expect(screen.getByText("Drifted")).toBeInTheDocument();
+    expect(screen.queryByText("Drifted")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View full comparison" })).toHaveAttribute("href", "/hosts/10/configuration");
   });
 
@@ -504,7 +487,7 @@ describe("HostDetail", () => {
     const card = screen.getByRole("heading", { name: "Policy comparison" }).closest(".pf-v6-c-card")!;
     expect(within(card as HTMLElement).getByText("1 match · 2 host-only · 1 reference-only")).toBeVisible();
     expect(within(card as HTMLElement).getByText("3 Differences found")).toBeVisible();
-    expect(screen.getByText("Drifted")).toBeVisible();
+    expect(screen.queryByText("Drifted")).not.toBeInTheDocument();
     expect(screen.queryByText("Matches reference")).not.toBeInTheDocument();
   });
 
@@ -569,7 +552,7 @@ describe("HostDetail", () => {
   it("shows empty activity counts without active issues", async () => {
     renderHostDetail(10, { host: { host: { ...detailPayload.host, counts: { active_issues: 0, avcs_24h: 0, total_events: 0 } } } });
 
-    await screen.findByRole("heading", { name: "Host health" });
+    await screen.findByRole("heading", { name: "Reporting & configuration" });
     expect(screen.getByRole("region", { name: "Activity" })).toHaveTextContent("0");
     expect(screen.getByRole("region", { name: "Activity" })).toHaveTextContent("Active issues");
     expect(screen.getByRole("link", { name: "Active issues 0" })).toHaveAttribute("href", "/issues?host_id=10&status=open");

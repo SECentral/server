@@ -54,6 +54,7 @@ class Api::V1::IssuesController < Api::V1::BaseController
       related_activity: RelatedIssueActivity.call(issue),
       intelligence: summary,
       finding_coverage: finding_counts,
+      supported_occurrence_count: issue.occurrences.count - finding_counts.fetch("unexplained", 0),
       findings: displayed_findings,
       additional_finding_count: findings.size - displayed_findings.size,
       diagnosis: diagnosis,
@@ -61,7 +62,7 @@ class Api::V1::IssuesController < Api::V1::BaseController
       operator_guidance: investigation[:operator_guidance],
       host_explanations: host_explanations,
       fleet_explanation: fleet_explanation.slice(:state, :affected_host_count, :host_status_counts),
-      policy_analysis: intelligence[:policy_evaluation].slice(:status, :limitations),
+      policy_analysis: intelligence[:policy_evaluation].slice(:status, :limitations, :occurrence_counts),
       resolutions: ResolutionWorkflow.new(issue, operator: session[:operator_username],
         builder: ResolutionCandidates.new(issue, intelligence: intelligence, analyzer: analyzer)).call,
       triage: IssueTriageSignals.call(issue)

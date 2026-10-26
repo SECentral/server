@@ -82,8 +82,8 @@ describe("Overview", () => {
 
     expect(await screen.findByRole("heading", { name: "Overview", level: 1 })).toBeInTheDocument();
     await screen.findByRole("link", { name: "Active issues 2" });
-    expect(screen.getByText("Fleet health and SELinux activity across monitored systems.")).toBeInTheDocument();
-    for (const heading of ["Issue activity", "Fleet health", "Activity trends", "Needs attention"]) {
+    expect(screen.getByText(/Agent reporting and retained SELinux observations/)).toBeInTheDocument();
+    for (const heading of ["Issue activity", "Fleet reporting", "Activity trends", "Needs attention"]) {
       expect(screen.getByRole("heading", { name: heading, level: 2 })).toBeInTheDocument();
     }
     for (const linkName of ["Affected hosts 2", "AVCs — 24h 5"]) {
@@ -123,7 +123,8 @@ describe("Overview", () => {
   it("shows an empty attention message when nothing needs attention", async () => {
     renderOverview(quietPayload);
 
-    expect(await screen.findByText("No fleet conditions currently require attention.")).toBeInTheDocument();
+    expect(await screen.findByText("No listed conditions observed in retained telemetry.")).toBeInTheDocument();
+    expect(screen.getByText("Audit capture continuity and workload coverage are unknown.")).toBeVisible();
   });
 
   it("states clearly when the activity charts have no events in their period", async () => {

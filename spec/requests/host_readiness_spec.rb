@@ -10,28 +10,26 @@ RSpec.describe "Host detail enforcing readiness", type: :request do
   before { cleanup; organization; sign_in_operator }
   after { cleanup }
 
-  it "projects the readiness band and credited duration with unknown capture continuity" do
+  it "projects credited reporting duration without a readiness score or target" do
     host = reporting_host(days: 12)
     get "/api/v1/hosts/#{host.id}"
     expect(response).to have_http_status(:ok)
     result = JSON.parse(response.body).dig("host", "enforcing_readiness")
-    expect(result).to include("status" => "observed", "reason" => nil, "band" => "40–59%",
-      "target_days" => 30, "credited_seconds" => 12 * 86_400, "reporting_days" => 12.0,
+    expect(result).to include("status" => "observed", "reason" => nil, "band" => nil,
+      "target_days" => nil, "credited_seconds" => 12 * 86_400, "reporting_days" => 12.0,
       "capture_continuity" => "unknown", "latest_avc_at" => nil)
-    expect(result["explanation"]).to include("12.0 days", "40–59% observation progress",
-      "with no SELinux denials observed", "\n\nThese observations can help you assess readiness for enforcing mode",
-      "do not guarantee that all applications and services will work as expected. Verify system behavior when transitioning to enforcing mode.")
-    expect(result["explanation"]).not_to include("Reporting gaps", "Audit capture coverage", "audit capture coverage", "not credited")
+    expect(result["explanation"]).to include("12.0 days", "Audit capture continuity is unknown", "not continuous observation", "does not establish suitability")
+    expect(JSON.parse(response.body).dig("host", "reporting_observations")).to eq(result)
     expect(result).not_to have_key("probability")
   end
 
   it "qualifies already-enforcing hosts without setting their progress to 100%" do
     host = reporting_host(days: 12, mode: "enforcing")
     result = HostSerializer.call(host, include_snapshot: true).fetch(:enforcing_readiness)
-    expect(result).to include(band: "40–59%", reporting_days: 12.0)
-    expect(result[:explanation]).to include("Host is already enforcing.")
+    expect(result).to include(band: nil, reporting_days: 12.0)
+    expect(result[:explanation]).not_to include("%", "target")
     get "/api/v1/hosts/#{host.id}"
-    expect(JSON.parse(response.body).dig("host", "enforcing_readiness", "band")).to eq("40–59%")
+    expect(JSON.parse(response.body).dig("host", "enforcing_readiness", "band")).to be_nil
     get "/api/v1/hosts"
     expect(JSON.parse(response.body).fetch("hosts").first).not_to have_key("enforcing_readiness")
   end
@@ -60,7 +58,7 @@ RSpec.describe "Host detail enforcing readiness", type: :request do
     late = avc(host, at - 2.days)
     get "/api/v1/hosts/#{host.id}"
     result = JSON.parse(response.body).dig("host", "enforcing_readiness")
-    expect(result).to include("band" => "0–19%", "credited_seconds" => 86_400, "reporting_days" => 1.0)
+    expect(result).to include("band" => nil, "credited_seconds" => 86_400, "reporting_days" => 1.0)
     expect(result["explanation"]).not_to include("The last recorded AVC's day")
     recent = avc(host, at)
     get "/api/v1/hosts/#{host.id}"
@@ -75,7 +73,7 @@ RSpec.describe "Host detail enforcing readiness", type: :request do
     host.current_state_observation.update!(first_observed_at: at - 10.days)
     get "/api/v1/hosts/#{host.id}"
     result = JSON.parse(response.body).dig("host", "enforcing_readiness")
-    expect(result).to include("credited_seconds" => 300, "reporting_days" => 0.0, "band" => "0–19%")
+    expect(result).to include("credited_seconds" => 300, "reporting_days" => 0.0, "band" => nil)
     expect(result["explanation"]).to include("less than 0.1 days")
     expect(result["explanation"]).not_to include("Older reporting was not credited.")
   end
@@ -102,7 +100,7 @@ RSpec.describe "Host detail enforcing readiness", type: :request do
       result = JSON.parse(response.body).dig("host", "enforcing_readiness")
       expect(result).to include("status" => "unknown", "reason" => reason, "band" => nil,
         "credited_seconds" => nil, "reporting_days" => nil, "capture_continuity" => "unknown")
-      expect(result["explanation"]).to start_with("Enforcing readiness observation progress is Unknown because")
+      expect(result["explanation"]).to start_with("Credited reporting duration is Unknown because")
       expect(result["explanation"]).not_to include("40–59%")
     end
   end

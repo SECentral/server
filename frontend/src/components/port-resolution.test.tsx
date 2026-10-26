@@ -236,18 +236,19 @@ describe("Port troubleshooting", () => {
     const fetchMock = vi.fn(async (url: string) => {
       const permissive = url.endsWith("/22");
       return new Response(JSON.stringify({ id: permissive ? 22 : 11, host: { id: permissive ? 2 : 1, hostname: permissive ? "web-2" : "web-1" },
+        syscall_outcome: permissive ? "succeeded" : "failed",
         normalized_denial: { target_class: "tcp_socket", details: { permissive, syscall_evidence: [{ success: permissive ? "yes" : "no", exit: permissive ? "0" : "-13" }] } },
         guidance: { checks } }), { status: 200 });
     });
     vi.stubGlobal("fetch", fetchMock);
     mount(state);
     const user = userEvent.setup();
-    expect(await screen.findByText(/Enforcing \(permissive=0\)/)).toHaveTextContent("Failed");
+    expect(await screen.findByText(/Enforcing \(permissive=0\)/)).toHaveTextContent("failed");
     for (const check of checks.slice(0, 3)) expect(screen.getByRole("button", { name: `Copy command: ${check.command}` })).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Policy inspection" }));
     expect(screen.getByRole("button", { name: `Copy command: ${checks[3].command}` })).toBeVisible();
     await user.click(screen.getByRole("tab", { name: /web-2/ }));
-    expect(await screen.findByText(/Non-enforced \(permissive=1\)/)).toHaveTextContent("Succeeded");
+    expect(await screen.findByText(/Non-enforced \(permissive=1\)/)).toHaveTextContent("succeeded");
     expect(screen.queryByText(/Enforcing \(permissive=0\)/)).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "web-2 · #22" })).toHaveAttribute("href", "/hosts/2/occurrences/22");
     for (const check of checks.slice(0, 3)) expect(screen.getByRole("button", { name: `Copy command: ${check.command}` })).toBeVisible();
@@ -262,7 +263,7 @@ describe("Port troubleshooting", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: 11, host: { id: 1, hostname: "web-1" },
       normalized_denial: { details: { permissive: true } }, guidance: { checks: [] } }), { status: 200 })));
     mount(workflow());
-    expect(await screen.findByText(/Non-enforced \(permissive=1\)/)).toHaveTextContent("Recorded syscall result: Not established");
+    expect(await screen.findByText(/Non-enforced \(permissive=1\)/)).toHaveTextContent("Recorded syscall result: unknown");
   });
 
   it("opens rollback from a phase deep link and retains prior-state warnings before its mutation Copy", async () => {

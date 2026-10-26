@@ -28,7 +28,7 @@ RSpec.describe AvcNormalizer do
   it "normalizes syscall outcome evidence" do
     result = described_class.call([avc, 'type=SYSCALL syscall=42 success=no exit=-13']).first
 
-    expect(result[:syscall_evidence]).to include("syscall" => "42", "success" => "no", "exit" => "-13")
+    expect(result[:syscall_evidence]).to include(include("syscall" => "42", "success" => "no", "exit" => "-13", "source_record_position" => 1))
   end
 
   it "normalizes permissive AVC state without discarding the raw field" do
@@ -61,7 +61,7 @@ RSpec.describe AvcNormalizer do
     ])
     expect(results.map { |r| r[:target_paths] }).to eq([[], [], [], ["/srv/db/marker"]])
     expect(results.map { |r| r[:avc_record_position] }).to eq([0, 1, 2, 3])
-    expect(results).to all(include(permissive: true, syscall_evidence: [ { "syscall" => "257", "success" => "yes", "exit" => "3" } ]))
+    expect(results).to all(include(permissive: true, syscall_evidence: [ { "syscall" => "257", "success" => "yes", "exit" => "3", "source_record_position" => 4 } ]))
   end
 
   it "does not borrow missing identity or permissive state from another AVC" do

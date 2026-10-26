@@ -16,6 +16,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchOverview, type OverviewAttentionHost, type OverviewResponse } from "../api/overview";
 import { SeriesChart } from "../components/SeriesChart";
 import { MetricCard } from "../components/MetricCard";
+import { ObservationCounts } from "../components/ObservationCounts";
 
 const AGENT_STATES = [
   { key: "reporting", label: "Reporting", status: "success" },
@@ -82,7 +83,7 @@ export function Overview() {
     <main className="overview-page">
       <header className="overview-header">
         <Title headingLevel="h1" size="2xl" className="pf-v6-u-mt-0">Overview</Title>
-        <p className="pf-v6-u-color-200">Fleet health and SELinux activity across monitored systems.</p>
+        <p className="pf-v6-u-color-200">Agent reporting and retained SELinux observations. Audit capture continuity is unknown, including for reporting agents.</p>
       </header>
 
       {overviewQuery.isPending ? (
@@ -104,6 +105,8 @@ export function Overview() {
                 <GridItem sm={12} md={6} xl={3}><MetricCard label="Affected hosts" value={data.metrics.affected_hosts} detail="With active issues" href="/issues?status=open" /></GridItem>
                 <GridItem sm={12} md={6} xl={3}><MetricCard label="AVCs — 24h" value={data.metrics.avcs_24h} detail="In the last 24 hours" href="/issues" /></GridItem>
               </Grid>
+              <ObservationCounts observations={data.metrics.observations_24h} />
+              <p>Last 24 hours by recorded event time. Outcomes refer to associated syscalls, not application requests or established SELinux causation.</p>
             </PageSection>
 
             <PageSection isPlain padding={{ default: "noPadding" }} aria-labelledby="fleet-health-heading" className="overview-section">
@@ -112,7 +115,7 @@ export function Overview() {
                 alignItems={{ default: "alignItemsCenter" }}
                 justifyContent={{ default: "justifyContentSpaceBetween" }}
               >
-                <FlexItem><Title headingLevel="h2" size="xl" id="fleet-health-heading">Fleet health</Title></FlexItem>
+                <FlexItem><Title headingLevel="h2" size="xl" id="fleet-health-heading">Fleet reporting</Title></FlexItem>
                 <FlexItem><a href="/hosts" className="overview-host-total">{data.metrics.monitored_hosts} monitored hosts</a></FlexItem>
               </Flex>
               <Grid hasGutter aria-label="Agent reporting status">
@@ -143,7 +146,7 @@ export function Overview() {
                 <span className="pf-v6-u-color-200">Current, evidence-backed conditions only.</span>
               </div>
               {data.attention.agent_states.length === 0 && !data.attention.permissive && !data.attention.new_issues && !data.attention.multi_host_issues ? (
-                <Alert variant="success" title="No fleet conditions currently require attention." isInline isPlain className="overview-attention-alert" />
+                <Alert variant="info" title="No listed conditions observed in retained telemetry." isInline isPlain className="overview-attention-alert">Audit capture continuity and workload coverage are unknown.</Alert>
               ) : (
                 <AlertGroup aria-label="Fleet conditions requiring attention" className="overview-alert-group">
                   {data.attention.agent_states.map((group) => (

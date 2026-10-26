@@ -41,7 +41,15 @@ class AvcNormalizer
     missing << "permissions" if permissions.empty?
     missing << "source_type" unless context_type(fields["scontext"])
     missing << "target_type" unless context_type(fields["tcontext"])
-    return { status: "ungroupable", missing: missing.uniq } if missing.any?
+    observation = {
+      permissive: permissive_state(fields["permissive"]),
+      syscall_evidence: parsed.filter_map do |record|
+        next unless record[:type_name] == "SYSCALL"
+        record[:fields].slice("arch", "syscall", "success", "exit").merge("source_record_position" => record[:position])
+      end,
+      avc_record_position: avc[:position]
+    }
+    return { status: "ungroupable", missing: missing.uniq, **observation } if missing.any?
 
     target_evidence = parsed.each_with_object({ path_fields: [], filesystem_paths: [], object_names: [] }) do |record, evidence|
       evidence[:path_fields].concat(record[:path_fields])
@@ -72,20 +80,15 @@ class AvcNormalizer
       target_context: fields["tcontext"],
       target_type: context_type(fields["tcontext"]),
       target_class: fields["tclass"],
-       permissions: permissions,
-       permissive: permissive_state(fields["permissive"]),
-       syscall_evidence: parsed.filter_map do |record|
-         next unless record[:fields]["syscall"]
-         record[:fields].slice("syscall", "success", "exit")
-       end,
+      permissions: permissions,
+      **observation,
       command: fields["comm"],
       executable: fields["exe"],
       target_paths: target_evidence[:filesystem_paths],
       target_evidence: target_evidence,
       network_evidence: network_evidence,
       process_evidence: process_evidence,
-        evidence_provenance: parsed.flat_map { |record| record[:provenance] }.uniq,
-        avc_record_position: avc[:position]
+      evidence_provenance: parsed.flat_map { |record| record[:provenance] }.uniq
     }
   end
 
@@ -171,8 +174,12 @@ class AvcNormalizer
   end
 
   def key_values(raw)
-    raw.scan(/(\w+)=("(?:\\.|[^"])*"|\S+)/).to_h do |key, value|
+    pairs = raw.scan(/(\w+)=("(?:\\.|[^"])*"|\S+)/).map do |key, value|
       [key, value.start_with?("\"") ? value[1...-1].gsub('\\"', '"').gsub("\\\\", "\\") : value]
+    end
+    pairs.group_by(&:first).transform_values do |items|
+      values = items.map(&:last).uniq
+      values.one? ? values.first : nil
     end
   end
 

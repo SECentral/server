@@ -31,7 +31,7 @@ class IssueDiagnosis
     evaluations = @intelligence[:policy_evaluation].to_h.fetch(:occurrence_evaluations, []).index_by { |item| item[:occurrence_id] }
     results = occurrences.map do |occurrence|
       evaluation = evaluations[occurrence.id] || { status: "unavailable", occurrence_id: occurrence.id, host_id: occurrence.host_id }
-      findings = findings_for_occurrence(occurrence, evaluation)
+      findings = findings_for_occurrence(occurrence, evaluation).map { |finding| finding.merge(occurred_at: occurrence.occurred_at) }
       diagnosis = findings.first
       { occurrence_id: occurrence.id, host_id: occurrence.host_id, status: diagnosis ? "diagnosed" : "insufficient_evidence",
         diagnosis: diagnosis, findings: findings,
@@ -70,7 +70,7 @@ class IssueDiagnosis
         evidence = item[:diagnosis]
         evidence[:observation_event_id] && evidence[:observation_event_id] != occurrences_by_id.fetch(evidence[:occurrence_id]).raw_event_id
       end
-      { diagnosis: finding, occurrence_count: group.size, observation_count: observations.size,
+      { diagnosis: finding, occurrence_count: group.size, sample_occurrence_ids: group.first(3).map { |item| item[:diagnosis][:occurrence_id] }, scope: "supporting_occurrences", observation_count: observations.size,
         reused_observation_occurrences: reused }
     end.sort_by { |item| [ %w[file_context_mismatch no_matching_allow conditional_allow_inactive].index(item[:diagnosis][:kind]), -occurrences_by_id.fetch(item[:diagnosis][:occurrence_id]).occurred_at.to_f ] }
   end
@@ -186,7 +186,8 @@ class IssueDiagnosis
       target_class: @issue.target_class,
       path: paths.one? ? paths.first : nil,
       enforcement_mode: candidate[:item][:enforcement_mode],
-      syscall_failed: candidate[:item][:enforcement_mode] == "enforcing" && failed_syscall?(denial.details.to_h.fetch("syscall_evidence", [])),
+      syscall_failed: syscall_failed(denial),
+      syscall_outcome: NormalizedDenial.syscall_outcome(denial.details),
       finding: "No matching allow was found for the observed denied permission.",
       **policy_provenance(candidate[:item]),
       process_command: (candidate[:denial].command if candidate[:denial].respond_to?(:command)),
@@ -244,7 +245,7 @@ class IssueDiagnosis
     if operation == "read"
       paths = Array(denial.details.to_h.dig("target_evidence", "filesystem_paths"))
       key = [ item[:evaluations], item[:booleans], candidate[:conditional_rules], item[:enforcement_mode], paths, denial.permissions,
-        denial.command, denial.executable, failed_syscall?(denial.details.to_h["syscall_evidence"]) ]
+        denial.command, denial.executable, NormalizedDenial.syscall_outcome(denial.details) ]
       @read_findings ||= {}
       template = @read_findings[key] ||= file_access_diagnosis(candidate).except(:occurrence_id, :checkpoint_observed_at)
       return template.merge(occurrence_id: item[:occurrence_id], checkpoint_observed_at: item[:checkpoint_observed_at])
@@ -255,15 +256,14 @@ class IssueDiagnosis
     permissions = denial.permissions
     ports = connect ? IssueIntelligence.destination_ports(denial.details) : Array(network["bind_port_fields"]).uniq
     port = ports.one? ? ports.first : nil
-    enforcing = item[:enforcement_mode] == "enforcing"
-    blocked = enforcing && failed_syscall?(denial.details.to_h.fetch("syscall_evidence", []))
+    failed = syscall_failed(denial)
     {
       kind: "conditional_allow_inactive",
       operation: operation,
       title: if connect
-        blocked ? "SELinux blocked a network connection request" : enforcing ? "SELinux denied a network connection request" : "SELinux reported a network connection denial"
+        "SELinux recorded a network connection denial"
              else
-        blocked ? "SELinux blocked a local port bind request" : enforcing ? "SELinux denied a local port bind request" : "SELinux reported a local port bind denial"
+        "SELinux recorded a local port bind denial"
              end,
       evidence_strength: "strong",
       finding: "Matching conditional allow paths exist, but their conditions were inactive at the associated host checkpoint.",
@@ -277,7 +277,8 @@ class IssueDiagnosis
       destination_port: connect ? port : nil,
       enforcement_mode: item[:enforcement_mode],
       permissive: item[:permissive],
-      syscall_failed: blocked,
+      syscall_failed: failed,
+      syscall_outcome: NormalizedDenial.syscall_outcome(denial.details),
       conditional_rules: candidate[:conditional_rules],
       condition_boolean_states: condition_boolean_states(item, candidate[:conditional_rules]),
       booleans: item[:booleans],
@@ -288,7 +289,7 @@ class IssueDiagnosis
       evidence: [
         { fact: "#{@issue.source_type} attempted #{permissions.join(', ')} on #{@issue.target_type}:#{@issue.target_class}#{port ? " at TCP port #{port}" : ""}.", basis: "avc_record", certainty: "observed" },
         { fact: "The matching conditional allow paths evaluated inactive at the associated host checkpoint.", basis: "reusable_policy_fact_and_checkpoint_state", certainty: "derived" },
-        { fact: enforcing ? (blocked ? "SELinux was enforcing and the correlated syscall failed." : "SELinux was enforcing; syscall outcome was unavailable.") : "SELinux reported that this operation would be denied under enforcement.", basis: "occurrence_state", certainty: "observed" }
+        { fact: outcome_fact(denial), basis: "occurrence_state", certainty: "observed" }
       ],
       interpretation: "Under the observed checkpoint state, these conditional paths did not provide the denied permission. That is consistent with the denial, not proof of its only cause.",
       limitation: "Whether this workload should have the network capability is a workload and security decision; this finding does not authorize changing policy or enabling a boolean.",
@@ -322,16 +323,15 @@ class IssueDiagnosis
     evidence = denial.details.to_h.fetch("target_evidence", {})
     paths = Array(evidence["filesystem_paths"])
     path = paths.one? ? paths.first : nil
-    enforcing = item[:enforcement_mode] == "enforcing"
-    blocked = enforcing && failed_syscall?(denial.details.to_h.fetch("syscall_evidence", []))
+    failed = syscall_failed(denial)
     target = path || Array(evidence["object_names"]).first || "the recorded file"
 
     {
       kind: "conditional_allow_inactive",
       operation: candidate[:operation],
-      title: read ? "A matching SELinux read rule was inactive" : blocked ? "SELinux blocked an execution request" : enforcing ? "SELinux denied an execution request" : "SELinux reported an execution denial",
+      title: read ? "A matching SELinux read rule was inactive" : "SELinux recorded an execution denial",
       evidence_strength: "strong",
-      finding: read ? "A matching SELinux read rule exists, but its condition was inactive at the associated host checkpoint." : blocked ? "SELinux blocked execution while a matching policy condition was inactive." : enforcing ? "SELinux denied execution while a matching policy condition was inactive." : "SELinux reported an execution denial while a matching policy condition was inactive.",
+      finding: "A matching SELinux #{read ? 'read' : 'execute'} rule exists, but its condition was inactive at the associated host checkpoint.",
       occurrence_id: item[:occurrence_id],
       source_domain: @issue.source_type,
       source_description: @issue.source_type,
@@ -343,7 +343,8 @@ class IssueDiagnosis
       path: path,
       enforcement_mode: item[:enforcement_mode],
       permissive: item[:permissive],
-      syscall_failed: blocked,
+      syscall_failed: failed,
+      syscall_outcome: NormalizedDenial.syscall_outcome(denial.details),
       conditional_rules: candidate[:conditional_rules],
       condition_boolean_states: condition_boolean_states(item, candidate[:conditional_rules]),
       booleans: item[:booleans],
@@ -354,7 +355,7 @@ class IssueDiagnosis
       evidence: [
         { fact: read ? "#{@issue.source_type} was denied read access to a file labeled #{@issue.target_type}." : "#{@issue.source_type} attempted to execute #{target}, labeled #{@issue.target_type}.", basis: "avc_record", certainty: "observed" },
         { fact: "A matching conditional allow for #{candidate[:operation]} exists, but its condition evaluated inactive in the correlated host state.", basis: "reusable_policy_fact_and_checkpoint_state", certainty: "derived" },
-        { fact: enforcing ? (blocked ? "SELinux was enforcing and the correlated #{read ? "file-access" : "execve"} syscall failed." : "SELinux was enforcing; syscall outcome was unavailable.") : "SELinux reported that this operation would be denied under enforcement.", basis: "occurrence_state", certainty: "observed" }
+        { fact: outcome_fact(denial), basis: "occurrence_state", certainty: "observed" }
       ],
       interpretation: "Under the observed checkpoint state, this conditional rule did not provide the denied permission. This is consistent with the denial, not proof of its only cause.",
       limitation: read ? "Boolean state comes from the associated checkpoint, not a measurement at AVC time. This does not establish the expected path label or whether the workload should receive access." : "This finding does not establish that a domain transition was attempted or intended, and does not authorize changing policy, labeling, or boolean state.",
@@ -363,8 +364,12 @@ class IssueDiagnosis
     }.compact
   end
 
-  def failed_syscall?(evidence)
-    Array(evidence).any? { |syscall| %w[no false 0].include?(syscall["success"].to_s) }
+  def syscall_failed(denial)
+    { "failed" => true, "succeeded" => false }[NormalizedDenial.syscall_outcome(denial.details)]
+  end
+
+  def outcome_fact(denial)
+    "AVC enforcement: #{NormalizedDenial.enforcement(denial.details)}; associated syscall outcome: #{NormalizedDenial.syscall_outcome(denial.details)}. This does not establish application impact or the cause of a failed syscall."
   end
 
   def condition_boolean_states(item, rules = item[:conditional_rule_states])

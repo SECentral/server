@@ -27,10 +27,10 @@ class CapabilityGuidance
     return result unless avc[:source_context] == denial.source_context && avc[:target_class] == denial.target_class && avc[:permissions] == denial.permissions &&
       pids == [syscall["pid"]] && syscall["subj"] == denial.source_context && syscall["exe"] == denial.executable
 
-    details = denial.details
-    if details["permissive"] == true && syscall["success"] == "yes"
-      result[:outcome] = "SELinux logged this request without blocking it (permissive mode). The associated system call succeeded."
-    elsif syscall["success"] == "no"
+    outcome = NormalizedDenial.syscall_outcome("syscall_evidence" => syscalls)
+    if denial.enforcement_mode == "permissive" && outcome == "succeeded"
+      result[:outcome] = "This AVC was non-enforced (permissive=1). The associated system call succeeded; application outcome is not established."
+    elsif outcome == "failed"
       result[:outcome] = "The associated system call failed."
     end
     errors = normalizer.selinux_error_records

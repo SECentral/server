@@ -61,26 +61,16 @@ class IssueIntelligence
       expected_context_observations: expected_context_observations(rows),
       affected_hosts: @issue.occurrences.distinct.count(:host_id),
       observation_summary: rows.group_by(&:first).map do |host_id, items|
-        events = items.uniq { |row| row[8] }
-        outcomes = events.map do |row|
-          syscalls = Array(row[2]["syscall_evidence"])
-          if syscalls.any? { |s| %w[no false 0].include?(s["success"].to_s) }
-            "failed"
-          elsif syscalls.any? && syscalls.all? { |s| %w[yes true 1].include?(s["success"].to_s) }
-            "succeeded"
-          else
-            "unknown"
-          end
-        end.tally
-        { host_id: host_id, hostname: items.first[1], occurrences: items.size, audit_events: events.size,
-          modes: items.map { |row| row[2].fetch("enforcement_mode", "unknown") }.tally, syscall_outcomes: outcomes }
+        { host_id: host_id, hostname: items.first[1],
+          **ObservationSummary.from_rows(items.map { |row| [row[8], row[2]] }) }
       end,
       occurrence_time: {
         affected_occurrences: @issue.occurrences.count,
         affected_hosts: @issue.occurrences.distinct.count(:host_id),
         platform_distribution: snapshot_distribution("platform,os_version"),
         policy_distribution: snapshot_distribution("selinux,kernel_policy_version"),
-        enforcement_distribution: snapshot_distribution("selinux,enforcement")
+        enforcement_distribution: snapshot_distribution("selinux,enforcement"),
+        avc_enforcement_distribution: rows.map { |row| NormalizedDenial.enforcement(row[2]) }.tally
       },
       fleet: fleet_summary(configuration_hosts, affected_ids, activity_hosts.size),
       policy_evaluation: PolicyEvaluation.call(@issue)
@@ -138,16 +128,17 @@ class IssueIntelligence
 
   def snapshot_distribution(path)
     if path == "selinux,enforcement"
-      expression = "CASE WHEN raw_events.checkpoint_invalidated_fields ? 'enforcement' THEN 'unknown' ELSE host_snapshots.details #>> '{selinux,enforcement}' END"
-      return @issue.occurrences.joins(:raw_event, :host_snapshot).group(Arel.sql(expression)).count
-        .reject { |value, _count| value.nil? }.sort_by { |value, count| [-count, value] }.to_h
+      expression = "CASE WHEN raw_events.checkpoint_invalidated_fields ? 'enforcement' THEN 'unknown' ELSE COALESCE(host_snapshots.details #>> '{selinux,enforcement}', 'unknown') END"
+      return @issue.occurrences.joins(:raw_event).left_joins(:host_snapshot).group(Arel.sql(expression)).count
+        .sort_by { |value, count| [-count, value] }.to_h
     end
-    counts = @snapshot_counts ||= @issue.occurrences.where.not(host_snapshot_id: nil).group(:host_snapshot_id).count
+    counts = @snapshot_counts ||= @issue.occurrences.group(:host_snapshot_id).count
     expression = "host_snapshots.details #>> '{#{path}}'"
     totals = Hash.new(0)
     HostSnapshot.where(id: counts.keys).pluck(:id, Arel.sql(expression)).each do |id, value|
-      totals[value] += counts.fetch(id) unless value.nil?
+      totals[value || "unknown"] += counts.fetch(id)
     end
+    totals["unknown"] += counts.fetch(nil, 0) if counts.key?(nil)
     totals.sort_by { |value, count| [ -count, value ] }.to_h
   end
 

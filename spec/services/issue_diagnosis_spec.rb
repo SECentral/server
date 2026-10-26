@@ -98,7 +98,7 @@ RSpec.describe IssueDiagnosis do
     result = described_class.call(policy_issue, intelligence: policy_intelligence(policy_evaluation_item("conditional_inactive", false)))
 
     expect(result).to include(kind: "conditional_allow_inactive", occurrence_id: 12266, enforcement_mode: "enforcing", syscall_failed: true)
-    expect(result[:title]).to eq("SELinux blocked a network connection request")
+    expect(result[:title]).to eq("SELinux recorded a network connection denial")
     expect(result[:source_description]).to eq("httpd_t")
     expect(result[:next_step]).to include("Confirm whether this workload is expected")
   end
@@ -108,7 +108,7 @@ RSpec.describe IssueDiagnosis do
 
     expect(result).to include(kind: "conditional_allow_inactive", operation: "name_bind", permission: "name_bind", bind_port: "12345", syscall_failed: true)
     expect(result).not_to have_key(:destination_port)
-    expect(result[:title]).to eq("SELinux blocked a local port bind request")
+    expect(result[:title]).to eq("SELinux recorded a local port bind denial")
     expect(result[:title]).not_to include("connect")
     expect(result[:next_step]).to include("bind TCP port 12345")
     expect(result[:next_step]).not_to include("enable")
@@ -126,7 +126,7 @@ RSpec.describe IssueDiagnosis do
     result = described_class.call(execute_policy_issue, intelligence: policy_intelligence(execute_evaluation("conditional_inactive")))
 
     expect(result).to include(kind: "conditional_allow_inactive", operation: "execute", path: "/var/www/cgi-bin/secentral-s005-helper.sh", enforcement_mode: "enforcing", syscall_failed: true)
-    expect(result[:title]).to eq("SELinux blocked an execution request")
+    expect(result[:title]).to eq("SELinux recorded an execution denial")
     expect(result[:next_step]).to include("expected to execute this file")
     expect(result[:next_step]).not_to include("enable")
   end
@@ -134,11 +134,11 @@ RSpec.describe IssueDiagnosis do
   it "does not say permissive execute AVCs were blocked" do
     result = described_class.call(execute_policy_issue(permissive: true), intelligence: policy_intelligence(execute_evaluation("conditional_inactive", permissive: true)))
 
-    expect(result[:title]).to include("reported")
+    expect(result[:title]).to include("recorded")
     expect(result[:title]).not_to include("blocked")
-    expect(result[:finding]).to include("reported")
+    expect(result[:finding]).to include("condition was inactive")
     expect(result[:finding]).not_to include("blocked")
-    expect(result[:syscall_failed]).to be false
+    expect(result[:syscall_failed]).to be true
   end
 
   it "does not diagnose an active execute conditional relationship" do
@@ -179,14 +179,14 @@ RSpec.describe IssueDiagnosis do
   it "uses the technical source domain" do
     result = described_class.call(policy_issue("vendor_custom_t"), intelligence: policy_intelligence(policy_evaluation_item("conditional_inactive", false, 12266, "vendor_custom_t")))
 
-    expect(result[:title]).to eq("SELinux blocked a network connection request")
+    expect(result[:title]).to eq("SELinux recorded a network connection denial")
     expect(result[:source_description]).to eq("vendor_custom_t")
   end
 
   it "does not translate observed process evidence into an application identity" do
     result = described_class.call(policy_issue(process_evidence: { "commands" => ["httpd"] }), intelligence: policy_intelligence(policy_evaluation_item("conditional_inactive", false)))
 
-    expect(result[:title]).to eq("SELinux blocked a network connection request")
+    expect(result[:title]).to eq("SELinux recorded a network connection denial")
     expect(result[:source_description]).to eq("httpd_t")
   end
 
@@ -202,9 +202,9 @@ RSpec.describe IssueDiagnosis do
   it "does not call a permissive AVC blocked" do
     result = described_class.call(policy_issue, intelligence: policy_intelligence(policy_evaluation_item("conditional_inactive", true)))
 
-    expect(result[:title]).to include("reported")
+    expect(result[:title]).to include("recorded")
     expect(result[:title]).not_to include("blocked")
-    expect(result[:evidence].last[:fact]).to include("would be denied under enforcement")
+    expect(result[:evidence].last[:fact]).to include("does not establish application impact or the cause")
   end
 
   it "suppresses policy findings without an inactive conditional allow" do
@@ -248,7 +248,7 @@ RSpec.describe IssueDiagnosis do
     item = no_matching_network_evaluation("name_connect").merge(enforcement_mode: "permissive")
     result = described_class.call(no_allow_network_issue(operation: "name_connect"), intelligence: policy_intelligence(item))
 
-    expect(result).to include(operation: "name_connect", destination_port: "9090", syscall_failed: false)
+    expect(result).to include(operation: "name_connect", destination_port: "9090", syscall_outcome: "unknown")
     expect(result).not_to have_key(:bind_port)
     expect(result[:title]).to include("denied connecting to TCP port 9090")
     expect(result[:title]).not_to include("blocked")
@@ -294,7 +294,7 @@ RSpec.describe IssueDiagnosis do
       expect(result).to include(kind: "conditional_allow_inactive", operation: "read", explained_permissions: ["read"], permissions: %w[open read map], enforcement_mode: mode)
       expect(result[:evidence].first[:fact]).to include("denied read access")
       expect(result[:finding]).not_to include("open", "map")
-      expect(result[:syscall_failed]).to be false
+      expect(result[:syscall_failed]).to be_nil
     end
   end
 

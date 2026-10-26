@@ -1,5 +1,6 @@
 class IssueDetailSerializer
   def self.call(issue)
+    observations = ObservationSummary.call(issue.occurrences)
     {
       id: issue.id,
       organization_id: issue.organization_id,
@@ -18,7 +19,8 @@ class IssueDetailSerializer
       permissions: issue.permissions,
       first_seen_at: issue.first_seen_at,
       last_seen_at: issue.last_seen_at,
-      occurrences_count: issue.occurrences_count,
+      occurrences_count: observations[:occurrences],
+      observations: observations,
       affected_hosts: issue.occurrences.distinct.count(:host_id),
       signatures: issue.active_signatures.includes(:occurrences).order(:id).map { |signature| IssueSignatureSerializer.call(signature) },
       disposition_history: issue.disposition_changes.order(created_at: :desc).limit(20).map do |change|

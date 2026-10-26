@@ -20,7 +20,7 @@ RSpec.describe "Heartbeat reporting duration", type: :request do
     send_heartbeat(start)
     expect(host.reload.reporting_started_at).to eq(start)
     expect(credit).to eq(0)
-    expect(readiness).to include(status: "observed", band: "0–19%", capture_continuity: "unknown")
+    expect(readiness).to include(status: "observed", band: nil, capture_continuity: "unknown")
   end
 
   it "credits elapsed time despite identical-state coalescing" do
@@ -226,12 +226,12 @@ RSpec.describe "Heartbeat reporting duration", type: :request do
     expect(readiness).to include(status: "unknown", reason: "denial_time_unavailable", band: nil)
   end
 
-  { 0 => "0–19%", 6 => "20–39%", 12 => "40–59%", 18 => "60–79%", 24 => "80–99%", 30 => "100%" }.each do |days, band|
-    it "reports #{band} for #{days} credited days without asserting capture confidence" do
+  [0, 6, 12, 18, 24, 30, 31].each do |days|
+    it "reports #{days} credited days without a percentage or safety target" do
       send_heartbeat(start, mode: "permissive")
       host.update!(reporting_started_at: (start - days.days).beginning_of_day)
       days.times { |n| host.host_reporting_days.create!(observed_on: start.to_date - n - 1, credited_microseconds: 86_400_000_000) }
-      expect(readiness).to include(status: "observed", band: band, reporting_days: days.to_f, capture_continuity: "unknown", target_days: 30)
+      expect(readiness).to include(status: "observed", band: nil, reporting_days: days.to_f, capture_continuity: "unknown", target_days: nil)
     end
   end
 

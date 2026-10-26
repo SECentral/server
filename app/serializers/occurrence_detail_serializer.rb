@@ -12,6 +12,8 @@ class OccurrenceDetailSerializer
       issue_signature_id: occurrence.issue_signature_id,
       host: { id: occurrence.host_id, hostname: occurrence.host.hostname },
       occurred_at: occurrence.occurred_at,
+      enforcement_mode: denial.enforcement_mode,
+      syscall_outcome: denial.syscall_outcome,
       normalized_denial: {
         status: denial.status,
         source_type: denial.source_type,

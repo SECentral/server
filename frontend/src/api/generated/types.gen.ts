@@ -546,6 +546,36 @@ export type HostSelinux = {
     policy_identity?: string | null;
 };
 
+/**
+ * Retained active AVC decisions and distinct enclosing audit events in the stated scope. Events can appear in several issues; never sum issue event totals for fleet totals. Syscall outcomes do not establish application impact or causation.
+ */
+export type ObservationSummary = {
+    occurrences: number;
+    audit_events: number;
+    /**
+     * AVC decision counts associated with each event-level outcome. These are not unique syscall counts.
+     */
+    decision_outcomes?: Array<{
+        enforcement_mode: 'enforcing' | 'permissive' | 'unknown';
+        syscall_outcome: 'failed' | 'succeeded' | 'unknown';
+        occurrences: number;
+    }>;
+    /**
+     * AVC decision counts by enforced (enforcing), non-enforced (permissive), or unknown evidence; not global host mode.
+     */
+    modes: {
+        [key: string]: number;
+    };
+    /**
+     * Unique audit-event counts; contradictory or missing success evidence is unknown.
+     */
+    syscall_outcomes: {
+        failed: number;
+        succeeded: number;
+        unknown: number;
+    };
+};
+
 export type HostCounts = {
     /**
      * Distinct open issues with occurrences on this host.
@@ -559,6 +589,8 @@ export type HostCounts = {
      * All retained occurrences on this host.
      */
     total_events: number;
+    observations?: ObservationSummary;
+    observations_24h?: ObservationSummary;
 };
 
 export type AgentStateCounts = {
@@ -589,6 +621,7 @@ export type OverviewMetrics = {
      * Retained occurrences during the last 24 hours.
      */
     avcs_24h: number;
+    observations_24h?: ObservationSummary;
     monitored_hosts: number;
     agent_states: AgentStateCounts;
 };
@@ -656,6 +689,10 @@ export type OverviewResponse = {
 };
 
 export type HostListItem = {
+    telemetry?: {
+        audit_capture: 'unknown';
+        explanation: string;
+    };
     id: number;
     hostname: string | null;
     external_id: string;
@@ -677,9 +714,13 @@ export type HostListResponse = {
 };
 
 /**
- * Host core detail, heartbeat-confirmed snapshot and authoritative enforcing-readiness reporting progress. Readiness is not a safety probability or audit-capture guarantee.
+ * Host core detail, retained configuration and reporting observations. No readiness or safety score is calculated.
  */
 export type HostDetail = HostListItem & {
+    reporting_observations?: EnforcingReadiness;
+    /**
+     * @deprecated
+     */
     enforcing_readiness: EnforcingReadiness;
     /**
      * Heartbeat-confirmed snapshot, or null when no observation exists.
@@ -691,13 +732,19 @@ export type HostDetail = HostListItem & {
 };
 
 /**
- * Server-calculated accumulated reporting progress toward a 30-day target. Numeric progress can coexist with unknown capture continuity. Unknown carries null duration/band, never older certainty.
+ * Credited heartbeat intervals strictly after the latest retained AVC UTC day, or since tracking began. Not continuous capture or workload coverage. Legacy band and target_days are always null.
  */
 export type EnforcingReadiness = {
     status: 'observed' | 'unknown';
     reason: 'reporting_not_tracked' | 'reporting_time_unknown' | 'enforcement_unavailable' | 'reporting_stale' | 'checkpoint_unavailable' | 'checkpoint_boot_mismatch' | 'denial_time_unavailable' | null;
-    band: '0–19%' | '20–39%' | '40–59%' | '60–79%' | '80–99%' | '100%' | null;
-    target_days: 30;
+    /**
+     * @deprecated
+     */
+    band: null;
+    /**
+     * @deprecated
+     */
+    target_days: null;
     credited_seconds: number | null;
     /**
      * Credited days rounded down to one decimal; null for Unknown. The explanation handles nonzero durations below 0.1 day.
@@ -707,7 +754,7 @@ export type EnforcingReadiness = {
     reporting_started_at: string | null;
     latest_avc_at: string | null;
     /**
-     * Authoritative plain-text tooltip with blank-line paragraph boundaries. Numeric results summarize observation progress with a separate safety caveat; Unknown results explain the reason. Render as text.
+     * Plain-text explanation of reporting duration and its collection limits, or the reason usable duration is unknown.
      */
     explanation: string;
 };
@@ -1467,6 +1514,7 @@ export type IssueHost = {
 };
 
 export type IssueListItem = {
+    observations?: ObservationSummary;
     signatures_count?: number;
     id: number;
     status: 'open' | 'resolved' | 'ignored';
@@ -1569,6 +1617,7 @@ export type IssueSignature = {
  */
 export type Issue = {
     signatures: Array<IssueSignature>;
+    observations?: ObservationSummary;
     id: number;
     organization_id: number;
     status: 'open' | 'resolved' | 'ignored';
@@ -1679,6 +1728,10 @@ export type Diagnosis = {
     occurrence_id: number;
     host_id?: number;
     /**
+     * Recorded event time of this finding's representative supporting occurrence.
+     */
+    occurred_at?: string;
+    /**
      * Exact loaded policy identity evaluated for this occurrence, when available.
      */
     policy_identity?: string;
@@ -1780,6 +1833,8 @@ export type IssueDetailResponse = {
      * Independent finding signatures, one recent example per kind, at most three. Counts may overlap because an occurrence can support both policy and file-context findings. The diagnosis field is the first visual finding, not an exclusive diagnosis.
      */
     findings?: Array<{
+        scope?: 'supporting_occurrences';
+        sample_occurrence_ids?: Array<number>;
         diagnosis: Diagnosis;
         occurrence_count: number;
         /**
@@ -1801,6 +1856,10 @@ export type IssueDetailResponse = {
     finding_coverage?: {
         [key: string]: number;
     };
+    /**
+     * Unique occurrences with at least one supported finding; finding-kind counts can overlap.
+     */
+    supported_occurrence_count?: number;
     issue: Issue;
     intelligence: IssueIntelligenceSummary;
     /**
@@ -1824,6 +1883,9 @@ export type IssueDetailResponse = {
      * Compact policy-evaluation availability state for explaining an incomplete finding.
      */
     policy_analysis: {
+        occurrence_counts?: {
+            [key: string]: number;
+        };
         status: 'evaluated' | 'pending' | 'error' | 'unavailable';
         limitations: Array<string>;
     };
@@ -2037,6 +2099,8 @@ export type OccurrenceGuidance = {
 };
 
 export type OccurrenceDetail = {
+    enforcement_mode?: 'enforcing' | 'permissive' | 'unknown';
+    syscall_outcome?: 'failed' | 'succeeded' | 'unknown';
     /**
      * Historical interpretation replaced by explicit replay. Retained for old evidence/review URLs, excluded from current counts and change guidance.
      */

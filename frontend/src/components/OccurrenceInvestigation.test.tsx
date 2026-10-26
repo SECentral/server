@@ -14,7 +14,7 @@ describe("exact-policy occurrence state", () => {
       raw_event: { id: 1, audit_timestamp: "2026-10-07T13:47:21Z", audit_sequence: 1, boot_id: "boot", category: "avc", transition_type: null, completion_reason: "eoe", evidence_digest: "digest", audit_records: [], file_context_observations: [], checkpoint_enforcement_mode: "enforcing", checkpoint_policy_identity: "sha256:p", permissive_policy_state: { status: "observed", policy_identity: "sha256:p", provenance: "exact_loaded_policy_artifact", source_type: "postgresql_t", source_domain_permissive: true, avc_policy_consistency: "consistent" } }
     };
     render(<MemoryRouter><OccurrenceInvestigation occurrence={occurrence} /></MemoryRouter>);
-    expect(screen.getByText(/Non-enforced \(AVC permissive=1\) · Trusted host enforcement: enforcing/)).toBeInTheDocument();
+    expect(screen.getByText(/Non-enforced \(AVC permissive=1\) · Associated checkpoint mode: enforcing/)).toBeInTheDocument();
     expect(screen.getByText(/postgresql_t is permissive in the exact policy/)).toBeInTheDocument();
     expect(screen.queryByText("sha256:p")).not.toBeInTheDocument();
   });
@@ -66,7 +66,7 @@ describe("occurrence investigation presentation", () => {
     expect(within(screen.getByRole("region", { name: "Network Detail" })).getByText("12345")).toBeInTheDocument();
     expect(screen.getByText("Enforcing (AVC permissive=0)")).toBeInTheDocument();
     expect(screen.getByText(/httpd_t is not permissive/)).toBeInTheDocument();
-    expect(screen.queryByText(/Trusted host enforcement/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Associated checkpoint mode/)).not.toBeInTheDocument();
     expect(screen.queryByText("Observed path")).not.toBeInTheDocument();
     expect(screen.queryByText("Checkpoint port inventory")).not.toBeInTheDocument();
     expect(screen.queryByText(/sha256:/)).not.toBeInTheDocument();
@@ -105,7 +105,7 @@ describe("occurrence investigation presentation", () => {
     occurrence.issue = { id: 1942 };
     renderOccurrence(occurrence);
     expect(screen.getByText("Belongs to Issue #1942.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /View Issue #1942 Investigation & Resolution Plan/ })).toHaveAttribute("href", "/issues/1942");
+    expect(screen.getByRole("link", { name: /View Issue #1942 Investigation & Change Review/ })).toHaveAttribute("href", "/issues/1942");
   });
 
   it("keeps ungrouped occurrences inspectable without an investigation link", () => {

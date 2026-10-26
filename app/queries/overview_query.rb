@@ -9,11 +9,13 @@ class OverviewQuery
   private
 
   def metrics(now)
+    observations = ObservationSummary.call(Occurrence.where(occurred_at: 24.hours.ago..now))
     {
       active_issues: IssueQuery.new.count,
       new_issues_24h: IssueQuery.new(filters: { "status" => "all", "new" => "1" }).count,
       affected_hosts: Occurrence.joins(:issue).where(issues: { status: "open" }).distinct.count(:host_id),
-      avcs_24h: Occurrence.where(occurred_at: 24.hours.ago..now).count,
+      avcs_24h: observations[:occurrences],
+      observations_24h: observations,
       monitored_hosts: Host.count,
       agent_states: HostListQuery.agent_state_counts(hosts)
     }

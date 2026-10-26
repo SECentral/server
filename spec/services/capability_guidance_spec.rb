@@ -19,12 +19,12 @@ RSpec.describe CapabilityGuidance do
     expect(result[:hypothesis]).to include("may be tuning socket buffers")
     expect(result[:inspection]).to include("startup configuration", "forced send-buffer")
     expect(result[:verification]).to include("application response", "enforcement mode")
-    expect(result[:outcome]).to include("permissive mode", "system call succeeded")
+    expect(result[:outcome]).to include("non-enforced", "system call succeeded", "application outcome is not established")
     expect(records).to eq([avc, syscall])
   end
 
   it "distinguishes receive-buffer requests and failed system calls" do
-    result = guidance([avc, syscall.sub("a2=20", "a2=21").sub("success=yes", "success=no")])
+    result = guidance([avc, syscall.sub("a2=20", "a2=21").sub("success=yes exit=0", "success=no exit=-13")])
     expect(result[:evidence]).to include("SO_RCVBUFFORCE", "receive buffer")
     expect(result[:outcome]).to eq("The associated system call failed.")
   end

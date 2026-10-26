@@ -1,20 +1,16 @@
 class HostEnforcingReadiness
-  TARGET_SECONDS = 30 * 86_400
-
   def self.call(host, at: Time.current, checkpoint_enforcement: nil)
     reason = unknown_reason(host, at, checkpoint_enforcement)
     latest_avc_at = host.raw_events.where(category: "avc").maximum(:audit_timestamp)
     reason ||= "denial_time_unavailable" if latest_avc_at && latest_avc_at > at
-    basis = { target_days: 30, capture_continuity: "unknown", reporting_started_at: host.reporting_started_at, latest_avc_at: latest_avc_at }
+    basis = { target_days: nil, band: nil, capture_continuity: "unknown", reporting_started_at: host.reporting_started_at, latest_avc_at: latest_avc_at }
     return basis.merge(status: "unknown", reason: reason, band: nil, credited_seconds: nil, reporting_days: nil) if reason
 
     days = host.host_reporting_days
     # ponytail: exclude the whole denial day; use finer buckets only if sub-day progress matters.
     days = days.where("observed_on > ?", latest_avc_at.utc.to_date) if latest_avc_at
     microseconds = days.sum(:credited_microseconds)
-    percent = [100, microseconds * 100 / (TARGET_SECONDS * HostReportingDay::MICROSECONDS)].min
-    band = percent == 100 ? "100%" : "#{percent / 20 * 20}–#{percent / 20 * 20 + 19}%"
-    basis.merge(status: "observed", reason: nil, band: band,
+    basis.merge(status: "observed", reason: nil,
       credited_seconds: microseconds.fdiv(HostReportingDay::MICROSECONDS), reporting_days: (microseconds * 10 / (86_400 * HostReportingDay::MICROSECONDS)).fdiv(10))
   end
 

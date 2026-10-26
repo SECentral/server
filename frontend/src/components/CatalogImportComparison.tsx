@@ -13,6 +13,7 @@ export function CatalogImportComparison({ report }: { report: Types.CatalogImpor
         {report.from_revision && <p>Compared from existing revision <Link to={`/catalogs/${report.from_revision.id}`}>{report.from_revision.id}</Link> · <code>{report.from_revision.content_digest}</code></p>}
         {report.changes && <>
           <h3>Structural changes</h3>
+          <p>These structural differences are not an upgrade, downgrade, security impact assessment, or workload recommendation.</p>
           <p>Loaded-policy identity changed: {report.changes.policy.loaded_policy_digest_changed ? "yes" : "no"}; packages changed: {report.changes.policy.packages_changed ? "yes" : "no"}.</p>
           <table className="pf-v6-c-table pf-m-compact" aria-label="Recorded catalog changes">
             <thead><tr><th scope="col">Family</th><th scope="col">Change</th><th scope="col">Count</th><th scope="col">Bounded samples</th></tr></thead>

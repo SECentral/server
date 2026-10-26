@@ -38,7 +38,7 @@ function Facts({ fields }: { fields: [string, React.ReactNode][] }) {
 function Summary({ occurrence }: { occurrence: OccurrenceDetail }) {
   const denial = occurrence.normalized_denial;
   const policy = occurrence.raw_event.permissive_policy_state;
-  const mode = denial.details.enforcement_mode;
+  const mode = occurrence.enforcement_mode ?? denial.details.enforcement_mode;
   const hostMode = occurrence.raw_event.checkpoint_enforcement_mode;
   const network = denial.details.network_evidence;
   const networkFields = network && typeof network === "object" && !Array.isArray(network) ? network as Record<string, unknown> : {};
@@ -86,13 +86,15 @@ function Summary({ occurrence }: { occurrence: OccurrenceDetail }) {
       <CardBody><Facts fields={[
         ["Enforcement", <span>
           {mode === "enforcing" ? "Enforcing (AVC permissive=0)" : mode === "permissive" ? "Non-enforced (AVC permissive=1)" : "Unknown — AVC enforcement not recorded"}
-          {hostMode !== mode && <> · Trusted host enforcement: {hostMode ?? "unavailable"}</>}
+          {hostMode !== mode && <> · Associated checkpoint mode: {hostMode ?? "unavailable"}</>}
         </span>],
+        ["Associated syscall outcome", occurrence.syscall_outcome ?? "unknown"],
+        ["Event assembly", occurrence.raw_event.completion_reason === "eoe" ? "End-of-event record retained; continuous audit capture is not established" : `${occurrence.raw_event.completion_reason} — record completeness not established`],
         ["Source domain policy state", policy?.status === "observed" && typeof policy.source_domain_permissive === "boolean"
           ? `${denial.source_type ?? "Source domain"} is ${policy.source_domain_permissive ? "permissive" : "not permissive"} in the exact policy retained for this occurrence.`
           : "Unknown — trusted exact-policy membership is unavailable"],
-        ["Issue", occurrence.issue ? <>Belongs to Issue #{occurrence.issue.id}. <Link to={`/issues/${occurrence.issue.id}`}>View Issue #{occurrence.issue.id} Investigation &amp; Resolution Plan →</Link></> : "Ungrouped event"]
-      ]} /></CardBody>
+        ["Issue", occurrence.issue ? <>Belongs to Issue #{occurrence.issue.id}. <Link to={`/issues/${occurrence.issue.id}`}>View Issue #{occurrence.issue.id} Investigation &amp; Change Review →</Link></> : "Ungrouped event"]
+      ]} /><p>AVC enforcement, checkpoint mode and syscall outcome are separate observations. Application impact and the cause of a failed syscall are not established.</p></CardBody>
     </Card></StackItem>
   </Stack>;
 }

@@ -20,7 +20,8 @@ class IssueListSerializer
       occurrences_count: occurrences.size,
       hosts_count: hosts.size,
       hosts: hosts.map { |host| { id: host.id, hostname: host.hostname } },
-      observed_paths: paths
+      observed_paths: paths,
+      observations: ObservationSummary.from_rows(occurrences.map { |item| [item.raw_event_id, item.normalized_denial.details] })
     }
   end
 end

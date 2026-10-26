@@ -50,7 +50,7 @@ RSpec.describe "Overview API", type: :request do
 
     expect(response).to have_http_status(:ok)
     payload = JSON.parse(response.body)
-    expect(payload["metrics"]).to eq(
+    expect(payload["metrics"]).to include(
       "active_issues" => 2,
       "new_issues_24h" => 1,
       "affected_hosts" => 2,

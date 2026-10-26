@@ -65,7 +65,7 @@ RSpec.describe "Hosts API", type: :request do
       "observation" => { "status" => "current", "last_received_at" => kind_of(String), "last_observed_at" => kind_of(String) },
       "platform" => { "os_id" => "almalinux", "os_version" => "9.3" },
       "selinux" => { "enforcement" => "enforcing", "configured_policy_type" => "targeted", "kernel_policy_version" => 33 },
-      "counts" => { "active_issues" => 1, "avcs_24h" => 1, "total_events" => 1 }
+      "counts" => hash_including("active_issues" => 1, "avcs_24h" => 1, "total_events" => 1)
     )
     expect(alma_item).not_to have_key("snapshot")
     expect(alma_item["selinux"]).not_to have_key("policy_identity")
@@ -203,7 +203,7 @@ RSpec.describe "Hosts API", type: :request do
         "enforcement" => "enforcing", "configured_policy_type" => "targeted",
         "kernel_policy_version" => 33, "policy_identity" => "sha256:" + "a" * 64
       ),
-      "counts" => { "active_issues" => 1, "avcs_24h" => 2, "total_events" => 2 }
+      "counts" => hash_including("active_issues" => 1, "avcs_24h" => 2, "total_events" => 2)
     )
     expect(body["snapshot"]).to eq(
       "platform" => { "os_id" => "almalinux", "os_version" => "9.3", "architecture" => "x86_64" },

@@ -97,7 +97,7 @@ describe("Hosts", () => {
     expect(screen.getByRole("grid", { name: "Hosts" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Operating system" })).toBeInTheDocument();
     expect(screen.getByRole("row", { name: /web-1/ })).toHaveTextContent("3 AVCs / 24h");
-    expect(screen.getByRole("row", { name: /web-1/ })).toHaveTextContent("40 total events");
+    expect(screen.getByRole("row", { name: /web-1/ })).toHaveTextContent("40 retained AVC observations");
     const list = screen.getByRole("region", { name: "Hosts" });
     expect(list).toHaveClass("resource-table-card");
     expect(within(list).getByRole("heading", { name: "Hosts" })).toBeInTheDocument();

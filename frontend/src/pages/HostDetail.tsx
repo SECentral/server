@@ -16,10 +16,9 @@ import {
   Icon,
   Pagination,
   Spinner,
-  Title,
-  Tooltip
+  Title
 } from "@patternfly/react-core";
-import { CheckCircleIcon, ExclamationTriangleIcon, InfoCircleIcon, TimesCircleIcon } from "@patternfly/react-icons";
+import { CheckCircleIcon, ExclamationTriangleIcon, TimesCircleIcon } from "@patternfly/react-icons";
 import { Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router-dom";
@@ -27,6 +26,7 @@ import { ApiError } from "../api/client";
 import { formatUtc } from "../components/OccurrenceEvidence";
 import { HostSelinuxActivity } from "../components/HostSelinuxActivity";
 import { MetricCard } from "../components/MetricCard";
+import { ObservationCounts } from "../components/ObservationCounts";
 import { osDisplayName } from "../platform";
 import { StatusLabel } from "../components/StatusLabel";
 import { fetchHostConfiguration, type HostConfigurationResponse } from "../api/configuration";
@@ -151,8 +151,7 @@ export function HostDetail() {
   }
 
   const { host } = detailQuery.data;
-  const readiness = host.enforcing_readiness;
-  const showReadiness = host.observation.status === "current" && host.selinux.enforcement === "permissive";
+  const reporting = host.reporting_observations;
   const configuration = configurationQuery.data;
   const reference = configuration?.reference;
   const revision = reference?.catalog_revision;
@@ -167,7 +166,6 @@ export function HostDetail() {
   const booleanDifferences = comparisonSummary?.booleans?.differ ?? 0;
   const hostOnlyBooleans = comparisonSummary?.booleans?.host_only ?? 0;
   const portDifferences = comparisonSummary?.ports?.differ ?? 0;
-  const drifted = host.observation.status === "current" && !paused && configuration?.comparison.available && comparisonDifferenceCount(configuration) > 0;
   const domainComparison = configuration?.comparison.effective_permissive_domains;
   const domainCounts = !configurationQuery.isError && !paused && !noReference && domainComparison?.status === "observed" ? domainComparison.counts : null;
   const domainDifferences = (domainCounts?.unexpected_on_host ?? 0) + (domainCounts?.missing_from_host ?? 0);
@@ -203,31 +201,26 @@ export function HostDetail() {
       <div className="host-overview-grid">
         <div className="host-overview-column">
           <Card className="host-overview-card host-surface-card">
-            <CardTitle component="h2">Host health</CardTitle>
+            <CardTitle component="h2">Reporting &amp; configuration</CardTitle>
             <CardBody>
               <DescriptionFacts fields={[
                 ["Agent status", <StatusLabel color={AGENT_COLORS[host.agent.reporting_state] ?? "grey"}>{displayState(host.agent.reporting_state)}</StatusLabel>],
-                ["SELinux mode", selinux.enforcement ? <StatusLabel color={ENFORCEMENT_COLORS[selinux.enforcement] ?? "grey"}>{displayState(selinux.enforcement)}</StatusLabel> : "Unknown"],
-                ["Configuration freshness", <StatusLabel color={drifted ? "orange" : OBSERVATION_COLORS[host.observation.status] ?? "grey"}>{drifted ? "Drifted" : displayState(host.observation.status)}</StatusLabel>],
+                 ["Last observed SELinux mode", selinux.enforcement ? <StatusLabel color={ENFORCEMENT_COLORS[selinux.enforcement] ?? "grey"}>{displayState(selinux.enforcement)}</StatusLabel> : "Unknown"],
+                 ["Configuration freshness", <StatusLabel color={OBSERVATION_COLORS[host.observation.status] ?? "grey"}>{displayState(host.observation.status)}</StatusLabel>],
+                 ["Audit capture continuity", "Unknown"],
                 ["Kernel policy version", <code>{selinux.kernel_policy_version != null ? [selinux.configured_policy_type, selinux.kernel_policy_version].filter((value) => value != null).join(".") : "Unknown"}</code>],
                 ["Last heartbeat", host.agent.last_seen_at ? <time dateTime={host.agent.last_seen_at} title={host.agent.last_seen_at}>{timeAgo(host.agent.last_seen_at)}</time> : "Never reported"]
               ]} />
             </CardBody>
           </Card>
-          {showReadiness && (
-            <Card component="section" aria-labelledby="enforcing-readiness-title" className="host-overview-card host-surface-card host-readiness-card">
-              <CardTitle id="enforcing-readiness-title" component="h2">Enforcing readiness</CardTitle>
-              <CardBody>
-                <p className="pf-v6-u-color-200 pf-v6-u-font-size-sm"><em>Based on a {readiness.target_days}-day observation target</em></p>
-                <div>
-                  <strong>{readiness.status === "observed" ? readiness.band : "Unknown"}</strong>{" "}
-                  <Tooltip content={<div className="host-readiness-tooltip-paragraphs">{readiness.explanation.split("\n\n").map((paragraph) => <p key={paragraph}>{paragraph}</p>)}</div>} isContentLeftAligned position="right" maxWidth="min(24rem, calc(100vw - 11rem))">
-                    <Button variant="plain" aria-label="About enforcing readiness"><InfoCircleIcon aria-hidden="true" /></Button>
-                  </Tooltip>
-                </div>
-              </CardBody>
-            </Card>
-          )}
+             <Card component="section" aria-labelledby="enforcing-readiness-title" className="host-overview-card host-surface-card host-readiness-card">
+               <CardTitle id="enforcing-readiness-title" component="h2">Reporting &amp; SELinux observations</CardTitle>
+               <CardBody>
+                 <p>{reporting?.explanation ?? "Credited reporting duration unavailable. Audit capture continuity is unknown."}</p>
+                 <p>Latest retained AVC: {reporting?.latest_avc_at ? formatUtc(reporting.latest_avc_at) : "None recorded; collection coverage is unknown"}</p>
+                 <ObservationCounts observations={host.counts.observations} />
+               </CardBody>
+             </Card>
         </div>
 
         <Card className="host-overview-card host-surface-card">
@@ -298,7 +291,7 @@ export function HostDetail() {
                 })}</Tbody>
               </Table>
             )}
-            {occurrences.length === 0 && <p className="pf-v6-u-color-200">No occurrences recorded for this host.</p>}
+             {occurrences.length === 0 && <p className="pf-v6-u-color-200">No AVC occurrences retained for this host. Audit capture coverage is unknown; this does not establish an absence of denied access.</p>}
             <div className="host-table-pagination"><Pagination widgetId="host-occurrences-pagination" itemCount={occurrencesQuery.data?.meta.total ?? host.counts.total_events} page={occurrencesQuery.data?.meta.page ?? page} perPage={perPage} titles={{ paginationAriaLabel: "Recent occurrences pagination" }}
               perPageOptions={EMBEDDED_PAGE_SIZES.map((value) => ({ title: String(value), value }))}
               onSetPage={(_event, nextPage) => setOccurrencePage(nextPage)} onPerPageSelect={(_event, size) => setOccurrencePage(1, size)}
