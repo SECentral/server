@@ -14,7 +14,7 @@ class PolicyPermissiveDomainAnalyzer
       output, error, status = SetoolsProcess.call("python3", Rails.root.join("script/policy_permissive_domains.py").to_s, file.path)
       raise "Oversized policy parser output" if output.bytesize + error.bytesize > SetoolsProcess::MAX_OUTPUT
       unless status.success?
-        return { "status" => status.exitstatus == 2 ? "unavailable" : "error", "error_message" => (error.presence || "Policy parser failed").truncate(500) }
+        return { "status" => status.exitstatus == 2 ? "unavailable" : "error", "error_message" => SetoolsProcess.failure_message(error, status) }
       end
       result = JSON.parse(output, max_nesting: 4, object_class: DistributionCatalogArtifact::UniqueObject)
       domains = result.fetch("domains")

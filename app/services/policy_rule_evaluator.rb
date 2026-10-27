@@ -30,7 +30,10 @@ class PolicyRuleEvaluator
           "--target", @fact.target_type, "--class", @fact.object_class, "--perms", @fact.permission,
           file.path
         )
-      return { status: "error", error_message: error.presence || "sesearch exited with #{status.exitstatus}" } unless status.success?
+      unless status.success?
+        return { status: "error", evaluator_version: version.strip,
+          error_message: SetoolsProcess.failure_message(error, status, evaluator_version: "SETools #{version.strip}") }
+      end
 
       rules = output.lines.map(&:strip).reject(&:empty?)
       raise "Invalid SETools rule output" unless rules.all? { |rule| rule.match?(RULE) }
@@ -56,7 +59,7 @@ class PolicyRuleEvaluator
 
     output, error, status = SetoolsProcess.call("python3", Rails.root.join("script/policy_port_allows.py").to_s,
       path, @fact.source_type, @fact.object_class, @fact.permission)
-    raise(error.presence || "Port policy evaluation failed") unless status.success?
+    raise SetoolsProcess.failure_message(error, status) unless status.success?
 
     result = JSON.parse(output)
     rows = result.fetch("rules")

@@ -12,4 +12,12 @@ class SetoolsProcess
 
     [output, error, status]
   end
+
+  def self.failure_message(error, status, evaluator_version: nil)
+    message = "Policy analysis failed (#{evaluator_version.presence || 'SETools'}, exit #{status.exitstatus})."
+    if error.match?(/invalid policy|policy version|unsupported.*policy/i)
+      message += " The SETools/libsepol toolchain may not support this policy format; malformed policy bytes are not established."
+    end
+    "#{message} #{error.strip}".strip.truncate(500)
+  end
 end

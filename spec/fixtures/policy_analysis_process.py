@@ -28,6 +28,9 @@ elif mode == "error":
     print("partial output must be discarded")
     print("parser failed", file=sys.stderr)
     sys.exit(1)
+elif mode == "policy_load_error":
+    print("Invalid policy: policy.35. A binary policy must be specified.")
+    sys.exit(1)
 elif mode == "malformed":
     print("progress is not JSON")
 elif mode == "invalid_encoding":

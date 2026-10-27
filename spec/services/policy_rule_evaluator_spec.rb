@@ -48,6 +48,14 @@ RSpec.describe PolicyRuleEvaluator do
     expect(described_class.call(fact, wrong)).to include(status: "unavailable", error_message: "policy artifact identity mismatch")
   end
 
+  it "records a load failure as a versioned toolchain error, never a no-match or malformed-evidence conclusion" do
+    allow(SetoolsProcess).to receive(:call).with("sesearch", "--version").and_return(["4.5.1\n", "", success])
+    failure = instance_double(Process::Status, success?: false, exitstatus: 1)
+    allow(SetoolsProcess).to receive(:call).with("sesearch", "--allow", any_args).and_return(["", "Invalid policy: policy.35", failure])
+    expect(described_class.call(fact, artifact)).to include(status: "error", evaluator_version: "4.5.1",
+      error_message: include("toolchain may not support", "malformed policy bytes are not established", "Invalid policy: policy.35"))
+  end
+
   it "retains expanded port target types and conditions from the bounded exact-policy query" do
     allow(fact).to receive_messages(query_kind: PolicyFact::PORT_QUERY_KIND, target_type: "port_type")
     rule = "allow httpd_t web_ports:tcp_socket name_connect; [ feature_enabled ]:True"

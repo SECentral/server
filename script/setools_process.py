@@ -58,7 +58,12 @@ def run(command, wall, cpu):
             raise RuntimeError("Policy subprocess exceeded 30-second runtime bound") from None
         if status < 0:
             raise RuntimeError("Policy subprocess terminated by signal/resource limit")
-        return (bytes(output[0]) if status == 0 else b"", bytes(output[1]), status)
+        if status:
+            # sesearch can put load failures on stdout. Keep them as diagnostics,
+            # never successful parser input; the combined output bound still holds.
+            diagnostic = bytes(output[1]) + bytes(output[0])
+            return b"", diagnostic, status
+        return bytes(output[0]), bytes(output[1]), status
     finally:
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
         signal.signal(signal.SIGINT, signal.SIG_IGN)

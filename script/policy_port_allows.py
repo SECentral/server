@@ -2,9 +2,9 @@
 import json
 import sys
 
-import setools
+from policy_tools import load_policy, setools
 
-policy = setools.SELinuxPolicy(sys.argv[1])
+policy = load_policy(sys.argv[1])
 source, object_class, permission = sys.argv[2:5]
 port_types = set(policy.lookup_typeattr("port_type").expand())
 rules = []

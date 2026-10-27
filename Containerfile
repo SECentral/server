@@ -10,7 +10,11 @@
 # Make sure RUBY_VERSION matches the Ruby version in .ruby-version
 ARG RUBY_VERSION=4.0.9
 FROM docker.io/library/node:24-trixie-slim AS node
-FROM docker.io/library/ruby:$RUBY_VERSION-slim AS base
+FROM docker.io/library/ruby:$RUBY_VERSION-slim-trixie AS policy-tools
+COPY script/build_policy_tools.sh /tmp/build_policy_tools.sh
+RUN sh /tmp/build_policy_tools.sh
+
+FROM docker.io/library/ruby:$RUBY_VERSION-slim-trixie AS base
 
 # Rails app lives here
 WORKDIR /rails
@@ -18,10 +22,14 @@ WORKDIR /rails
 # Install base packages
 RUN apt-get update -qq && \
     apt-get upgrade --no-install-recommends -y && \
-    apt-get install --no-install-recommends -y curl libjemalloc2 postgresql-client setools && \
+    apt-get install --no-install-recommends -y curl libjemalloc2 postgresql-client python3 python3-networkx libselinux1 && \
     ln -s /usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2 /usr/local/lib/libjemalloc.so && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+COPY --from=policy-tools /opt/secentral-policy-tools /opt/secentral-policy-tools
+ENV PATH="/opt/secentral-policy-tools/bin:${PATH}"
+RUN python3 -c 'import ctypes, setools; assert setools.__version__ == "4.6.0"; assert ctypes.CDLL("/opt/secentral-policy-tools/lib/libsepol.so.2").sepol_policy_kern_vers_max() >= 35'
 
 # Set production environment variables and enable jemalloc for reduced memory usage and latency.
 ENV RAILS_ENV="production" \
