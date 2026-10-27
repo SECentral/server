@@ -628,7 +628,7 @@ describe("issue investigation", () => {
     const heading = await screen.findByRole("heading", { level: 1 });
     expect(heading).not.toHaveTextContent("blocked");
     const diagnosis = screen.getByRole("region", { name: "Findings" });
-    expect(diagnosis).toHaveTextContent("Supporting occurrence recorded at Sep 30, 16:26 UTC");
+    expect(diagnosis).toHaveTextContent("Supporting occurrence recorded at Sep 30, 16:26:25 UTC");
     expect(within(diagnosis).getByRole("heading", { level: 3 })).toHaveTextContent("httpd_t was denied binding TCP/12345");
     expect(within(diagnosis).getByRole("button", { name: "Conditional policy paths" })).toHaveAttribute("aria-expanded", "false");
     expect(diagnosis).not.toHaveTextContent("no active allow rule");
@@ -814,6 +814,21 @@ describe("issue investigation", () => {
     await user.click(screen.getByRole("tab", { name: /^Occurrences$/ }));
     expect(await screen.findByRole("table", { name: "Occurrence summary" })).toBeVisible();
     expect(fetchMock.mock.calls.map(([url]) => url)).toContain("/api/v1/issues/7/occurrences?view=summary&page=1&limit=10");
+  });
+
+  it("distinguishes same-minute recurrences and labels AVC enforcement independently of unknown syscalls", async () => {
+    const payload = detailPayload("repeated");
+    const occurrences = [31, 35].map((second, index) => ({ id: 101 + index, occurred_at: `2026-10-26T16:38:${second}.123Z`,
+      host: { id: 20, hostname: "fedora-host" }, resource: "example.txt", absolute_path: false,
+      target_type: "user_home_t", permissions: ["read"], enforcement_mode: "enforcing", syscall_outcome: "unknown" }));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => response(200, /view=summary/.test(url)
+      ? { occurrences, meta: { page: 1, page_size: 10, total: 2, total_pages: 1 } } : payload)));
+    renderDetail();
+    const table = await screen.findByRole("table", { name: "Occurrence summary" });
+    expect(within(table).getByRole("columnheader", { name: "AVC enforcement" })).toBeVisible();
+    expect(within(table).getByText("Oct 26, 16:38:31 UTC")).toHaveAttribute("datetime", occurrences[0].occurred_at);
+    expect(within(table).getByText("Oct 26, 16:38:35 UTC")).toHaveAttribute("title", occurrences[1].occurred_at);
+    expect(within(table).getAllByRole("cell", { name: "Unknown" })).toHaveLength(2);
   });
 
   it("leads with server-provided label guidance and copyable commands without rejected solver options", async () => {
@@ -1296,7 +1311,7 @@ describe("issue investigation", () => {
     await user.click(screen.getByRole("button", { name: "Conditional policy paths" }));
     const checkpoint = screen.getByRole("region", { name: "Possible policy paths" });
     expect(within(checkpoint).getByRole("link", { name: "secentral-agent-test · occurrence #101" })).toHaveAttribute("href", "/hosts/10/occurrences/101");
-    expect(checkpoint).toHaveTextContent("Sep 30, 16:26 UTC");
+    expect(checkpoint).toHaveTextContent("Sep 30, 16:26:00 UTC");
     expect(checkpoint).toHaveTextContent("httpd_builtin_scripting && httpd_unified && httpd_enable_cgi · Inactive");
     expect(checkpoint).toHaveTextContent("httpd_builtin_scripting On");
     expect(checkpoint).toHaveTextContent("httpd_unified Off");
