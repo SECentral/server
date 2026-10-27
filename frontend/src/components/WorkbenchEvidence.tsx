@@ -15,7 +15,7 @@ import type { IssueDetailResponse } from "../api/issue";
 import type { ResolutionWorkflow } from "../api/resolution";
 import { osDisplayName } from "../platform";
 import { activeResourceFinding, resolutionResources } from "./resolutionResources";
-import { EvidenceBlock } from "./OccurrenceEvidence";
+import { EvidenceBlock, EvidenceTimestamp } from "./OccurrenceEvidence";
 import { Disclosure as ExpandableSection } from "./Disclosure";
 import { Disclosure } from "./Disclosure";
 
@@ -63,6 +63,7 @@ export function ResourceIcon({ objectClass }: { objectClass: string }) {
 export function ObservedAccessFlow({ access }: { access: NonNullable<ResolutionWorkflow["observed_access"]> }) {
   const resource = isCapability(access.object_class) ? access.permissions.join(", ") : access.resource;
   return <section className="workbench-observed" aria-label="Observed access"><h2>What happened</h2>
+    <p>Investigation example: <Link to={`/hosts/${access.host_id}/occurrences/${access.occurrence_id}`}>{access.hostname ?? `Host ${access.host_id}`} · occurrence #{access.occurrence_id}</Link> · <EvidenceTimestamp value={access.observed_at} /></p>
     <div className="access-flow">
       <div className="access-node access-subject"><span className="entity-label"><CogsIcon aria-hidden="true" /> Subject</span><strong>{access.actor}</strong><code>{access.source_type}</code></div>
       <div className="access-edge"><span className="access-action">{access.operation_label}</span><span className="access-line" aria-hidden="true" /><span className="access-denied"><TimesCircleIcon aria-hidden="true" /> POLICY DENIAL</span></div>
@@ -97,7 +98,7 @@ export function ContextSidebar({ detail, workflow, focusedAccess, onShowTechnica
   return <div className="workbench-context-column"><aside className="workbench-context" aria-label="Investigation context"><h2>Context</h2>
     <section><h3><ServerIcon aria-hidden="true" /> Host</h3>{hostId ? <Link to={`/hosts/${hostId}`}>{valueText(access?.hostname) ?? valueText(source?.hostname) ?? diagnosisHost?.hostname ?? `Host ${hostId}`}</Link> : <span>Host not established</span>}
       {access && <small><span>{findingOccurrenceId === access.occurrence_id ? "Observed access & finding example" : "Active resource example"}</span> · <Link to={`/hosts/${access.host_id}/occurrences/${access.occurrence_id}`}>#{access.occurrence_id}</Link></small>}
-      {workflow.observed_access && workflow.observed_access.occurrence_id !== access?.occurrence_id && <small><span>Latest access</span> · <Link to={`/hosts/${workflow.observed_access.host_id}/occurrences/${workflow.observed_access.occurrence_id}`}>#{workflow.observed_access.occurrence_id}</Link></small>}
+      {workflow.observed_access && (workflow.observed_access.occurrence_id !== access?.occurrence_id || workflow.observed_access.host_id !== access?.host_id) && <small><span>Latest retained occurrence</span> · <Link to={`/hosts/${workflow.observed_access.host_id}/occurrences/${workflow.observed_access.occurrence_id}`}>{workflow.observed_access.hostname ?? `Host ${workflow.observed_access.host_id}`} · #{workflow.observed_access.occurrence_id}</Link></small>}
       {findingOccurrenceId && findingOccurrenceId !== access?.occurrence_id && <small>{access ? "Finding example · differs from diagram" : "Finding example"} · {findingHostId ? <Link to={`/hosts/${findingHostId}/occurrences/${findingOccurrenceId}`}>#{findingOccurrenceId}</Link> : `#${findingOccurrenceId}`}</small>}
       {platform?.os_id && <small>{osDisplayName(platform.os_id)} {platform.os_version} · latest retained inventory</small>}</section>
     <section><h3>Telemetry</h3><p>Agent reporting: {host.isPending ? "Loading" : host.data?.host?.agent?.reporting_state ?? "Unknown"}</p><small>Audit capture continuity: unknown. Retained historical evidence remains available when reporting stops.</small></section>

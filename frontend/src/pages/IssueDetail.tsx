@@ -23,6 +23,7 @@ import { StandardRestoration } from "../components/OperatorGuidance";
 import { activeResourceFinding } from "../components/resolutionResources";
 import { EMBEDDED_PAGE_SIZES, pageSize } from "../pagination";
 import { ObservationCounts } from "../components/ObservationCounts";
+import { EvidenceTimestamp } from "../components/OccurrenceEvidence";
 
 const STATUS_OPTIONS = ["open", "resolved", "ignored"] as const;
 const DISPOSITIONS = ["unclassified", "under_investigation", "expected_harmless", "application_configuration", "labeling_configuration", "policy_required", "possible_policy_package_defect", "suspicious_behavior"];
@@ -228,6 +229,12 @@ function FindingCard({ detail, occurrences }: { detail: IssueDetailResponse; occ
   const policyFinding = finding.findings.find((item) => item.kind !== "file_context_mismatch");
   const findingHost = detail.host_explanations.find((host) => host.host_id === diagnosis?.host_id);
   const findingOccurrence = diagnosis && occurrences?.find((item) => item.id === diagnosis.occurrence_id && (diagnosis.host_id == null || item.host.id === diagnosis.host_id));
+  const latest = detail.resolutions?.observed_access;
+  const sameAsLatest = !!latest && latest.occurrence_id === diagnosis?.occurrence_id && latest.host_id === diagnosis?.host_id;
+  const source = detail.operator_guidance?.source;
+  const sourceTime = source?.occurrence_id === diagnosis?.occurrence_id && source?.host_id === diagnosis?.host_id ? source?.occurred_at : undefined;
+  const exampleTime = diagnosis?.occurred_at ?? findingOccurrence?.occurred_at ?? sourceTime ?? (sameAsLatest ? latest?.observed_at : undefined);
+  const earlier = !!exampleTime && !!latest && Date.parse(exampleTime) < Date.parse(latest.observed_at);
   const conditionalTitle = diagnosis?.kind === "conditional_allow_inactive" ? `${diagnosis.source_domain ?? issue.source_type} was denied ${diagnosis.operation === "name_bind" ? "binding" : diagnosis.operation === "name_connect" ? "connecting to" : diagnosis.operation === "read" ? "reading" : "executing"} ${diagnosis.path ?? (diagnosis.bind_port || diagnosis.destination_port ? `${issue.target_class === "udp_socket" ? "UDP" : "TCP"}/${diagnosis.bind_port ?? diagnosis.destination_port}` : `objects labeled ${diagnosis.target_type ?? issue.target_type}`)}.` : null;
   return <section aria-labelledby="finding-title" className="issue-section issue-primary-finding"><h2 id="finding-title">Findings</h2>
     {policy_analysis.occurrence_counts && <p>Policy evaluation by occurrence: {Object.entries(policy_analysis.occurrence_counts).map(([state, count]) => `${displayState(state)}: ${count}`).join(" · ")}. Evaluation is not a verified cause.</p>}
@@ -242,8 +249,16 @@ function FindingCard({ detail, occurrences }: { detail: IssueDetailResponse; occ
     </section>}
      {triage_guidance && diagnosis?.kind !== "file_context_mismatch" && <LabelMismatchGuidance guidance={triage_guidance} />}
       {diagnosis ? <article>
-        <p>Supported finding for <EvidenceLink target="policy-evaluation-evidence" occurrenceId={diagnosis.occurrence_id}>{findingHost?.hostname ?? "Host not recorded"} · occurrence #{diagnosis.occurrence_id}</EvidenceLink> · {finding.count == null ? "Supporting occurrence count unavailable" : `${finding.count} supporting occurrence(s) of ${issue.occurrences_count}`}. Grouping does not establish a common cause.</p>
-        {diagnosis.occurred_at && <p>Supporting occurrence recorded at <time dateTime={diagnosis.occurred_at}>{formatUtc(diagnosis.occurred_at)}</time>.</p>}
+        <section aria-label="Finding provenance">
+          <p>Supported finding for <EvidenceLink target="policy-evaluation-evidence" occurrenceId={diagnosis.occurrence_id}>{findingHost?.hostname ?? (diagnosis.host_id ? `Host ${diagnosis.host_id}` : "Host not recorded")} · occurrence #{diagnosis.occurrence_id}</EvidenceLink> · {finding.count == null ? "Supporting occurrence count unavailable" : `${finding.count} supporting occurrence(s) of ${issue.occurrences_count}`}. Grouping does not establish a common cause.</p>
+          <p>Supporting occurrence recorded at <EvidenceTimestamp value={exampleTime} />{diagnosis.host_id && <> · <Link to={`/hosts/${diagnosis.host_id}/occurrences/${diagnosis.occurrence_id}`}>View supporting occurrence</Link></>}</p>
+          <p>Example access: <code>{diagnosis.permissions?.join(", ") ?? diagnosis.operation ?? "Permission not recorded"}</code> · <code>{resourceFor(issue, diagnosis, [], [], [])}</code>.</p>
+          {latest ? sameAsLatest ? <p>This example is the latest retained occurrence.</p> : <Alert isInline isPlain variant="info" title={earlier ? "Finding uses an earlier occurrence" : "Finding uses a different occurrence"}>
+            <p>This supported finding belongs to the example above. {earlier ? "Newer" : "Other"} observations may involve different hosts or resources and are not automatically explained by it.</p>
+            <p>Latest retained occurrence: <Link to={`/hosts/${latest.host_id}/occurrences/${latest.occurrence_id}`}>{latest.hostname ?? `Host ${latest.host_id}`} · occurrence #{latest.occurrence_id}</Link> · <EvidenceTimestamp value={latest.observed_at} /></p>
+            <p>Latest access: <code>{latest.permissions.join(", ")}</code> · <code>{latest.resource}</code>.</p>
+          </Alert> : <p>Latest occurrence comparison is unavailable.</p>}
+        </section>
         <Title headingLevel="h3" size="xl">{conditionalTitle ?? primaryFindingTitle(diagnosis)}</Title>
         {finding.different && diagnosis.host_id && <p>Finding for <Link to={`/hosts/${diagnosis.host_id}/occurrences/${diagnosis.occurrence_id}`}>{findingHost?.hostname ?? `Host ${diagnosis.host_id}`} · occurrence #{diagnosis.occurrence_id}</Link>. Inspection uses a different retained example; this finding does not establish that example's cause.</p>}
         {lead && <p className="issue-finding-lead">{lead}</p>}

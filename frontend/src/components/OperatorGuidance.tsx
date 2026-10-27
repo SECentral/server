@@ -4,6 +4,7 @@ import type { IssueDetailResponse } from "../api/issue";
 import { CopyCommand } from "./ResolutionWorkflow";
 import { Disclosure } from "./Disclosure";
 import { isCapability } from "./WorkbenchEvidence";
+import { EvidenceTimestamp } from "./OccurrenceEvidence";
 
 export function ReadOnlyCommands({ checks }: { checks: NonNullable<IssueDetailResponse["operator_guidance"]>["checks"] }) {
   if (!checks.length) return null;
@@ -24,7 +25,8 @@ export function OperatorChecks({ detail, runbookCommands = [], supplemental = fa
   if (!guidance) return null;
   const { source } = guidance;
   const latest = detail.resolutions?.observed_access;
-  const different = latest && (latest.occurrence_id !== source.occurrence_id || (source.path && latest.resource !== source.path));
+  const different = latest && (latest.occurrence_id !== source.occurrence_id || latest.host_id !== source.host_id || (source.path && latest.resource !== source.path));
+  const earlier = source.occurred_at && latest && Date.parse(source.occurred_at) < Date.parse(latest.observed_at);
   const expected = detail.diagnosis?.occurrence_id === source.occurrence_id ? detail.diagnosis : null;
   const capability = isCapability(source.object_class ?? detail.issue?.target_class ?? "");
   const primaryCount = capability ? guidance.checks.filter((check) => !check.command.startsWith("sesearch ")).length : source.path || source.operation === "name_bind" ? 3 : ["file", "dir"].includes(source.object_class ?? detail.issue?.target_class ?? "") ? 0 : 1;
@@ -34,8 +36,11 @@ export function OperatorChecks({ detail, runbookCommands = [], supplemental = fa
   return <section className="workspace-inspection" aria-label="Check">
     {(!supplemental || primary.length > 0) && <h3>{supplemental ? "Resource inspection" : "Inspect host baseline"}</h3>}
     {!supplemental && <>
-    <p>Investigation example: <Link to={`/hosts/${source.host_id}/occurrences/${source.occurrence_id}`}>{source.hostname ?? `Host ${source.host_id}`} · occurrence #{source.occurrence_id}</Link>{source.path && <> · <code>{source.path}</code></>}</p>
-    {different && <p>Latest access: <Link to={`/hosts/${latest.host_id}/occurrences/${latest.occurrence_id}`}>{latest.hostname ?? `Host ${latest.host_id}`} · occurrence #{latest.occurrence_id}</Link>.</p>}
+    <p>Investigation example: <Link to={`/hosts/${source.host_id}/occurrences/${source.occurrence_id}`}>{source.hostname ?? `Host ${source.host_id}`} · occurrence #{source.occurrence_id}</Link>{source.path && <> · <code>{source.path}</code></>} · <EvidenceTimestamp value={source.occurred_at} /></p>
+    {different && <>
+      {!detail.diagnosis && <p><strong>General checks use {earlier ? "an earlier" : "a different"} occurrence.</strong> These checks do not establish a supported finding for the latest observation.</p>}
+      <p>Latest retained occurrence: <Link to={`/hosts/${latest.host_id}/occurrences/${latest.occurrence_id}`}>{latest.hostname ?? `Host ${latest.host_id}`} · occurrence #{latest.occurrence_id}</Link> · <EvidenceTimestamp value={latest.observed_at} /> · <code>{latest.resource}</code>.</p>
+    </>}
     {source.path && <p>Label at denial: <code>{source.observed_type ?? "Not recorded"}</code>. {expected?.expected_context && <>Host-configured context, looked up after the denial: <code>{expected.expected_context}</code>.</>}</p>}
     {!source.path && ["file", "dir"].includes(detail.issue?.target_class) ? <Alert variant="info" isInline isPlain title="Complete target path not recorded">
       <p>Identify the file before considering a labeling or Boolean change.</p>

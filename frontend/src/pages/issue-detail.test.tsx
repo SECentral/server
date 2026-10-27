@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import type { IssueAnalysisResponse, IssueDetailResponse, IssueOccurrencesResponse } from "../api/issue";
 import { IssueDetail } from "./IssueDetail";
@@ -308,10 +308,139 @@ function mockApi(fetchMock: ReturnType<typeof vi.fn>, scenario: Scenario, option
   });
 }
 
+function OccurrenceDestination() {
+  const { id, occurrenceId } = useParams();
+  return <p>Host {id}, occurrence {occurrenceId}</p>;
+}
+
 function renderDetail(initialEntry = "/issues/7") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={[initialEntry]}><Routes><Route path="/issues/:id" element={<IssueDetail />} /></Routes></MemoryRouter></QueryClientProvider>);
+  return render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={[initialEntry]}><Routes><Route path="/issues/:id" element={<IssueDetail />} /><Route path="/hosts/:id/occurrences/:occurrenceId" element={<OccurrenceDestination />} /></Routes></MemoryRouter></QueryClientProvider>);
 }
+
+describe("investigation example provenance", () => {
+  function payloadForExample(hostId = 10, resource = "/var/www/html/secentral-test.html") {
+    const payload = detailPayload("001");
+    const diagnosis = { ...payload.diagnosis!, occurred_at: "2026-09-30T16:26:25Z" };
+    payload.diagnosis = diagnosis;
+    payload.findings = [{ diagnosis, occurrence_count: 1, observation_count: 1 }];
+    payload.supported_occurrence_count = 1;
+    payload.finding_coverage = { file_context_mismatch: 1, unexplained: 1 };
+    payload.host_explanations[0].diagnosis = diagnosis;
+    payload.host_explanations[0].diagnosis_groups[0].diagnosis = diagnosis;
+    payload.operator_guidance = {
+      source: { host_id: 10, hostname: "secentral-agent-test", occurrence_id: 101, occurred_at: diagnosis.occurred_at,
+        path: diagnosis.path!, object_class: "file", observed_type: "user_home_t" },
+      checks: [{ title: "Current object label", command: `ls -ldZ -- ${diagnosis.path}`, interpretation: "Inspect the current object." }],
+      manual_check: "Confirm the file's role.", possible_fix: "Inspect the configured label.", verification: "Retry the intended access.",
+      verification_limit: "Verify the workload independently.", restriction: "Keep unwanted access denied."
+    };
+    const latest = { occurrence_id: 102, host_id: hostId, hostname: hostId === 10 ? "secentral-agent-test" : "newer-host",
+      actor: "httpd", source_type: "httpd_t", resource, target_type: "user_home_t", object_class: "file", permissions: ["read"],
+      operation_label: "read", outcome: "DENIED" as const, observed_at: "2026-10-01T10:00:00.123Z" };
+    const unexplained = { ...payload.host_explanations[0].diagnosis_groups[0], status: "insufficient_evidence" as const, diagnosis: null, sample_occurrence_ids: [102] };
+    if (hostId === 10) {
+      payload.host_explanations[0].occurrence_count = 2;
+      payload.host_explanations[0].unexplained_occurrence_count = 1;
+      payload.host_explanations[0].diagnosis_groups.push(unexplained);
+    } else {
+      payload.issue.affected_hosts = 2;
+      payload.host_explanations.push({ ...payload.host_explanations[0], host_id: hostId, hostname: latest.hostname,
+        status: "insufficient_evidence", diagnosis: null, unexplained_occurrence_count: 1, diagnosis_groups: [unexplained] });
+    }
+    payload.issue.last_seen_at = latest.observed_at;
+    payload.resolutions = {
+      candidates: [], rejected_candidates: [], observed_access: latest,
+      file_investigations: [
+        { host_id: hostId, hostname: latest.hostname, occurrence_id: 102, occurred_at: latest.observed_at, path: resource, object_class: "file", observed_type: "user_home_t" }
+      ],
+      intent: null, freshness: null, change_plan: null, history: []
+    };
+    return payload;
+  }
+
+  function mountExample(payload: IssueDetailResponse, entry = "/issues/7") {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.includes("/occurrences/")) {
+        const occurrence = structuredClone(occurrencePage("001").occurrences[0]);
+        if (url.endsWith("/102")) {
+          const latest = payload.resolutions!.observed_access!;
+          occurrence.id = latest.occurrence_id;
+          occurrence.host = { id: latest.host_id, hostname: latest.hostname };
+          occurrence.occurred_at = latest.observed_at;
+          occurrence.normalized_denial.target_paths = [latest.resource];
+        }
+        return response(200, occurrence);
+      }
+      if (url.startsWith("/api/v1/hosts/")) return response(200, { host: {} });
+      return detailResponse(url, payload);
+    }));
+    renderDetail(entry);
+  }
+
+  it.each([
+    ["an older example", 10, "/var/www/html/secentral-test.html", false],
+    ["a newer event on another host", 20, "/var/www/html/secentral-test.html", false],
+    ["a newer event on another resource", 10, "/srv/new-content.html", false],
+    ["an inspected newer event without supported findings", 20, "/srv/new-content.html", true]
+  ] as const)("preserves supported scope for %s", async (_name, hostId, resource, inspectLatest) => {
+    const payload = payloadForExample(hostId, resource);
+    mountExample(payload, inspectLatest ? `/issues/7?resource=${encodeURIComponent(`${hostId}:${resource}`)}` : "/issues/7");
+    const provenance = await screen.findByRole("region", { name: "Finding provenance" });
+    expect(provenance).toHaveTextContent("Finding uses an earlier occurrence");
+    expect(provenance).toHaveTextContent("are not automatically explained by it");
+    expect(within(provenance).getByText("2026-09-30T16:26:25Z").closest("time")).toHaveAttribute("datetime", "2026-09-30T16:26:25Z");
+    expect(within(provenance).getByText("2026-10-01T10:00:00.123Z")).toBeInTheDocument();
+    expect(provenance).toHaveTextContent(payload.diagnosis!.path!);
+    expect(provenance).toHaveTextContent(resource);
+    expect(provenance).toHaveTextContent("secentral-agent-test · occurrence #101");
+    expect(within(provenance).getByRole("link", { name: "View supporting occurrence" })).toHaveAttribute("href", "/hosts/10/occurrences/101");
+    const latest = within(provenance).getByRole("link", { name: `${payload.resolutions!.observed_access!.hostname} · occurrence #102` });
+    expect(latest).toHaveAttribute("href", `/hosts/${hostId}/occurrences/102`);
+    expect(screen.getByRole("region", { name: "Findings" })).toHaveTextContent("1 supporting occurrence(s) of 2");
+    if (inspectLatest) {
+      expect(screen.getByRole("region", { name: "Findings" })).toHaveTextContent("this finding does not establish that example's cause");
+      expect(await screen.findByRole("region", { name: "Observed access" })).toHaveTextContent("newer-host · occurrence #102");
+    }
+    await userEvent.setup().click(latest);
+    expect(await screen.findByText(`Host ${hostId}, occurrence 102`)).toBeInTheDocument();
+  });
+
+  it("identifies an example that is also the latest retained occurrence", async () => {
+    const payload = payloadForExample();
+    Object.assign(payload.resolutions!.observed_access!, { occurrence_id: 101, observed_at: payload.diagnosis!.occurred_at });
+    payload.issue.occurrences_count = 1;
+    payload.finding_coverage = { file_context_mismatch: 1, unexplained: 0 };
+    payload.host_explanations[0].occurrence_count = 1;
+    payload.host_explanations[0].unexplained_occurrence_count = 0;
+    payload.host_explanations[0].diagnosis_groups.splice(1);
+    mountExample(payload);
+    const provenance = await screen.findByRole("region", { name: "Finding provenance" });
+    expect(provenance).toHaveTextContent("This example is the latest retained occurrence.");
+    expect(provenance).not.toHaveTextContent("Finding uses an earlier occurrence");
+    await userEvent.setup().click(within(provenance).getByRole("link", { name: "View supporting occurrence" }));
+    expect(await screen.findByText("Host 10, occurrence 101")).toBeInTheDocument();
+  });
+
+  it("retains scoped general checks when analysis is unavailable", async () => {
+    const payload = payloadForExample(20, "/srv/new-content.html");
+    payload.diagnosis = null;
+    payload.findings = [];
+    payload.supported_occurrence_count = 0;
+    payload.finding_coverage = { unexplained: 2 };
+    payload.host_explanations[0].diagnosis = null;
+    payload.host_explanations[0].unexplained_occurrence_count = 1;
+    payload.host_explanations[0].diagnosis_groups[0].diagnosis = null;
+    payload.policy_analysis = { status: "unavailable", limitations: ["exact policy identity is unavailable"] };
+    mountExample(payload);
+    const checks = await screen.findByRole("region", { name: "Check" });
+    expect(checks).toHaveTextContent("General checks use an earlier occurrence");
+    expect(checks).toHaveTextContent("do not establish a supported finding for the latest observation");
+    expect(within(checks).getByRole("button", { name: "Copy command: ls -ldZ -- /var/www/html/secentral-test.html" })).toBeVisible();
+    expect(within(checks).getByRole("link", { name: "newer-host · occurrence #102" })).toHaveAttribute("href", "/hosts/20/occurrences/102");
+    expect(screen.queryByRole("region", { name: "Finding provenance" })).not.toBeInTheDocument();
+  });
+});
 
 describe("issue investigation", () => {
   it.each([
@@ -417,7 +546,7 @@ describe("issue investigation", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => detailResponse(url, payload)));
     renderDetail();
     const diagnosis = await screen.findByRole("region", { name: "Findings" });
-    expect(within(diagnosis).getAllByText("mac_admin", { selector: "code" })).toHaveLength(2);
+    expect(within(diagnosis).getAllByText("mac_admin", { selector: "code" })).toHaveLength(3);
     expect(within(diagnosis).getByText("unconfined_u:object_r:secentral_nonexistent_t:s0", { selector: "code" })).toBeVisible();
   });
 
@@ -628,7 +757,7 @@ describe("issue investigation", () => {
     const heading = await screen.findByRole("heading", { level: 1 });
     expect(heading).not.toHaveTextContent("blocked");
     const diagnosis = screen.getByRole("region", { name: "Findings" });
-    expect(diagnosis).toHaveTextContent("Supporting occurrence recorded at Sep 30, 16:26:25 UTC");
+    expect(within(diagnosis).getByRole("region", { name: "Finding provenance" })).toHaveTextContent("Sep 30, 16:26:25 UTC");
     expect(within(diagnosis).getByRole("heading", { level: 3 })).toHaveTextContent("httpd_t was denied binding TCP/12345");
     expect(within(diagnosis).getByRole("button", { name: "Conditional policy paths" })).toHaveAttribute("aria-expanded", "false");
     expect(diagnosis).not.toHaveTextContent("no active allow rule");
@@ -786,7 +915,7 @@ describe("issue investigation", () => {
     const checks = await screen.findByRole("region", { name: "Check" });
     expect(within(checks).getByRole("link", { name: "web-1 · occurrence #101" })).toHaveAttribute("href", "/hosts/10/occurrences/101");
     expect(within(checks).getByRole("link", { name: "web-1 · occurrence #102" })).toHaveAttribute("href", "/hosts/10/occurrences/102");
-    expect(checks).toHaveTextContent("Latest access:");
+    expect(checks).toHaveTextContent("Latest retained occurrence:");
     expect(checks).not.toHaveTextContent("These checks use a different example from the latest access");
   });
 
@@ -998,7 +1127,7 @@ describe("issue investigation", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => detailResponse(url, payload)));
     renderDetail();
     const diagnosis = await screen.findByRole("region", { name: "Findings" });
-    expect(diagnosis).not.toHaveTextContent("Finding example");
+    expect(diagnosis).not.toHaveTextContent("Finding uses an earlier occurrence");
     expect(diagnosis).not.toHaveTextContent("Other occurrences can have different findings");
     expect(within(diagnosis).getByRole("heading", { name: /Host-configured label/ })).toBeVisible();
     expect(diagnosis).toHaveTextContent("no allow rule for this launch");
@@ -1529,10 +1658,10 @@ describe("issue investigation", () => {
     expect(context).toHaveTextContent("/var/www/html/a file.txt");
     expect(context).not.toHaveTextContent("/var/www/html/z.txt");
     expect(within(context).getByRole("link", { name: "web-1" })).toHaveAttribute("href", "/hosts/10");
-    expect(within(context).getByText("Latest access")).toBeVisible();
+    expect(within(context).getByText("Latest retained occurrence")).toBeVisible();
     expect(within(context).getByText("Active resource example")).toBeVisible();
     expect(within(context).getByRole("link", { name: "#101" })).toHaveAttribute("href", "/hosts/10/occurrences/101");
-    expect(within(context).getByRole("link", { name: "#202" })).toHaveAttribute("href", "/hosts/20/occurrences/202");
+    expect(within(context).getByRole("link", { name: "web-latest · #202" })).toHaveAttribute("href", "/hosts/20/occurrences/202");
     const observed = await screen.findByRole("region", { name: "Observed access" });
     expect(observed).toHaveTextContent("/var/www/html/a file.txt");
     expect(observed).not.toHaveTextContent("worker");
