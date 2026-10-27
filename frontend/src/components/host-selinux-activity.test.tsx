@@ -231,7 +231,7 @@ describe("Monitored-server SELinux activity", () => {
     const { container, fetchMock } = renderActivity(response([item()]));
     const row = await screen.findByRole("row", { name: "SELinux activity 26710" });
     expect(screen.getByRole("table", { name: "SELinux administrative activity" })).toBeVisible();
-    expect(within(row).getByText("Oct 1, 14:58 UTC")).toBeVisible();
+    expect(within(row).getByText("Oct 1, 14:58:17 UTC")).toBeVisible();
     expect(screen.queryByText(/State awaiting reconciliation/)).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(within(row).getByText(/UID 0/)).toBeVisible();

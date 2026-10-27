@@ -90,7 +90,7 @@ describe("Issue technical evidence", () => {
     expect(within(record).getByRole("region", { name: "Observed access" })).toHaveTextContent("httpd_t → name_bind → unreserved_port_t:tcp_socket");
     const eventAndProcess = within(record).getByRole("region", { name: "Event and process" });
     expect(eventAndProcess.querySelector("time")).toHaveAttribute("datetime", "2026-10-01T10:00:00Z");
-    expect(eventAndProcess).toHaveTextContent("Oct 1, 10:00 UTC");
+    expect(eventAndProcess).toHaveTextContent("Oct 1, 10:00:00 UTC");
     expect(eventAndProcess.querySelector(".detail-facts")).toBeInTheDocument();
     const targetDetails = within(record).getByRole("region", { name: "Target details" });
     const syscallEvidence = within(record).getByRole("region", { name: "Syscall evidence" });

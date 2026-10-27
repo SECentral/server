@@ -37,9 +37,21 @@ export function formatUtc(iso: string): string {
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
     hourCycle: "h23",
     timeZone: "UTC"
   }).format(new Date(iso))} UTC`;
+}
+
+export function EvidenceTimestamp({ value }: { value?: string | null }) {
+  return value ? <time dateTime={value} title={value}>{formatUtc(value)}<br /><small>{value}</small></time> : <>Not recorded</>;
+}
+
+export function occurrenceTimeFields(occurrence: OccurrenceDetail): [string, ReactNode][] {
+  return [
+    ["Audit event time", <EvidenceTimestamp value={occurrence.raw_event.audit_timestamp} />],
+    ["First server receipt", <EvidenceTimestamp value={occurrence.raw_event.collection?.server_received_at} />]
+  ];
 }
 
 function Facts({ fields, isHorizontal = false }: { fields: [string, React.ReactNode][]; isHorizontal?: boolean }) {
@@ -215,7 +227,7 @@ export function OccurrenceRawEvidence({ occurrence, collapsed = false, includeNo
       </EvidenceSection>
       <EvidenceSection title={collapsed ? "Other retained payload" : "Retained Event Metadata"} collapsed={collapsed}>
         <Facts isHorizontal={!collapsed} fields={[
-          ["Audit time", <time dateTime={occurrence.raw_event.audit_timestamp}>{formatUtc(occurrence.raw_event.audit_timestamp)}</time>],
+          ...occurrenceTimeFields(occurrence),
           ["Audit sequence", occurrence.raw_event.audit_sequence],
           ["Boot ID", <code>{occurrence.raw_event.boot_id}</code>],
           ["Completion", occurrence.raw_event.completion_reason],

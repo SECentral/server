@@ -5071,10 +5071,14 @@ components:
             agent_installation_id: {type: integer}
             schema_version: {type: integer}
             agent_received_at: {type: string, format: date-time}
-            server_received_at: {type: string, format: date-time}
+            server_received_at:
+              type: [string, 'null']
+              format: date-time
+              description: UTC timestamp retained from the first accepted ingestion, with microsecond database precision. Matching duplicate ingestion and normalization do not replace it. Null or an absent field means receipt time is not available; it is not a network-latency or outage measurement.
         id:
           type: integer
         audit_timestamp:
+          description: Audit event time retained from the original evidence, serialized in UTC with microsecond database precision. Original audit record text remains unchanged.
           type: string
           format: date-time
         audit_sequence:

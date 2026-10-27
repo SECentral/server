@@ -18,7 +18,7 @@ import {
 } from "@patternfly/react-core";
 import { Link, useSearchParams } from "react-router-dom";
 import type { OccurrenceDetail } from "../api/issue";
-import { OccurrenceNormalizedDetails, OccurrenceRawEvidence } from "./OccurrenceEvidence";
+import { OccurrenceNormalizedDetails, OccurrenceRawEvidence, occurrenceTimeFields } from "./OccurrenceEvidence";
 
 function Facts({ fields }: { fields: [string, React.ReactNode][] }) {
   return (
@@ -84,6 +84,7 @@ function Summary({ occurrence }: { occurrence: OccurrenceDetail }) {
     <StackItem><Card isCompact>
       <CardTitle><h2>Enforcement &amp; policy context</h2></CardTitle>
       <CardBody><Facts fields={[
+        ...occurrenceTimeFields(occurrence),
         ["Enforcement", <span>
           {mode === "enforcing" ? "Enforcing (AVC permissive=0)" : mode === "permissive" ? "Non-enforced (AVC permissive=1)" : "Unknown — AVC enforcement not recorded"}
           {hostMode !== mode && <> · Associated checkpoint mode: {hostMode ?? "unavailable"}</>}

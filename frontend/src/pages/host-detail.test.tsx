@@ -366,7 +366,7 @@ describe("HostDetail", () => {
     expect(rowLink).toHaveAttribute("href", "/hosts/10/occurrences/101");
     expect(container.querySelector(".occurrence-host-name")).toBeNull();
     expect(screen.getAllByText("file · read", { selector: "code" })).toHaveLength(2);
-    expect(screen.getAllByText("Sep 25, 10:05 UTC")).toHaveLength(2);
+    expect(screen.getAllByText("Sep 25, 10:05:00 UTC")).toHaveLength(2);
     expect(screen.queryByText(RAW_PAYLOAD)).not.toBeInTheDocument();
 
     await user.click(rowLink);

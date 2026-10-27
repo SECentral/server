@@ -411,7 +411,7 @@ RSpec.describe "Issues API", type: :request do
     body = JSON.parse(response.body).fetch("raw_event")
     expect(body.fetch("checkpoint")).to include("snapshot_id" => occurrence.host_snapshot_id, "kernel_release" => "historical-kernel", "observed_at" => occurrence.raw_event.host_observed_at.iso8601(3))
     expect(body.fetch("collection")).to include("agent_installation_id" => occurrence.raw_event.agent_installation_id, "schema_version" => 2,
-      "agent_received_at" => occurrence.raw_event.agent_received_at.iso8601(3), "server_received_at" => occurrence.raw_event.server_received_at.iso8601(3))
+      "agent_received_at" => occurrence.raw_event.agent_received_at.iso8601(3), "server_received_at" => occurrence.raw_event.server_received_at.iso8601(6))
     occurrence.update!(host_snapshot: nil)
     get "/api/v1/issues/#{issue.id}/occurrences/#{occurrence.id}"
     expect(JSON.parse(response.body).dig("raw_event", "checkpoint")).to include("snapshot_id" => nil, "kernel_release" => nil)

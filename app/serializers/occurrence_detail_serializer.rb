@@ -29,7 +29,7 @@ class OccurrenceDetailSerializer
       },
       raw_event: {
         id: raw_event.id,
-        audit_timestamp: raw_event.audit_timestamp,
+        audit_timestamp: raw_event.audit_timestamp&.iso8601(6),
         audit_sequence: raw_event.audit_sequence,
         boot_id: raw_event.boot_id,
         category: raw_event.category,
@@ -48,7 +48,7 @@ class OccurrenceDetailSerializer
           agent_installation_id: raw_event.agent_installation_id,
           schema_version: raw_event.schema_version,
           agent_received_at: raw_event.agent_received_at,
-          server_received_at: raw_event.server_received_at
+          server_received_at: raw_event.server_received_at&.iso8601(6)
         },
         permissive_policy_state: PolicyPermissiveDomains.for_occurrence(occurrence, policy_states),
         completion_reason: raw_event.completion_reason,

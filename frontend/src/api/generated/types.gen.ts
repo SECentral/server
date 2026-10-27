@@ -2043,9 +2043,15 @@ export type RawEventDetail = {
         agent_installation_id?: number;
         schema_version?: number;
         agent_received_at?: string;
-        server_received_at?: string;
+        /**
+         * UTC timestamp retained from the first accepted ingestion, with microsecond database precision. Matching duplicate ingestion and normalization do not replace it. Null or an absent field means receipt time is not available; it is not a network-latency or outage measurement.
+         */
+        server_received_at?: string | null;
     };
     id: number;
+    /**
+     * Audit event time retained from the original evidence, serialized in UTC with microsecond database precision. Original audit record text remains unchanged.
+     */
     audit_timestamp: string;
     audit_sequence: number;
     boot_id: string;

@@ -2,18 +2,8 @@ import { Alert, Breadcrumb, BreadcrumbItem, Spinner, Title } from "@patternfly/r
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { OccurrenceInvestigation } from "../components/OccurrenceInvestigation";
+import { formatUtc } from "../components/OccurrenceEvidence";
 import { fetchHost, fetchHostOccurrence, fetchHostSelinuxActivity } from "../api/hosts";
-
-function formatUtc(iso: string): string {
-  return `${new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-    timeZone: "UTC"
-  }).format(new Date(iso))} UTC`;
-}
 
 export function HostOccurrenceDetail() {
   const { id, occurrenceId: rawOccurrenceId } = useParams();

@@ -4,7 +4,13 @@ import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import type { OccurrenceDetail } from "../api/issue";
 import { OccurrenceInvestigation } from "./OccurrenceInvestigation";
-import { EvidenceBlock, OccurrenceRawEvidence } from "./OccurrenceEvidence";
+import { EvidenceBlock, EvidenceTimestamp, OccurrenceRawEvidence } from "./OccurrenceEvidence";
+import { readFileSync } from "node:fs";
+
+const bufferedCapture: {
+  request: { events: { audit_event: { timestamp: string; sequence: number } }[] };
+  deliveries: { received_at: string; sequences: number[] }[];
+} = JSON.parse(readFileSync("../spec/fixtures/contracts/buffered-events.json", "utf8"));
 
 describe("exact-policy occurrence state", () => {
   it("keeps a permissive domain and AVC distinct from an Enforcing host", () => {
@@ -57,6 +63,44 @@ function renderOccurrence(occurrence = socketOccurrence(), initialEntry = "/host
 }
 
 describe("occurrence investigation presentation", () => {
+  it.each(bufferedCapture.request.events)("shows distinct event and first-receipt times for buffered event $audit_event.sequence", async (event) => {
+    const occurrence = socketOccurrence();
+    const timestamp = event.audit_event.timestamp;
+    const receipt = bufferedCapture.deliveries.find((delivery) => delivery.sequences.includes(event.audit_event.sequence))!.received_at;
+    occurrence.raw_event.audit_timestamp = timestamp;
+    occurrence.raw_event.collection = { server_received_at: receipt };
+    const user = renderOccurrence(occurrence);
+    for (const value of [timestamp, receipt]) {
+      expect(screen.getByText(value).closest("time")).toHaveAttribute("datetime", value);
+      expect(screen.getByText(value).closest("time")).toHaveAttribute("title", value);
+    }
+    expect(screen.getByText("Audit event time")).toBeInTheDocument();
+    expect(screen.getByText("First server receipt")).toBeInTheDocument();
+    expect(screen.queryByText(/network latency|outage duration/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Raw evidence" }));
+    expect(screen.getByText(timestamp).closest("time")).toHaveAttribute("datetime", timestamp);
+    expect(screen.getByText(receipt)).toBeInTheDocument();
+  });
+
+  it.each([undefined, null])("keeps a missing receipt explicit (%s)", (receipt) => {
+    const occurrence = socketOccurrence();
+    occurrence.raw_event.collection = receipt === undefined ? undefined : { server_received_at: receipt };
+    renderOccurrence(occurrence);
+    expect(screen.getByText("First server receipt").closest(".pf-v6-c-description-list__group")).toHaveTextContent("Not recorded");
+  });
+
+  it("preserves the supplied offset and fractional precision in accessible exact timestamps", () => {
+    const value = "2023-11-15T01:15:27.367966+03:00";
+    render(<EvidenceTimestamp value={value} />);
+    expect(screen.getByText(value).closest("time")).toHaveAttribute("datetime", value);
+    expect(screen.getByText(/Nov 14, 22:15:27 UTC/)).toBeInTheDocument();
+  });
+
+  it("keeps an unavailable timestamp explicit", () => {
+    render(<EvidenceTimestamp value={null} />);
+    expect(screen.getByText("Not recorded")).toBeInTheDocument();
+  });
+
   it("groups identity and policy, exposes normalized ports, and omits irrelevant path and checkpoint facts", () => {
     renderOccurrence();
     expect(screen.getByRole("heading", { name: "Process (Subject)" })).toHaveClass("pf-v6-c-title", "pf-m-md");
