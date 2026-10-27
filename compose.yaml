@@ -15,7 +15,7 @@ services:
       retries: 10
 
   server:
-    image: quay.io/secentral/server:0.0.11
+    image: quay.io/secentral/server:0.0.12
     sysctls:
       net.ipv4.ip_unprivileged_port_start: 80
     restart: unless-stopped
