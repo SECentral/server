@@ -55,8 +55,10 @@ Rails.application.routes.draw do
   # Health check for load balancers and uptime monitors.
   get "up" => "rails/health#show", as: :rails_health_check
 
+  get "metrics", to: "metrics#show", format: false
+
   # Retired /dashboard paths remain unrouted instead of showing the SPA fallback.
   # SPA catch-all: every other path is served to the React app.
   get "(*path)" => "spa#index",
-      constraints: ->(request) { request.path !~ %r{\A/(api|up|dashboard)(/|\z)} }
+      constraints: ->(request) { request.path !~ %r{\A/(api|up|dashboard|metrics)(/|\z)} }
 end
