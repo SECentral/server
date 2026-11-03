@@ -93,8 +93,14 @@ jobs:
       - name: Prepare test database
         run: bundle exec rails db:prepare
 
-      - name: Install SETools
-        run: sudo apt-get update && sudo apt-get install --yes setools
+      - name: Build pinned policy tools
+        run: |
+          sudo sh script/build_policy_tools.sh
+          sudo apt-get install --no-install-recommends --yes python3-networkx
+          echo "/opt/secentral-policy-tools/bin" >> "$GITHUB_PATH"
+
+      - name: Verify policy tools
+        run: python3 -c 'import ctypes, setools; assert setools.__version__ == "4.6.0"; assert ctypes.CDLL("/opt/secentral-policy-tools/lib/libsepol.so.2").sepol_policy_kern_vers_max() >= 35'
 
       - name: Validate catalog distribution records and approved artifacts
         run: bundle exec rake secentral:catalog:verify_distribution
