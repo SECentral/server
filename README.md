@@ -64,6 +64,12 @@ organization; ingestion fails clearly if that invariant is absent. First startup
 prepares the database and seeds that organization before agents connect;
 ingestion itself never creates or selects an organization.
 
+## Prometheus domain metrics
+
+Optional authenticated `/metrics` and `/metrics/` endpoints expose database-backed
+product gauges. See [Prometheus metrics](docs/metrics.md) for configuration and
+metric semantics. Metrics are disabled unless `SECENTRAL_METRICS_TOKEN` is set.
+
 ## Licensing
 
 SECentral application/source code is licensed under [MIT](LICENSE).
