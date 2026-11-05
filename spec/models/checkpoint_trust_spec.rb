@@ -10,7 +10,13 @@ RSpec.describe CheckpointTrust do
     described_class.new(HostSnapshot.new(details: details), fields)
   end
 
-  described_class::TRANSITION_FIELDS.each do |family, fields|
+  {
+    "policy_load" => %w[policy_identity booleans ports file_context_mappings],
+    "boolean_change" => %w[policy_identity booleans],
+    "enforcement_change" => %w[enforcement],
+    "port_change" => %w[policy_identity ports],
+    "file_context_change" => %w[file_context_mappings]
+  }.each do |family, fields|
     it "invalidates only #{family}'s documented dimensions without mutating evidence" do
       original = Marshal.dump(state)
       value = trust(state, described_class.fields_for(family))

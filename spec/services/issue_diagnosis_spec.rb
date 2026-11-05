@@ -48,13 +48,7 @@ RSpec.describe IssueDiagnosis do
     expect(IssueLabelingGuidance.call(issue, paths: ["/home/file"])).to be_nil
   end
 
-  it "does not report a mismatch when the types agree" do
-    current = "unconfined_u:object_r:user_home_t:s0"
-    expected = "system_u:object_r:user_home_t:s0"
-    expect(described_class.call(issue, intelligence: intelligence([observation(observed_context: current, expected_context: expected)]))).to be_nil
-  end
-
-  it "does not report a mismatch for a SELinux user-only context difference" do
+  it "does not report a type mismatch for a SELinux user-only context difference" do
     current = "unconfined_u:object_r:user_home_t:s0"
     expected = "system_u:object_r:user_home_t:s0"
     expect(described_class.call(issue, intelligence: intelligence([observation(observed_context: current, expected_context: expected)]))).to be_nil

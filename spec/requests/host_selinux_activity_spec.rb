@@ -192,9 +192,9 @@ RSpec.describe "Monitored-server SELinux activity", type: :request do
   it "bounds cursor pages and batches actor evidence without returning raw records in the list" do
     21.times { |index| administrative(index, index + 1) }
     queries = []
-    subscription = ActiveSupport::Notifications.subscribe("sql.active_record") { |event| queries << event.payload[:sql] }
-    first = page
-    ActiveSupport::Notifications.unsubscribe(subscription)
+    first = ActiveSupport::Notifications.subscribed(->(event) { queries << event.payload[:sql] }, "sql.active_record") do
+      page
+    end
     expect(first["items"].size).to eq(20)
     expect(first["coverage"]).to include("Absence of an event does not prove that no change occurred")
     expect(queries.grep(/SELECT "raw_audit_records"/).size).to eq(1)

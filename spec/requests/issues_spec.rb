@@ -24,7 +24,6 @@ RSpec.describe "Issues API", type: :request do
 
   context "unauthenticated" do
     before do
-      sign_in_operator
       sign_out_operator
     end
 

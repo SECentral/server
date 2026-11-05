@@ -245,9 +245,9 @@ RSpec.describe "Validated SELinux port writes", type: :request do
     checkpoint(0)
     value = Host.includes(:agent_installations, current_state_observation: :host_snapshot).find(host.id)
     queries = []
-    subscriber = ActiveSupport::Notifications.subscribe("sql.active_record") { |event| queries << event.payload[:sql] unless event.payload[:name] == "SCHEMA" || event.payload[:cached] }
-    result = HostSerializer.call(value, include_snapshot: true)
-    ActiveSupport::Notifications.unsubscribe(subscriber)
+    result = ActiveSupport::Notifications.subscribed(->(event) { queries << event.payload[:sql] unless event.payload[:name] == "SCHEMA" || event.payload[:cached] }, "sql.active_record") do
+      HostSerializer.call(value, include_snapshot: true)
+    end
     expect(result.dig(:selinux, :policy_identity)).to eq(identity)
     expect(queries.count { |sql| sql.include?('FROM "raw_events"') && !sql.include?("MAX(") }).to eq(1)
     expect(queries.count { |sql| sql.include?('FROM "raw_events"') && sql.include?("MAX(") }).to eq(1)
