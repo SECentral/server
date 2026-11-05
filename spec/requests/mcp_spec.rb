@@ -32,6 +32,9 @@ RSpec.describe "MCP investigation endpoint", type: :request do
 
     connection = ActiveRecord::Base.connection
     tables = connection.tables - %w[schema_migrations ar_internal_metadata]
+    occupied = tables.map { |table| "EXISTS (SELECT 1 FROM #{connection.quote_table_name(table)} LIMIT 1)" }
+    return if occupied.empty? || !connection.select_value("SELECT #{occupied.join(' OR ')}")
+
     connection.execute("TRUNCATE #{tables.map { |table| connection.quote_table_name(table) }.join(', ')} CASCADE")
   end
 
@@ -75,6 +78,32 @@ RSpec.describe "MCP investigation endpoint", type: :request do
     structured = result.fetch("structuredContent")
     expect(JSONSchemer.schema(McpInvestigation::Contracts.output(name)).valid?(structured)).to be(true)
     structured
+  end
+
+  it "skips empty cleanup and truncates all tables when data is present" do
+    statements = []
+    ActiveSupport::Notifications.subscribed(->(*args) { statements << args.last[:sql] }, "sql.active_record") do
+      clean_database
+      expect(statements.grep(/\ATRUNCATE /)).to be_empty
+
+      org = Organization.create!(name: "cleanup-test")
+      org.hosts.create!(external_id: "cleanup-host")
+      clean_database
+      expect(statements.grep(/\ATRUNCATE /).size).to eq(1)
+      expect(Organization.count).to eq(0)
+      expect(Host.count).to eq(0)
+    end
+  end
+
+  it "does not silently skip cleanup when the emptiness check fails" do
+    organization
+    RSpec::Mocks.with_temporary_scope do
+      allow(ActiveRecord::Base.connection).to receive(:select_value).and_raise(ActiveRecord::StatementInvalid, "check failed")
+      expect { clean_database }.to raise_error(ActiveRecord::StatementInvalid, "check failed")
+    end
+    expect(Organization.count).to eq(1)
+    clean_database
+    expect(Organization.count).to eq(0)
   end
 
   [nil, "", " \t\n"].each do |value|
