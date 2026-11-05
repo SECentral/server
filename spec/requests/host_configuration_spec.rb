@@ -8,22 +8,11 @@ RSpec.describe "Host SELinux configuration API", type: :request do
     sign_in_operator
   end
 
-  after do
-    Occurrence.delete_all
-    NormalizedDenial.delete_all
-    IssueDispositionChange.delete_all
-    Issue.delete_all
-    RawAuditRecord.delete_all
-    RawEvent.delete_all
-    HostSnapshotObservation.delete_all
-    HostSnapshot.delete_all
-    AgentInstallation.delete_all
-    Host.delete_all
-    Organization.delete_all
-    DistributionCatalogImport.delete_all
-    DistributionCatalogBoolean.delete_all
-    DistributionCatalogPort.delete_all
-    DistributionCatalogRevision.delete_all
+  around do |example|
+    ActiveRecord::Base.transaction do
+      example.run
+      raise ActiveRecord::Rollback
+    end
   end
 
   def revision

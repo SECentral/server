@@ -583,7 +583,8 @@ RSpec.describe "Issues API", type: :request do
 
   it "bounds occurrence pages and walks the full history through cursors" do
     issue = create_issue
-    occurrences = 101.times.map { |index| create_occurrence(issue, "host-#{index + 1}", index + 1) }
+    host = Host.create!(organization: issue.organization, external_id: "cursor-host")
+    occurrences = 101.times.map { |index| create_occurrence(issue, "host-#{index + 1}", index + 1, host: host) }
 
     get "/api/v1/issues/#{issue.id}/occurrences"
     body = JSON.parse(response.body)
