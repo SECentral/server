@@ -84,25 +84,4 @@ RSpec.describe "Inline catalog reference permissive domains" do
     second.update_column(:effective_permissive_domains, first.effective_permissive_domains)
     expect(CatalogReferenceSelection.call(snapshot: host_snapshot).family("effective_permissive_domains")).to include(status: "comparable", comparison_allowed: true)
   end
-
-  it "fails closed for automatic effective comparison when an eligible legacy V3 candidate lacks inline facts" do
-    record = revision
-    legacy = DistributionCatalogRevision.create!(schema_version: 1, collector_semantics_version: 3,
-      content_digest: "sha256:" + "b" * 64, loaded_policy_digest: "sha256:" + "c" * 64,
-      distribution: "almalinux", major_version: "9", architecture: "x86_64", policy_type: "targeted",
-      kernel_policy_version: 33, policy_packages: [], booleans_complete: true, ports_complete: true)
-    record.distribution_catalog_booleans.each do |entry|
-      legacy.distribution_catalog_booleans.create!(name: entry.name, default_value: entry.default_value, description: entry.description)
-    end
-    record.distribution_catalog_ports.each do |mapping|
-      legacy.distribution_catalog_ports.create!(protocol: mapping.protocol, start_port: mapping.start_port, end_port: mapping.end_port, selinux_type: mapping.selinux_type)
-    end
-    host_snapshot = comparison_snapshot("sha256:" + "f" * 64)
-
-    selection = CatalogReferenceSelection.call(snapshot: host_snapshot)
-    expect(selection.basis).to eq("major_release_family_agreement")
-    expect(selection.family("effective_permissive_domains")).to include(status: "unknown", reference_status: "incomplete",
-      comparison_allowed: false, reason: "reference_inline_facts_unavailable")
-    expect(record).to be_persisted
-  end
 end

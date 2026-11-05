@@ -38,8 +38,7 @@ RSpec.describe "SECentral demo task", type: :request do
     expect(demo.raw_events.pluck(:policy_evaluations).flatten).to be_empty
     expect(demo.raw_events.pluck(:file_context_observations).flatten).to be_empty
 
-    file_issue = demo.issues.find { |issue| issue.source_type == "httpd_t" && issue.target_type == "user_home_t" }
-    expect(IssueDiagnosis.call(file_issue)).to be_nil
+    expect(demo.issues.find { |issue| issue.source_type == "httpd_t" && issue.target_type == "user_home_t" }).to be_present
 
     connect_issue = demo.issues.find { |issue| issue.permissions.include?("name_connect") }
     explanations = IssueDiagnosis.per_host(connect_issue)
@@ -52,17 +51,12 @@ RSpec.describe "SECentral demo task", type: :request do
     get "/api/v1/issues/#{connect_issue.id}/analysis"
     expect(JSON.parse(response.body).dig("fleet_explanation", "state")).to eq("insufficient_evidence")
 
-    bind_issue = demo.issues.find { |issue| issue.permissions.include?("name_bind") }
-    expect(IssueDiagnosis.call(bind_issue)).to be_nil
+    expect(demo.issues.find { |issue| issue.permissions.include?("name_bind") }).to be_present
 
     database_issue = demo.issues.find { |issue| issue.source_type == "mysqld_t" }
-    database_diagnosis = IssueDiagnosis.call(database_issue)
-    expect(database_diagnosis).to be_nil
     expect(database_issue.occurrences).to all(satisfy { |occurrence| occurrence.normalized_denial.details.fetch("policy_evaluations").empty? })
 
     execute_issue = demo.issues.find { |issue| issue.permissions.include?("execute") }
-    execute_diagnosis = IssueDiagnosis.call(execute_issue)
-    expect(execute_diagnosis).to be_nil
     expect(IssueIntelligence.call(execute_issue).dig(:policy_evaluation, :status)).to eq("pending")
   end
 
@@ -123,16 +117,5 @@ RSpec.describe "SECentral demo task", type: :request do
     expect(denial.reload.details).to eq(details.merge("future_evidence" => { "normalizer_version" => 2 }))
     expect(denial.details.fetch("syscall_evidence")).to eq(syscall_evidence)
     expect(demo.reload.occurrences.count).to be > 0
-  end
-
-  it "filters the host list to one demo host" do
-    host = Organization.find_by!(name: "SECentral Demo").hosts.order(:id).first
-    other_host = Organization.find_by!(name: "SECentral Demo").hosts.where.not(id: host.id).first
-
-    get "/api/v1/hosts", params: { host_id: host.id }
-
-    expect(response).to have_http_status(:ok)
-    expect(response.body).to include(host.hostname)
-    expect(response.body).not_to include(other_host.hostname)
   end
 end

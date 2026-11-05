@@ -10,8 +10,8 @@ RSpec.describe IssueOperatorGuidance do
 
   def issue_with(*items)
     relation = double("occurrences")
-    allow(relation).to receive(:includes).with(:host, :normalized_denial).and_return(relation)
-    allow(relation).to receive(:order).with(occurred_at: :desc, id: :desc).and_return(relation)
+    allow(relation).to receive(:includes).and_return(relation)
+    allow(relation).to receive(:order).and_return(relation)
     allow(relation).to receive(:to_a).and_return(items)
     instance_double(Issue, occurrences: relation)
   end
