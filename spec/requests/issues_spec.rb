@@ -608,6 +608,41 @@ RSpec.describe "Issues API", type: :request do
     expect(body.dig("meta", "next_cursor")).to be_nil
   end
 
+  it "exposes ordered and unknown drift only for eligible affected hosts" do
+    issue = create_issue
+    affected = create_occurrence(issue, "host-drift")
+    stale = create_occurrence(issue, "host-stale")
+    now = Time.current.change(usec: 123456)
+    unrelated = observe_host("unrelated-drift", { "boot_id" => "boot-1", "selinux" => { "policy" => { "modules" => [{ "name" => "m", "version" => "3" }] } } })
+    unrelated.update!(last_seen_at: now)
+    snapshot = unrelated.host_snapshots.create!(details: { "boot_id" => "boot-1", "selinux" => { "policy" => { "modules" => [{ "name" => "m", "version" => "1" }] } } })
+    unrelated.host_snapshot_observations.create!(agent_installation: unrelated.agent_installations.first, host_snapshot: snapshot,
+      first_observed_at: now - 1.hour, last_observed_at: now - 1.hour, first_received_at: now - 1.hour, last_received_at: now - 1.hour)
+    affected.host.update!(last_seen_at: now)
+    stale.host.update!(last_seen_at: now - 1.hour)
+    [affected, stale].each do |occurrence|
+      [ ["1", "boot-1"], ["2", "boot-1"], ["3", "boot-2"] ].each_with_index do |(version, boot), index|
+        at = now - (3 - index).minutes
+        snapshot = occurrence.host.host_snapshots.create!(details: { "boot_id" => boot,
+          "selinux" => { "policy" => { "modules" => [{ "name" => "m", "priority" => 400, "version" => version }] } } })
+        occurrence.host.host_snapshot_observations.create!(agent_installation: occurrence.raw_event.agent_installation,
+          host_snapshot: snapshot, first_observed_at: at, last_observed_at: at, first_received_at: at, last_received_at: at)
+      end
+    end
+
+    get "/api/v1/issues/#{issue.id}/analysis"
+
+    expect(response).to have_http_status(:ok)
+    evidence = JSON.parse(response.body).dig("supporting_evidence", "file_contexts")
+    drift = evidence.fetch("configuration_drift")
+    expect(drift.pluck("host_id").uniq).to eq([affected.host_id])
+    ordered, unknown = drift.select { |entry| entry["family"] == "modules" }
+    expect(ordered).to include("direction" => "ordered", "from" => (now - 3.minutes).iso8601(6), "to" => (now - 2.minutes).iso8601(6))
+    expect(ordered.fetch("changed").sole).to include("before" => hash_including("version" => "1"), "after" => hash_including("version" => "2"))
+    expect(unknown).to include("direction" => "unknown", "values_differ" => true, "reasons" => include("different_boot_ids"))
+    expect(unknown.keys).not_to include("from", "to", "baseline", "added", "removed", "changed", "added_count", "removed_count", "changed_count")
+  end
+
   it "exposes the analysis sections on the analysis subresource" do
     issue = create_issue(target_type: "unreserved_port_t", target_class: "tcp_socket", permissions: ["name_connect"])
     conditional = create_occurrence(issue, "host-a", 1)

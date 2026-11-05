@@ -5689,3 +5689,80 @@ components:
             file_contexts:
               type: object
               additionalProperties: true
+              required: [configuration_drift]
+              properties:
+                configuration_drift:
+                  description: >-
+                    Differing families for affected hosts with fresh configurations, ordered by first receipt and ID.
+                    An empty array does not prove no changes occurred. Ordered bounds are samples, not exact
+                    change times or proof of causality, continuous observation, or fresh collection of every family.
+                  type: array
+                  items:
+                    oneOf:
+                      - $ref: '#/components/schemas/OrderedConfigurationDrift'
+                      - $ref: '#/components/schemas/UnknownConfigurationDrift'
+                    discriminator:
+                      propertyName: direction
+                      mapping:
+                        ordered: '#/components/schemas/OrderedConfigurationDrift'
+                        unknown: '#/components/schemas/UnknownConfigurationDrift'
+    ConfigurationDriftEpoch:
+      type: object
+      required: [observation_id, snapshot_id, boot_id, first_observed_at, last_observed_at, first_received_at, last_received_at]
+      properties:
+        observation_id: { type: integer }
+        snapshot_id: { type: integer }
+        boot_id: { type: [string, 'null'], description: Null when the stored boot ID is missing, blank, or not a string. }
+        first_observed_at: { type: string, format: date-time }
+        last_observed_at: { type: string, format: date-time }
+        first_received_at: { type: string, format: date-time }
+        last_received_at: { type: string, format: date-time }
+    OrderedConfigurationDrift:
+      type: object
+      required: [host_id, hostname, family, direction, epochs, from, to, added, removed, changed]
+      properties:
+        host_id: { type: integer }
+        hostname: { type: [string, 'null'] }
+        family: { type: string, enum: [file_contexts, modules, policy_identity] }
+        direction: { type: string, enum: [ordered] }
+        epochs:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items: { $ref: '#/components/schemas/ConfigurationDriftEpoch' }
+        from: { type: string, format: date-time, description: Last host observation in the first epoch. }
+        to: { type: string, format: date-time, description: First host observation in the second epoch. }
+        baseline: { type: boolean, description: Initial inventory or provenance-only difference; details are suppressed and provenance-only counts are zero. }
+        added_count: { type: integer }
+        removed_count: { type: integer }
+        changed_count: { type: integer }
+        added: { type: array, items: {} }
+        removed: { type: array, items: {} }
+        changed:
+          type: array
+          items:
+            type: object
+            required: [key, before, after]
+            properties:
+              key: { type: array, items: {} }
+              before: {}
+              after: {}
+    UnknownConfigurationDrift:
+      type: object
+      additionalProperties: false
+      required: [host_id, hostname, family, direction, epochs, reasons, values_differ]
+      properties:
+        host_id: { type: integer }
+        hostname: { type: [string, 'null'] }
+        family: { type: string, enum: [file_contexts, modules, policy_identity] }
+        direction: { type: string, enum: [unknown] }
+        values_differ: { type: boolean, enum: [true], description: The compared family values differ; their chronological direction is unknown. }
+        reasons:
+          type: array
+          minItems: 1
+          items: { type: string, enum: [unknown_boot_id, different_boot_ids, invalid_observed_bounds, invalid_receipt_bounds, overlapping_observed_bounds] }
+        epochs:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items: { $ref: '#/components/schemas/ConfigurationDriftEpoch' }

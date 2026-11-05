@@ -80,6 +80,20 @@ RSpec.describe "Heartbeats API", type: :request do
     expect(installation.reload.bound_host.current_snapshot.details.dig("selinux", "booleans", 0, "current")).to be(true)
   end
 
+  it "does not persist a delayed same-boot heartbeat but retains a different-boot epoch" do
+    recent = heartbeat.deep_dup
+    recent["host_observed_at"] = "2026-09-19T10:05:00.000000Z"
+    post "/api/v1/heartbeat", params: recent.to_json, headers: headers
+    delayed = heartbeat.deep_dup
+    delayed["host"]["selinux"]["kernel_policy_version"] = 32
+    post "/api/v1/heartbeat", params: delayed.to_json, headers: headers
+    expect(HostSnapshotObservation.count).to eq(1)
+    delayed["host"]["boot_id"] = "boot-2"
+    post "/api/v1/heartbeat", params: delayed.to_json, headers: headers
+    expect(HostSnapshotObservation.count).to eq(2)
+    expect(HostSnapshotObservation.reorder(:first_received_at, :id).map { |o| o.host_snapshot.details["boot_id"] }).to eq(%w[boot-1 boot-2])
+  end
+
   private
 
   def heartbeat

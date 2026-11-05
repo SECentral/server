@@ -2458,9 +2458,79 @@ export type IssueAnalysisResponse = {
             [key: string]: unknown;
         } | null;
         file_contexts: {
+            /**
+             * Differing families for affected hosts with fresh configurations, ordered by first receipt and ID. An empty array does not prove no changes occurred. Ordered bounds are samples, not exact change times or proof of causality, continuous observation, or fresh collection of every family.
+             */
+            configuration_drift: Array<({
+                direction: 'ordered';
+            } & OrderedConfigurationDrift) | ({
+                direction: 'unknown';
+            } & UnknownConfigurationDrift)>;
             [key: string]: unknown;
         };
     };
+};
+
+export type ConfigurationDriftEpoch = {
+    observation_id: number;
+    snapshot_id: number;
+    /**
+     * Null when the stored boot ID is missing
+     */
+    boot_id: string | null;
+    first_observed_at: string;
+    last_observed_at: string;
+    first_received_at: string;
+    last_received_at: string;
+};
+
+export type OrderedConfigurationDrift = {
+    host_id: number;
+    hostname: string | null;
+    family: 'file_contexts' | 'modules' | 'policy_identity';
+    direction: 'ordered';
+    epochs: [
+        ConfigurationDriftEpoch,
+        ConfigurationDriftEpoch
+    ];
+    /**
+     * Last host observation in the first epoch.
+     */
+    from: string;
+    /**
+     * First host observation in the second epoch.
+     */
+    to: string;
+    /**
+     * Initial inventory or provenance-only difference; details are suppressed and provenance-only counts are zero.
+     */
+    baseline?: boolean;
+    added_count?: number;
+    removed_count?: number;
+    changed_count?: number;
+    added: Array<unknown>;
+    removed: Array<unknown>;
+    changed: Array<{
+        key: Array<unknown>;
+        before: unknown;
+        after: unknown;
+    }>;
+};
+
+export type UnknownConfigurationDrift = {
+    host_id: number;
+    hostname: string | null;
+    family: 'file_contexts' | 'modules' | 'policy_identity';
+    direction: 'unknown';
+    /**
+     * The compared family values differ; their chronological direction is unknown.
+     */
+    values_differ: true;
+    reasons: Array<'unknown_boot_id' | 'different_boot_ids' | 'invalid_observed_bounds' | 'invalid_receipt_bounds' | 'overlapping_observed_bounds'>;
+    epochs: [
+        ConfigurationDriftEpoch,
+        ConfigurationDriftEpoch
+    ];
 };
 
 export type IssueId = number;
