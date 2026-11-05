@@ -60,5 +60,5 @@ Rails.application.routes.draw do
   # Retired /dashboard paths remain unrouted instead of showing the SPA fallback.
   # SPA catch-all: every other path is served to the React app.
   get "(*path)" => "spa#index",
-      constraints: ->(request) { request.path !~ %r{\A/(api|up|dashboard|metrics)(/|\z)} }
+      constraints: ->(request) { request.path !~ %r{\A/(api|up|dashboard|metrics|mcp)(/|\z)} }
 end

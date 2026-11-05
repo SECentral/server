@@ -1,4 +1,20 @@
 {$DOMAIN} {
   encode zstd gzip
-  reverse_proxy server:80
+  @mcp path /mcp /mcp/*
+  handle @mcp {
+    request_body {
+      max_size 16384
+    }
+    reverse_proxy server:3000 {
+      header_up X-Forwarded-Proto {scheme}
+      transport http {
+        response_header_timeout 15s
+        read_timeout 15s
+        write_timeout 15s
+      }
+    }
+  }
+  handle {
+    reverse_proxy server:80
+  }
 }
