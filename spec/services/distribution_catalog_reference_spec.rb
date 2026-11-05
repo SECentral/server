@@ -132,7 +132,7 @@ RSpec.describe DistributionCatalogReference do
   ensure
     commit << true if commit
     thread&.kill if thread&.alive?
-    thread&.join(5)
+    raise "catalog worker did not stop" if thread && !thread.join(5)
   end
 
   it "only returns imported catalog references" do

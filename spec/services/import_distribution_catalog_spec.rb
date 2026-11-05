@@ -198,7 +198,7 @@ RSpec.describe ImportDistributionCatalog do
   ensure
     resume << true if resume
     thread&.kill if thread&.alive?
-    thread&.join(5)
+    raise "catalog worker did not stop" if thread && !thread.join(5)
   end
 
   it "resolves simultaneous identical imports through shared deduplication after a uniqueness race" do
@@ -235,6 +235,6 @@ RSpec.describe ImportDistributionCatalog do
   ensure
     2.times { start << true } if start
     threads&.each { |thread| thread.kill if thread.alive? }
-    threads&.each { |thread| thread.join(5) }
+    threads&.each { |thread| raise "catalog worker did not stop" unless thread.join(5) }
   end
 end

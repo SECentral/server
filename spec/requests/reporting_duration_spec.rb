@@ -1,4 +1,5 @@
 require "rails_helper"
+require "timeout"
 
 RSpec.describe "Heartbeat reporting duration", type: :request do
   include ActiveSupport::Testing::TimeHelpers
@@ -157,14 +158,35 @@ RSpec.describe "Heartbeat reporting duration", type: :request do
   it "serializes concurrent duplicate delivery under the existing host lock" do
     send_heartbeat(start)
     travel_to(start + 5.minutes) do
-      threads = 2.times.map do
-        Thread.new do
-          ActiveRecord::Base.connection_pool.with_connection do
-            Heartbeat.call(organization: organization, payload: payload(start + 5.minutes))
+      ready = Queue.new
+      threads = []
+      ActiveRecord::Base.transaction do
+        host.lock!
+        locker_pid = ActiveRecord::Base.connection.select_value("SELECT pg_backend_pid()").to_i
+        threads = 2.times.map do
+          Thread.new do
+            ActiveRecord::Base.connection_pool.with_connection do |connection|
+              ready << connection.select_value("SELECT pg_backend_pid()").to_i
+              Heartbeat.call(organization: organization, payload: payload(start + 5.minutes))
+            end
+          rescue StandardError => error
+            ready << error
+            raise
+          end
+        end
+        pids = Timeout.timeout(10) { 2.times.map { ready.pop } }
+        pids.each { |signal| raise signal if signal.is_a?(Exception) }
+        Timeout.timeout(10) do
+          until pids.all? { |pid| ActiveRecord::Base.connection.select_value("SELECT cardinality(pg_blocking_pids(#{pid.to_i}))").positive? } &&
+              pids.any? { |pid| ActiveRecord::Base.connection.select_value("SELECT #{locker_pid} = ANY(pg_blocking_pids(#{pid.to_i}))") }
+            sleep 0.01
           end
         end
       end
-      threads.each(&:value)
+      Timeout.timeout(10) { threads.each(&:value) }
+    ensure
+      threads&.each { |thread| thread.kill if thread.alive? }
+      threads&.each { |thread| raise "heartbeat worker did not stop" unless thread.join(5) }
     end
     expect(credit).to eq(300)
     expect(host.host_reporting_days.count).to eq(1)
