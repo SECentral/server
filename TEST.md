@@ -74,14 +74,16 @@ until podman exec secentral-test-db pg_isready -U secentral -d secentral_server_
 done
 ```
 
-Then prepare the test database and run the suite from `server/`:
+Then load the schema and run the suite from `server/`. This replaces the schema
+and data, so use only the isolated test database above. Unlike `db:prepare`,
+`db:schema:load` does not insert the default organization from the seeds:
 
 ```sh
 podman run --rm --network secentral-test --userns=keep-id \
   -v "$PWD:/workspace/server:z" -w /workspace/server \
   -e RAILS_ENV=test \
   -e DATABASE_URL=postgresql://secentral:secentral@db:5432/secentral_server_test \
-  secentral-server-dev bash -lc 'bundle exec rails db:prepare && bundle exec rspec'
+  secentral-server-dev bash -c 'bundle exec rails db:schema:load && bundle exec rspec'
 ```
 
 Remove the temporary database and network when finished:

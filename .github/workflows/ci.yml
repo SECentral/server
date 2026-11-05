@@ -90,8 +90,8 @@ jobs:
       - name: Build the SPA
         run: npm run build --prefix frontend
 
-      - name: Prepare test database
-        run: bundle exec rails db:prepare
+      - name: Load isolated test schema without seeds
+        run: bundle exec rails db:schema:load
 
       - name: Build pinned policy tools
         run: |
