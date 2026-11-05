@@ -64,6 +64,13 @@ organization; ingestion fails clearly if that invariant is absent. First startup
 prepares the database and seeds that organization before agents connect;
 ingestion itself never creates or selects an organization.
 
+## Investigation MCP
+
+Optional investigation-only `/mcp` provides bounded metadata reads with a dedicated
+credential. It is disabled unless `SECENTRAL_MCP_AUTH_TOKEN` is set.
+See [Investigation MCP](docs/mcp.md) for the initial tools, security controls,
+client configuration and remaining investigation limitations.
+
 ## Prometheus domain metrics
 
 Optional authenticated `/metrics` and `/metrics/` endpoints expose database-backed

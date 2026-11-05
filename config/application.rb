@@ -1,4 +1,5 @@
 require_relative "boot"
+require_relative "../lib/middleware/mcp_endpoint"
 
 require "rails"
 # Pick the frameworks you want:
@@ -25,7 +26,9 @@ module SecentralServer
     # Please, add to the `ignore` list any other `lib` subdirectories that do
     # not contain `.rb` files, or that should not be reloaded or eager loaded.
     # Common ones are `templates`, `generators`, or `middleware`, for example.
-    config.autoload_lib(ignore: %w[tasks])
+    config.autoload_lib(ignore: %w[tasks middleware])
+    # Intercept before request logging, parameter parsing, sessions and SSL proxy assumptions.
+    config.middleware.insert_before 0, McpEndpoint
 
     # Configuration for the application, engines, and railties goes here.
     #
