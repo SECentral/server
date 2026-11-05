@@ -1,4 +1,5 @@
 require "rails_helper"
+require "timeout"
 
 RSpec.describe ImportDistributionCatalog do
   def document
@@ -164,6 +165,42 @@ RSpec.describe ImportDistributionCatalog do
     expect([DistributionCatalogRevision, DistributionCatalogBoolean, DistributionCatalogPort, DistributionCatalogImport, CatalogManagement, CatalogManagementChange].map(&:count)).to eq([0, 0, 0, 0, 0, 0])
   end
 
+  it "reuses an identical revision committed between the content and policy checks" do
+    ready = Queue.new
+    resume = Queue.new
+    allow(DistributionCatalogRevision).to receive(:find_by).and_wrap_original do |method, **attributes|
+      result = method.call(**attributes)
+      if Thread.current[:pause_catalog_lookup] && attributes.key?(:content_digest) && result.nil?
+        ready << true
+        resume.pop
+      end
+      result
+    end
+    raw = catalog_artifact.artifact
+    thread = Thread.new do
+      Thread.current[:pause_catalog_lookup] = true
+      ActiveRecord::Base.connection_pool.with_connection do
+        described_class.call(artifact: DistributionCatalogArtifact.new(raw))
+      end
+    rescue StandardError => error
+      ready << error
+      raise
+    end
+    signal = Timeout.timeout(10) { ready.pop }
+    raise signal if signal.is_a?(Exception)
+    first = described_class.call(artifact: DistributionCatalogArtifact.new(raw))
+    resume << true
+    second = Timeout.timeout(10) { thread.value }
+
+    expect([first.created, second.created]).to eq([true, false])
+    expect(second.revision.id).to eq(first.revision.id)
+    expect([DistributionCatalogRevision, CatalogManagement, DistributionCatalogImport].map(&:count)).to eq([1, 1, 2])
+  ensure
+    resume << true if resume
+    thread&.kill if thread&.alive?
+    thread&.join(5)
+  end
+
   it "resolves simultaneous identical imports through shared deduplication after a uniqueness race" do
     ready = Queue.new
     start = Queue.new
@@ -178,17 +215,26 @@ RSpec.describe ImportDistributionCatalog do
         ActiveRecord::Base.connection_pool.with_connection do
           described_class.call(artifact: DistributionCatalogArtifact.new(raw), source_kind: "operator_upload", imported_by: "operator")
         end
+      rescue StandardError => error
+        ready << error
+        raise
       end
     end
-    2.times { ready.pop }
+    Timeout.timeout(10) do
+      2.times do
+        signal = ready.pop
+        raise signal if signal.is_a?(Exception)
+      end
+    end
     2.times { start << true }
-    results = threads.map(&:value)
+    results = Timeout.timeout(10) { threads.map(&:value) }
     expect(results.map(&:created)).to contain_exactly(true, false)
     expect(results.map { |result| result.revision.id }.uniq.size).to eq(1)
     expect([DistributionCatalogRevision, CatalogManagement, DistributionCatalogImport].map(&:count)).to eq([1, 1, 2])
     expect(DistributionCatalogImport.pluck(:artifact)).to eq([raw.b, raw.b])
   ensure
     2.times { start << true } if start
-    threads&.each(&:join)
+    threads&.each { |thread| thread.kill if thread.alive? }
+    threads&.each { |thread| thread.join(5) }
   end
 end

@@ -38,11 +38,13 @@ class ImportDistributionCatalog
     begin
       ActiveRecord::Base.transaction do
         revision = DistributionCatalogRevision.find_by(content_digest: @artifact.content_digest)
+        unless revision
+          revision = DistributionCatalogRevision.find_by(loaded_policy_digest: @artifact.catalog.dig("policy", "loaded_policy_digest"))
+          raise Conflict, "conflicting catalog for loaded policy digest" if revision && revision.content_digest != @artifact.content_digest
+        end
+
         created = revision.nil?
         if created
-          conflict = DistributionCatalogRevision.find_by(loaded_policy_digest: @artifact.catalog.dig("policy", "loaded_policy_digest"))
-          raise Conflict, "conflicting catalog for loaded policy digest" if conflict
-
           revision = DistributionCatalogRevision.create!(revision_attributes.merge(initial_display_name: name))
           create_children(revision)
         end
