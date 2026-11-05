@@ -24,6 +24,17 @@ RSpec.describe "Operator authentication", type: :request do
     ENV["ADMIN_PASSWORD_DIGEST"] = digest
   end
 
+  it "fails closed when the configured password digest is malformed" do
+    digest = ENV["ADMIN_PASSWORD_DIGEST"]
+    ENV["ADMIN_PASSWORD_DIGEST"] = "not-a-bcrypt-digest"
+
+    post "/api/v1/sessions", params: { username: "test-admin", password: "test-password" }
+    expect(response).to have_http_status(:unauthorized)
+    expect(JSON.parse(response.body).dig("error", "code")).to eq("unauthorized")
+  ensure
+    ENV["ADMIN_PASSWORD_DIGEST"] = digest
+  end
+
   it "returns 401 for anonymous protected JSON requests" do
     get "/api/v1/hosts/1"
 

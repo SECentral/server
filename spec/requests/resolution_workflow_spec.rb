@@ -726,16 +726,28 @@ RSpec.describe "Evidence-driven resolution workflow", type: :request do
   it "requires authentication and CSRF for intent mutations" do
     issue, = fixture
     candidate = workflow(issue)["candidates"].first
+    token = response.headers["X-CSRF-Token"]
+    params = { candidate_id: candidate["id"], evidence_version: candidate["evidence_version"] }.to_json
     original = Api::V1::BaseController.config.allow_forgery_protection
     begin
       Api::V1::BaseController.config.allow_forgery_protection = true
-      patch "/api/v1/issues/#{issue.id}/resolution-intent", params: { candidate_id: candidate["id"], evidence_version: candidate["evidence_version"] }.to_json, headers: { "Content-Type" => "application/json" }
-      expect(response).to have_http_status(:unprocessable_content)
+      [nil, "forged"].each do |csrf|
+        patch "/api/v1/issues/#{issue.id}/resolution-intent", params: params, headers: { "Content-Type" => "application/json", "X-CSRF-Token" => csrf }
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(ResolutionIntent.where(issue: issue)).to be_empty
+        expect(ResolutionIntentChange.where(issue: issue)).to be_empty
+      end
+      patch "/api/v1/issues/#{issue.id}/resolution-intent", params: params, headers: { "Content-Type" => "application/json", "X-CSRF-Token" => token }
+      expect(response).to have_http_status(:ok)
+      intent = ResolutionIntent.find_by!(issue: issue).attributes
+      history = ResolutionIntentChange.where(issue: issue).map(&:attributes)
     ensure
       Api::V1::BaseController.config.allow_forgery_protection = original
     end
     sign_out_operator
-    get "/api/v1/issues/#{issue.id}/resolutions"
+    patch "/api/v1/issues/#{issue.id}/resolution-intent", params: params, headers: { "Content-Type" => "application/json" }
     expect(response).to have_http_status(:unauthorized)
+    expect(ResolutionIntent.find_by!(issue: issue).attributes).to eq(intent)
+    expect(ResolutionIntentChange.where(issue: issue).map(&:attributes)).to eq(history)
   end
 end

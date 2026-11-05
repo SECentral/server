@@ -1,6 +1,13 @@
 require "rails_helper"
 
 RSpec.describe "Policy artifact ingestion API", type: :request do
+  around do |example|
+    ActiveRecord::Base.transaction do
+      example.run
+      raise ActiveRecord::Rollback
+    end
+  end
+
   before do
     PolicyFact.delete_all
     PolicyArtifact.delete_all

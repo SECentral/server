@@ -1,6 +1,13 @@
 require "rails_helper"
 
 RSpec.describe Occurrence do
+  around do |example|
+    ActiveRecord::Base.transaction do
+      example.run
+      raise ActiveRecord::Rollback
+    end
+  end
+
   it "keeps the issue occurrence counter consistent when destroyed" do
     issue = Issue.create!(organization: Organization.create!(name: "counter"), fingerprint_version: 3, fingerprint_digest: "digest", source_type: "httpd_t", target_type: "default_t", target_class: "file", first_seen_at: Time.current, last_seen_at: Time.current)
     host = Host.create!(organization: issue.organization, external_id: "host-1")

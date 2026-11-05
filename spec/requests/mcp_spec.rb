@@ -447,10 +447,19 @@ RSpec.describe "MCP investigation endpoint", type: :request do
 
   it "bounds database fields before materializing a large page" do
     organization
-    50.times { |index| issue(source: "#{'a' * 400}_#{index}_t") }
-    result = call_tool("list_issues", { limit: 50 })
+    issues = 51.times.map { |index| issue(source: "#{'a' * 400}_#{index}_t") }
+    result = result_for("list_issues", { limit: 50 })
     expect(response.body.bytesize).to be <= 128 * 1024
-    expect(result.dig("result", "isError")).to be(false)
+    expect(result.dig("data", "issues").pluck("id")).to eq(issues.reverse.first(50).map { |item| item.id.to_s })
+    expect(result.dig("data", "issues").pluck("source_type")).to eq(issues.reverse.first(50).map(&:source_type))
+    expect(result).to include("coverage" => "complete", "omitted_fields" => [])
+    expect(result.dig("retrieval", "has_more")).to be(true)
+    cursor = result.dig("retrieval", "next_cursor")
+    expect(cursor).to be_a(String)
+    last = result_for("list_issues", { limit: 50, cursor: cursor })
+    expect(last.dig("data", "issues").pluck("id")).to eq([issues.first.id.to_s])
+    expect(last).to include("coverage" => "complete", "omitted_fields" => [])
+    expect(last.fetch("retrieval")).to include("has_more" => false, "next_cursor" => nil)
   end
 
   it "budgets encoded expansion and duplicated text separately from stored field bytes" do

@@ -55,16 +55,16 @@ RSpec.describe "OpenAPI document" do
     expect(openapi.dig("components", "securitySchemes")).to be_present
   end
 
-  it "documents every operator API route" do
-    documented = openapi.fetch("paths").keys
-    operator_api_paths = Rails.application.routes.routes.filter_map do |route|
+  it "documents every operator API method and route" do
+    documented = operations.map { |path, method, _operation| [path, method] }
+    operator_api_routes = Rails.application.routes.routes.filter_map do |route|
       next unless route.defaults[:controller].to_s.start_with?("api/v1/")
-
-      route_template(route)
+      # Rails handles HEAD through GET without adding a separate route.
+      [route_template(route), route.verb.downcase]
     end.uniq
 
-    expect(operator_api_paths).to all(be_present)
-    expect(documented).to include(*operator_api_paths)
+    expect(operator_api_routes).to be_present
+    expect(documented).to include(*operator_api_routes)
   end
 
   it "resolves every internal $ref" do

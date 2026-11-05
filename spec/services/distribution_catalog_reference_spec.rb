@@ -1,4 +1,5 @@
 require "rails_helper"
+require "timeout"
 
 RSpec.describe DistributionCatalogReference do
   let(:identity) { "sha256:" + "a" * 64 }
@@ -118,15 +119,20 @@ RSpec.describe DistributionCatalogReference do
           commit.pop
         end
       end
+    rescue StandardError => error
+      ready << error
+      raise
     end
-    ready.pop
+    signal = Timeout.timeout(10) { ready.pop }
+    raise signal if signal.is_a?(Exception)
     expect(described_class.for_policy_identity(identity).revision).to eq(catalog)
     commit << true
-    thread.value
+    Timeout.timeout(10) { thread.value }
     expect(described_class.for_policy_identity(identity)).to be_nil
   ensure
     commit << true if commit
-    thread&.join
+    thread&.kill if thread&.alive?
+    thread&.join(5)
   end
 
   it "only returns imported catalog references" do

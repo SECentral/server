@@ -4,6 +4,13 @@ require "rake"
 Rails.application.load_tasks
 
 RSpec.describe "SECentral demo task", type: :request do
+  around do |example|
+    ActiveRecord::Base.transaction do
+      example.run
+      raise ActiveRecord::Rollback
+    end
+  end
+
   before do
     sign_in_operator
     Rake::Task["secentral:demo:reset"].reenable

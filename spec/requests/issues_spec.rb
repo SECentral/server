@@ -442,9 +442,9 @@ RSpec.describe "Issues API", type: :request do
     expect(body.fetch("additional_finding_count")).to eq(1)
 
     queries = []
-    subscription = ActiveSupport::Notifications.subscribe("sql.active_record") { |event| queries << event.payload[:sql] }
-    get "/api/v1/issues/#{issue.id}/occurrences", params: { view: "summary" }
-    ActiveSupport::Notifications.unsubscribe(subscription)
+    ActiveSupport::Notifications.subscribed(->(event) { queries << event.payload[:sql] }, "sql.active_record") do
+      get "/api/v1/issues/#{issue.id}/occurrences", params: { view: "summary" }
+    end
     summaries = JSON.parse(response.body).fetch("occurrences")
     expect(summaries.map { |item| item["resource"] }).to eq(["TCP/12345", "TCP/12346", "TCP/12345"])
     expect(queries.none? { |sql| sql.include?('FROM "raw_audit_records"') || sql.include?('FROM "raw_events"') }).to be(true)
@@ -548,9 +548,9 @@ RSpec.describe "Issues API", type: :request do
     occurrence = issue.occurrences.order(id: :desc).first
     occurrence.normalized_denial.update!(details: { "target_evidence" => { "object_names" => ["secentral-test.html"], "filesystem_paths" => [] } })
     queries = []
-    subscriber = ActiveSupport::Notifications.subscribe("sql.active_record") { |event| queries << event.payload[:sql] }
-    get "/api/v1/issues/#{issue.id}/occurrences", params: { view: "summary", page: 1 }
-    ActiveSupport::Notifications.unsubscribe(subscriber)
+    ActiveSupport::Notifications.subscribed(->(event) { queries << event.payload[:sql] }, "sql.active_record") do
+      get "/api/v1/issues/#{issue.id}/occurrences", params: { view: "summary", page: 1 }
+    end
     body = JSON.parse(response.body)
     expect(body.fetch("occurrences").size).to eq(10)
     expect(body.fetch("meta")).to include("page" => 1, "page_size" => 10, "total" => 26, "total_pages" => 3)
@@ -583,22 +583,28 @@ RSpec.describe "Issues API", type: :request do
 
   it "bounds occurrence pages and walks the full history through cursors" do
     issue = create_issue
-    101.times { |index| create_occurrence(issue, "host-#{index + 1}", index + 1) }
+    occurrences = 101.times.map { |index| create_occurrence(issue, "host-#{index + 1}", index + 1) }
 
     get "/api/v1/issues/#{issue.id}/occurrences"
     body = JSON.parse(response.body)
     expect(body["occurrences"].length).to eq(50)
+    ids = body.fetch("occurrences").pluck("id")
     cursor = body.dig("meta", "next_cursor")
     expect(cursor).to be_a(String)
 
     get "/api/v1/issues/#{issue.id}/occurrences", params: { before: cursor }
     body = JSON.parse(response.body)
     expect(body["occurrences"].length).to eq(50)
+    ids.concat(body.fetch("occurrences").pluck("id"))
     cursor = body.dig("meta", "next_cursor")
+    expect(cursor).to be_a(String)
 
     get "/api/v1/issues/#{issue.id}/occurrences", params: { before: cursor }
     body = JSON.parse(response.body)
     expect(body["occurrences"].length).to eq(1)
+    ids.concat(body.fetch("occurrences").pluck("id"))
+    expect(ids).to eq(occurrences.reverse.map(&:id))
+    expect(ids.uniq).to eq(ids)
     expect(body.dig("meta", "next_cursor")).to be_nil
   end
 
@@ -821,6 +827,32 @@ RSpec.describe "Issues API", type: :request do
     patch "/api/v1/issues/#{issue.id}/status", params: { status: "bogus", signature_ids: issue.signatures.ids }.to_json, headers: json_headers(token)
     expect(response).to have_http_status(:unprocessable_content)
     expect(JSON.parse(response.body)).to include("error" => hash_including("code" => "invalid_value"))
+  end
+
+  it "requires a valid CSRF token for status and disposition changes" do
+    original = Api::V1::BaseController.config.allow_forgery_protection
+    issue = create_issue
+    token = csrf_token
+    Api::V1::BaseController.config.allow_forgery_protection = true
+
+    { "status" => "resolved", "disposition" => "expected_harmless" }.each do |field, value|
+      params = { field => value, "signature_ids" => issue.signatures.ids }.to_json
+      before_issue = issue.reload.attributes
+      before_signatures = issue.signatures.map(&:attributes)
+      before_history = IssueDispositionChange.where(issue: issue).map(&:attributes)
+      [nil, "forged"].each do |csrf|
+        patch "/api/v1/issues/#{issue.id}/#{field}", params: params, headers: json_headers(csrf)
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(issue.reload.attributes).to eq(before_issue)
+        expect(issue.signatures.reload.map(&:attributes)).to eq(before_signatures)
+        expect(IssueDispositionChange.where(issue: issue).map(&:attributes)).to eq(before_history)
+      end
+      patch "/api/v1/issues/#{issue.id}/#{field}", params: params, headers: json_headers(token)
+      expect(response).to have_http_status(:ok)
+      expect(issue.reload.public_send(field)).to eq(value)
+    end
+  ensure
+    Api::V1::BaseController.config.allow_forgery_protection = original
   end
 
   it "records operator disposition with a note and history" do

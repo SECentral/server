@@ -21,10 +21,7 @@ RSpec.describe "Hosts API", type: :request do
   end
 
   context "unauthenticated" do
-    before do
-      sign_in_operator
-      sign_out_operator
-    end
+    before { sign_out_operator }
 
     it "rejects the host list, detail, and occurrences" do
       get "/api/v1/hosts"
@@ -86,11 +83,9 @@ RSpec.describe "Hosts API", type: :request do
         first_observed_at: at, last_observed_at: at, first_received_at: at, last_received_at: at)
     end
     queries = []
-    subscriber = ActiveSupport::Notifications.subscribe("sql.active_record") { |event| queries << event.payload[:sql] }
-
-    get "/api/v1/hosts"
-
-    ActiveSupport::Notifications.unsubscribe(subscriber)
+    ActiveSupport::Notifications.subscribed(->(event) { queries << event.payload[:sql] }, "sql.active_record") do
+      get "/api/v1/hosts"
+    end
     expect(response).to have_http_status(:ok)
     expect(queries).not_to include(a_string_matching(/FROM "host_snapshots" WHERE "host_snapshots"\."host_id" IN/))
     expect(JSON.parse(response.body).dig("hosts", 0, "platform")).to include("os_id" => nil, "os_version" => nil)
