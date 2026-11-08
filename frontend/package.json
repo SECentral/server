@@ -20,7 +20,7 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-router-dom": "^7.18.5",
-    "victory": "^37.4.1"
+    "victory": "^38.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
