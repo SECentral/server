@@ -46,9 +46,10 @@ podman run --rm --userns=keep-id -v "$PWD:/workspace/server:z" \
   -w /workspace/server secentral-server-dev bundle exec archspec check
 ```
 
-`Archspec.rb` keeps models, services, queries, and jobs independent of controllers
-and HTTP APIs, and bans obvious persistence calls in queries. It analyzes application
-Ruby and library/task files, not specs or frontend code. Inspect reported evidence
+`Archspec.rb` keeps models, services, queries, jobs, and shared library Ruby code
+independent of controllers, middleware, and HTTP APIs, and bans obvious
+persistence calls in queries. It analyzes application Ruby and library/task
+files, not specs or frontend code. Inspect reported evidence
 before changing the rules; unknown/dynamic receivers and indirect writes are not
 proof of correctness. The initial rules need no baseline or suppressions.
 

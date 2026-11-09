@@ -76,4 +76,30 @@ RSpec.describe "Architecture rules" do
       expect(output).to include("lib/tasks/example.rake")
     end
   end
+
+  it "checks shared library HTTP coupling without restricting middleware" do
+    Dir.mktmpdir("secentral-architecture") do |directory|
+      FileUtils.cp(File.expand_path("../Archspec.rb", __dir__), directory)
+      FileUtils.mkdir_p(File.join(directory, "app/services"))
+      FileUtils.mkdir_p(File.join(directory, "lib/middleware"))
+      File.write(File.join(directory, "lib/middleware/http_boundary.rb"), "class HttpBoundary; def call; params; end; end\n")
+      File.write(File.join(directory, "app/services/example.rb"), "class ExampleService; include SharedConcern; end\n")
+      concern = File.join(directory, "lib/shared_concern.rb")
+      File.write(concern, "module SharedConcern; extend ActiveSupport::Concern; included do; params; end; end\n")
+
+      executable = Gem.bin_path("archspec", "archspec")
+      output, status = Open3.capture2e(Gem.ruby, executable, "check", chdir: directory)
+      expect(status.success?).to be(false), output
+      expect(output).to include("methods.forbid", "params", "lib/shared_concern.rb")
+
+      File.write(concern, "module SharedConcern; extend ActiveSupport::Concern; end\n")
+      output, status = Open3.capture2e(Gem.ruby, executable, "check", chdir: directory)
+      expect(status.success?).to be(true), output
+
+      File.write(File.join(directory, "app/services/example.rb"), "class ExampleService; HttpBoundary; end\n")
+      output, status = Open3.capture2e(Gem.ruby, executable, "check", chdir: directory)
+      expect(status.success?).to be(false), output
+      expect(output).to include("dependencies.forbid", "HttpBoundary")
+    end
+  end
 end

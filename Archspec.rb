@@ -5,9 +5,11 @@ component :models, in: "app/models/**/*.rb"
 component :services, in: "app/services/**/*.rb"
 component :queries, in: "app/queries/**/*.rb"
 component :jobs, in: "app/jobs/**/*.rb"
+component :library, in: "lib/**/*.rb", except: "lib/middleware/**/*.rb"
+component :middleware, in: "lib/middleware/**/*.rb"
 
-[models, services, queries, jobs].each do |component|
-  component.cannot_use :controllers, because: "HTTP handling belongs in controllers"
+[models, services, queries, jobs, library].each do |component|
+  component.cannot_use :controllers, :middleware, because: "HTTP handling belongs at the boundary"
   component.cannot_call :render, :redirect_to, :params, :session, :cookies
 end
 
