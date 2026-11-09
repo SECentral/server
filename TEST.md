@@ -39,7 +39,7 @@ podman run --rm --userns=keep-id -v "$PWD:/workspace/server:z" \
 ```
 
 Run architecture checks before database-backed specs (no Rails boot or database
-is needed). The same command is included in `bin/ci`:
+is needed). The same command is included in `bin/ci` and GitHub Actions:
 
 ```sh
 podman run --rm --userns=keep-id -v "$PWD:/workspace/server:z" \

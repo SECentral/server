@@ -42,4 +42,38 @@ RSpec.describe "Architecture rules" do
       end
     end
   end
+
+  it "checks concern callbacks and Rake task syntax" do
+    Dir.mktmpdir("secentral-architecture") do |directory|
+      FileUtils.cp(File.expand_path("../Archspec.rb", __dir__), directory)
+      FileUtils.mkdir_p(File.join(directory, "app/services"))
+      FileUtils.mkdir_p(File.join(directory, "lib/tasks"))
+      File.write(File.join(directory, "app/services/http_concern.rb"), <<~RUBY)
+        module HttpConcern
+          extend ActiveSupport::Concern
+          included do
+            params
+          end
+        end
+      RUBY
+      File.write(File.join(directory, "app/services/example.rb"), <<~RUBY)
+        class ExampleService
+          include HttpConcern
+        end
+      RUBY
+      task = File.join(directory, "lib/tasks/example.rake")
+      File.write(task, "task :example do\nend\n")
+
+      executable = Gem.bin_path("archspec", "archspec")
+      output, status = Open3.capture2e(Gem.ruby, executable, "check", chdir: directory)
+      expect(status.success?).to be(false), output
+      expect(output).to include("methods.forbid", "params", "app/services/http_concern.rb")
+
+      File.write(File.join(directory, "app/services/example.rb"), "class ExampleService; end\n")
+      File.write(task, "task :example do\n")
+      output, status = Open3.capture2e(Gem.ruby, executable, "check", chdir: directory)
+      expect(status.success?).to be(false), output
+      expect(output).to include("lib/tasks/example.rake")
+    end
+  end
 end
