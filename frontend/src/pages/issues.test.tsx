@@ -150,7 +150,7 @@ describe("Issues", () => {
     await screen.findByText("httpd_t");
 
     expect(screen.queryByRole("link", { name: "Investigate issue" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /httpd_t default_t/ })).toHaveAttribute("href", "/issues/1");
+    expect(screen.getByRole("link", { name: /httpd_t\s*default_t/ })).toHaveAttribute("href", "/issues/1");
     await user.click(screen.getByRole("button", { name: "Details" }));
     expect(screen.getByRole("grid", { name: "Grouped issues" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Hide details" })).toHaveAttribute("aria-expanded", "true");
