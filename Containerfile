@@ -8,7 +8,7 @@
 # For a containerized dev environment, see Dev Containers: https://guides.rubyonrails.org/getting_started_with_devcontainer.html
 
 # Make sure RUBY_VERSION matches the Ruby version in .ruby-version
-ARG RUBY_VERSION=4.0.9
+ARG RUBY_VERSION=4.0.10
 FROM docker.io/library/node:24-trixie-slim AS node
 FROM docker.io/library/ruby:$RUBY_VERSION-slim-trixie AS policy-tools
 COPY script/build_policy_tools.sh /tmp/build_policy_tools.sh
