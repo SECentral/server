@@ -2461,11 +2461,7 @@ export type IssueAnalysisResponse = {
             /**
              * Differing families for affected hosts with fresh configurations, ordered by first receipt and ID. An empty array does not prove no changes occurred. Ordered bounds are samples, not exact change times or proof of causality, continuous observation, or fresh collection of every family.
              */
-            configuration_drift: Array<({
-                direction: 'ordered';
-            } & OrderedConfigurationDrift) | ({
-                direction: 'unknown';
-            } & UnknownConfigurationDrift)>;
+            configuration_drift: Array<OrderedConfigurationDrift | UnknownConfigurationDrift>;
             [key: string]: unknown;
         };
     };
