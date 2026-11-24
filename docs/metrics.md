@@ -40,6 +40,12 @@ scrape_configs:
 The endpoint serves Prometheus text format 0.0.4. Query failures fail the scrape;
 they do not produce successful partial results or fabricated zero counts.
 
+## Grafana dashboard
+
+Optionally import [the example dashboard](grafana-dashboard.json) into Grafana
+and select a Prometheus data source that scrapes SECentral. The dashboard expects
+the `secentral` job name shown above.
+
 ## Metric contract
 
 All families below are **gauges**, not monotonic counters. Counts can decrease
